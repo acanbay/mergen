@@ -1,0 +1,85 @@
+[build-system]
+requires      = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name            = "mergen"
+dynamic         = ["version"]
+description     = "Space-filling Design of Experiments for Python"
+readme          = "README.md"
+license         = { text = "MIT" }
+requires-python = ">=3.9"
+
+authors = [
+    { name = "Ali Can Canbay", email = "acanbay@ankara.edu.tr" },
+]
+
+keywords = [
+    "design of experiments",
+    "space-filling",
+    "Latin hypercube",
+    "sampling",
+    "computer experiments",
+    "surrogate modeling",
+    "experimental design",
+    "optimization",
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pandas>=1.5",
+    "matplotlib>=3.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "black",
+    "ruff",
+]
+docs = [
+    "mkdocs-material",
+    "mkdocstrings[python]",
+]
+
+[project.urls]
+Homepage      = "https://github.com/acanbay/mergen"
+Issues        = "https://github.com/acanbay/mergen/issues"
+# Documentation = "https://mergen.readthedocs.io"   # ReadTheDocs hazır olunca aç
+
+[tool.hatch.version]
+path = "src/mergen/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mergen"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "tests/",
+    "docs/",
+    "examples/",
+    "paper/",
+    ".binder/",
+    ".github/",
+]
