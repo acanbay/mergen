@@ -977,6 +977,196 @@ class GridSampler:
         return selected, reserved
 
     # ------------------------------------------------------------------ #
+    # Balanced Latin Hypercube initialisation                              #
+    # ------------------------------------------------------------------ #
+
+    def balanced_lhs_seed(
+        self,
+        selected: np.ndarray,
+        budget:   int,
+        reserved: set,
+        rng:      Optional[np.random.Generator] = None,
+        max_repair_attempts: int = 50,
+    ):
+        """
+        Build a balanced Latin-Hypercube initial design.
+
+        Adds ``budget`` rows on top of the anchor rows in ``selected`` so
+        that the resulting *full* design (anchors + new rows) is balanced
+        on every parameter axis: each level appears either
+        ``floor(n_total / L_v)`` or ``ceil(n_total / L_v)`` times,
+        where ``L_v`` is the number of levels on axis *v*.
+
+        When the anchor rows over-use a level (frequent in user
+        scenarios with many prescribed points at the same value), the
+        excess is redistributed to under-used levels so the whole design
+        stays as balanced as possible.
+
+        This is the level-collapsing approach of Joseph, Gul & Ba (2018)
+        adapted to a fixed grid.
+
+        Parameters
+        ----------
+        selected : np.ndarray, shape (k, d)
+            Anchor rows that must appear in the output (e.g. prescribed
+            and focus points). Pass ``np.empty((0, d))`` if none.
+        budget : int
+            Number of additional rows to add. ``len(selected) + budget``
+            equals the final design size ``n_total``.
+        reserved : set
+            Grid indices already in use; updated in place to include the
+            new rows' indices.
+        rng : numpy.random.Generator, optional
+            RNG for the level-pool shuffles. ``None`` → fresh
+            ``default_rng(44)``.
+        max_repair_attempts : int, default 50
+            Number of attempts to repair constraint violations via
+            in-axis swaps before giving up.
+
+        Returns
+        -------
+        design   : np.ndarray, shape (k + budget, d)
+            Anchor rows stacked on top of the new balanced LHS rows.
+        reserved : set (updated)
+
+        References
+        ----------
+        Joseph, V. R., Gul, E. & Ba, S. (2018). Designing computer
+            experiments with multiple types of factors: the MaxPro
+            approach. *Journal of Quality Technology*, 50(4).
+        Morris, M. D. & Mitchell, T. J. (1995).
+            *J. Statist. Plan. Infer.*, 43, 381–402.
+        McKay, M. D., Conover, W. J. & Beckman, R. J. (1979).
+            *Technometrics*, 21(2), 239–245.
+        """
+        if rng is None:
+            rng = np.random.default_rng(44)
+
+        constraints = self._space._constraints
+        names       = self._space.names
+
+        k_anchor    = len(selected)
+        n_total     = k_anchor + budget
+        if budget <= 0:
+            return selected.copy(), reserved.copy()
+
+        # ── Step 1: per-axis target frequency for the WHOLE design ──
+        target_freqs = []
+        for v in range(self.n_dims):
+            L_v   = self.n_levels[v]
+            base  = n_total // L_v
+            extra = n_total %  L_v                     # how many get base+1
+            f     = np.full(L_v, base, dtype=int)
+            extra_levels = rng.permutation(L_v)[:extra]
+            f[extra_levels] += 1
+            target_freqs.append(f)
+
+        # ── Step 2: subtract anchor usage, redistribute excess ──
+        remaining_freqs = []
+        for v in range(self.n_dims):
+            f           = target_freqs[v].copy()
+            fixed_usage = np.zeros(self.n_levels[v], dtype=int)
+            for pt in selected:
+                li = np.where(np.isclose(self.values[v], pt[v],
+                                         rtol=1e-9, atol=1e-9))[0]
+                if len(li) > 0:
+                    fixed_usage[int(li[0])] += 1
+
+            new_f = f - fixed_usage
+            new_f = np.clip(new_f, 0, None)
+
+            # Top-up or trim to exactly ``budget``
+            while int(new_f.sum()) < budget:
+                # Add to the level currently most under-used
+                deficit = (f - fixed_usage) - new_f
+                deficit = np.where(fixed_usage < f, deficit, -1)
+                if deficit.max() <= 0:
+                    lv = int(rng.integers(0, self.n_levels[v]))
+                else:
+                    cands = np.where(deficit == deficit.max())[0]
+                    lv = int(rng.choice(cands))
+                new_f[lv] += 1
+
+            while int(new_f.sum()) > budget:
+                lv = int(np.argmax(new_f))
+                new_f[lv] -= 1
+
+            remaining_freqs.append(new_f)
+
+        # ── Step 3: build per-axis level pools and shuffle ──
+        pools = []
+        for v in range(self.n_dims):
+            f = remaining_freqs[v]
+            parts = [np.full(f[lv], lv, dtype=int)
+                     for lv in range(self.n_levels[v]) if f[lv] > 0]
+            pool = (np.concatenate(parts) if parts
+                    else np.array([], dtype=int))
+            # Defensive: enforce length == budget
+            if len(pool) > budget:
+                pool = pool[:budget]
+            elif len(pool) < budget:
+                pad = rng.integers(0, self.n_levels[v], size=budget - len(pool))
+                pool = np.concatenate([pool, pad])
+            rng.shuffle(pool)
+            pools.append(pool)
+
+        # ── Step 4: assemble new rows ──
+        new_rows = np.empty((budget, self.n_dims), dtype=float)
+        for i in range(budget):
+            for v in range(self.n_dims):
+                new_rows[i, v] = self.values[v][pools[v][i]]
+
+        # ── Step 5: constraint repair via in-axis swaps ──
+        if constraints:
+            for _ in range(max_repair_attempts):
+                violations = []
+                for i in range(budget):
+                    p = dict(zip(names, new_rows[i]))
+                    try:
+                        if not all(c(p) for c in constraints):
+                            violations.append(i)
+                    except (TypeError, KeyError):
+                        violations.append(i)
+                if not violations:
+                    break
+
+                for vi in violations:
+                    fixed = False
+                    for v in rng.permutation(self.n_dims):
+                        for j in rng.permutation(budget):
+                            if j == vi:
+                                continue
+                            new_rows[vi, v], new_rows[j, v] = (
+                                new_rows[j, v], new_rows[vi, v])
+                            p_vi = dict(zip(names, new_rows[vi]))
+                            p_j  = dict(zip(names, new_rows[j]))
+                            try:
+                                ok = (all(c(p_vi) for c in constraints) and
+                                      all(c(p_j) for c in constraints))
+                            except (TypeError, KeyError):
+                                ok = False
+                            if ok:
+                                fixed = True
+                                break
+                            # revert
+                            new_rows[vi, v], new_rows[j, v] = (
+                                new_rows[j, v], new_rows[vi, v])
+                        if fixed:
+                            break
+
+        # ── Step 6: update reserved and return ──
+        for i in range(budget):
+            idx = self.point_to_index(new_rows[i])
+            if idx >= 0:
+                reserved.add(idx)
+
+        if k_anchor > 0:
+            design = np.vstack([selected, new_rows])
+        else:
+            design = new_rows
+        return design, reserved
+
+    # ------------------------------------------------------------------ #
     # Dunder helpers                                                       #
     # ------------------------------------------------------------------ #
 

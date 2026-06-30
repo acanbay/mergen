@@ -895,25 +895,29 @@ class Sampler:
             anchor       = corner[np.newaxis, :]
             _corner_used = True
 
-        # ── Greedy maximin seed ────────────────────────────────────────
-        print(f"  [MERGEN]   Greedy maximin seed (Morris & Mitchell 1995)...",
-              flush=True)
-        seed_design, reserved = gs.greedy_maximin_seed(
-            anchor,
-            n_optimised_slots - (1 if _corner_used else 0),
-            reserved, self._dim_weights,
-        )
+        # ── Initial design: delegated to each optimiser ──────────────
+        # Each optimiser provides its own prepare_initial_design()
+        # method so it can use the type of starting design its
+        # underlying algorithm was designed for. The default in
+        # BaseOptimizer is a balanced LHS (Joseph, Gul & Ba 2018),
+        # which matches what SA, SCE and ESE expect from the
+        # literature; subclasses may override for non-LHS algorithms.
+        print(f"  [MERGEN]   Preparing anchor points...", flush=True)
 
-        # Build the full initial design matrix in the canonical order.
-        # The greedy seed already starts with ``anchor`` rows, so we
-        # prepend any criterion-blind frozen rows (in_design but not in_optim)
-        # and any focus_in points that were not used as anchors.
-        # For simplicity we re-assemble row-by-row:
-        full_design = self._assemble_initial_design(
-            prescribed_in_pts, focus_in_pts,
-            in_design_sa_prescribed, focus_sa_in_design_sampled,
-            seed_design, n_dims,
-        )
+        # Anchors = prescribed_in + focus_in (any explicit user points
+        # that must appear unchanged in every optimiser's design).
+        if _corner_used:
+            # The corner point already lives in ``anchor``; treat it the
+            # same as a prescribed point.
+            anchors = anchor.copy()
+        elif len(anchor) > 0:
+            anchors = anchor.copy()
+        else:
+            anchors = np.empty((0, n_dims))
+
+        # Note: full_design is now constructed *per algorithm* inside
+        # the dispatcher loop below, so each optimiser's natural
+        # starting design is used.
 
         # n_frozen: the optimiser must not move these rows
         n_frozen = len(prescribed_in_pts) + len(focus_in_pts)
@@ -925,6 +929,10 @@ class Sampler:
         n_blind = (len(prescribed_in_pts) - len(in_design_sa_prescribed)
                    + len(focus_in_pts) - len(focus_sa_in_design_sampled))
         crit_start = n_blind
+
+        # Snapshot the initial reserved set so each algorithm starts
+        # from the same anchor state.
+        initial_reserved = reserved.copy()
 
         # ── Run the requested optimiser(s) ──────────────────────────────
         from .algorithms import get_optimizer
@@ -953,10 +961,33 @@ class Sampler:
             if verbose and len(algorithm_names) > 1:
                 _ok(f"--- Algorithm: {alg_name} ---")
 
+            # ── Per-algorithm initial design ──
+            # Each optimiser builds its own starting design via
+            # prepare_initial_design(); the default produces a balanced
+            # LHS (Joseph et al. 2018) which matches what SA, SCE, and
+            # ESE were originally designed against, but subclasses may
+            # override for non-LHS algorithms.
+            alg_reserved = initial_reserved.copy()
+            seed_design, alg_reserved = optimiser.prepare_initial_design(
+                anchors  = anchors,
+                budget   = n_optimised_slots - (1 if _corner_used else 0),
+                space    = space,
+                reserved = alg_reserved,
+                seed     = (seed if seed is not None else 44),
+            )
+
+            # Assemble the full design with criterion-blind frozen rows
+            # at the top and the optimiser-visible rows below.
+            full_design = self._assemble_initial_design(
+                prescribed_in_pts, focus_in_pts,
+                in_design_sa_prescribed, focus_sa_in_design_sampled,
+                seed_design, n_dims,
+            )
+
             # Hand off to the optimiser; it owns the restart logic and
             # any algorithm-specific kicks.
             result = optimiser.optimize(
-                initial_design = full_design.copy(),
+                initial_design = full_design,
                 space          = space,
                 criterion      = criterion,
                 n_frozen       = n_frozen,
@@ -985,8 +1016,10 @@ class Sampler:
                 f"(total elapsed {self._fmt_time(t_elapsed)})")
 
         # Reconstruct reserved set from the final design (used downstream
-        # for validation / extra-set Kennard-Stone selection)
-        best_reserved = set(reserved)  # start from initial reserved
+        # for validation / extra-set Kennard-Stone selection). Start from
+        # the initial reserved (anchors only) and add the optimiser's
+        # output rows.
+        best_reserved = initial_reserved.copy()
         for row in best_design[n_frozen:]:
             idx = gs.point_to_index(row)
             if idx >= 0:

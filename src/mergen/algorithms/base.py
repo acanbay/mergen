@@ -285,8 +285,8 @@ class BaseOptimizer(ABC):
         ----------
         initial_design : np.ndarray, shape (n, d)
             Starting design in the original parameter space. Built by
-            :class:`mergen.Sampler` (typically a balanced LHS seed plus
-            any prescribed / focus points).
+            :meth:`prepare_initial_design` (typically a balanced LHS
+            plus the prescribed / focus anchor rows).
         space : ParameterSpace
             The parameter space — provides grid, constraints, parameter
             names, and value ranges.
@@ -325,6 +325,60 @@ class BaseOptimizer(ABC):
         - Populate ``metadata`` with at least the algorithm name and
           hyperparameters used.
         """
+
+    # ── Initial-design factory (overridable per algorithm) ─────────────
+    def prepare_initial_design(
+        self,
+        anchors:    np.ndarray,
+        budget:     int,
+        space:      'ParameterSpace',
+        reserved:   set,
+        seed:       int  = 44,
+    ) -> 'tuple[np.ndarray, set]':
+        """
+        Build the starting design for this optimiser.
+
+        The default implementation returns a **balanced Latin Hypercube**
+        seed on top of the supplied ``anchors``. This matches the
+        literature convention for SA (Morris & Mitchell 1995), SCE
+        (Kang 2019), and ESE (Jin et al. 2005), which all expect an
+        LHS as input.
+
+        Subclasses may override this method if their algorithm requires
+        a different initial design (e.g. a greedy maximin seed, a Sobol
+        sequence, or a user-supplied design).
+
+        Parameters
+        ----------
+        anchors : np.ndarray, shape (k, d)
+            Rows that must appear in the output unchanged (prescribed
+            and focus points placed by the Sampler).
+        budget : int
+            Number of *additional* rows to add on top of the anchors.
+            The returned design has ``len(anchors) + budget`` rows.
+        space : ParameterSpace
+            The parameter space.
+        reserved : set
+            Grid indices already in use; updated in place.
+        seed : int, default 44
+            RNG seed for the LHS shuffles.
+
+        Returns
+        -------
+        design   : np.ndarray, shape (len(anchors) + budget, d)
+        reserved : set (updated)
+        """
+        import numpy as np
+        gs = space.grid_sampler()
+        if budget <= 0:
+            return anchors.copy(), reserved.copy()
+        rng = np.random.default_rng(int(seed))
+        return gs.balanced_lhs_seed(
+            selected = anchors,
+            budget   = budget,
+            reserved = reserved,
+            rng      = rng,
+        )
 
     # ── Pretty printing ──────────────────────────────────────────────
     def __repr__(self) -> str:

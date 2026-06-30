@@ -170,8 +170,7 @@ def list_optimizers() -> List[str]:
 
 from .sa  import SAOptimizer
 from .sce import SCEOptimizer
+from .ese import ESEOptimizer
 register_optimizer('sa',  SAOptimizer)
 register_optimizer('sce', SCEOptimizer)
-
-# Future:
-#   Phase 6 — ESE : from .ese import ESEOptimizer; register_optimizer('ese', ESEOptimizer)
+register_optimizer('ese', ESEOptimizer)
