@@ -59,7 +59,7 @@ __doi__ = {
     "papers"  : [],      # JOSS and other publications
 }
 
-# ── Public API (current — algorithm-independent core + algorithm registry) ─
+# ── Public API (algorithm-independent core + algorithm registry + Sampler) ─
 from .space      import ParameterSpace
 from .criteria   import get_criterion, list_criteria
 from .algorithms import (
@@ -68,6 +68,12 @@ from .algorithms import (
     get_optimizer,
     list_optimizers,
     register_optimizer,
+)
+from .sampler    import (
+    Sampler,
+    SamplingResult,
+    FocusPoint,
+    ExclusionPoint,
 )
 
 __all__ = [
@@ -79,11 +85,13 @@ __all__ = [
     "get_optimizer",
     "list_optimizers",
     "register_optimizer",
+    "Sampler",
+    "SamplingResult",
+    "FocusPoint",
+    "ExclusionPoint",
 ]
 
-# NOTE: Sampler, SamplingResult, FocusPoint, ExclusionPoint are added in
-# subsequent phases:
-#   Phase 3 — Sampler refactor + SamplingResult.designs dict
+# NOTE: Algorithms are added in subsequent phases:
 #   Phase 4 — SA  (SAOptimizer  registered via algorithms.register_optimizer)
 #   Phase 5 — SCE (SCEOptimizer registered via algorithms.register_optimizer)
 #   Phase 6 — ESE (ESEOptimizer registered via algorithms.register_optimizer)
