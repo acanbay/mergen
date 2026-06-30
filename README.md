@@ -88,7 +88,7 @@ result.to_markdown('report.md')
 - Feasibility constraints
 
 **Optimisation**
-- Simulated Annealing with multiple restarts
+- Stochastic Coordinate Exchange (SCE) with Iterated Local Search restarts
 - Five space-filling criteria: uMaxPro, MaxPro, φ_p, CD2, Stratified L2
 - Prescribed points, focus regions, and exclusion zones
 
@@ -116,16 +116,16 @@ from mergen.sequential import augment, complement, n_samples_recommendation
 rec = n_samples_recommendation(space, budget=50)
 
 # Prescribed points (always included)
-sampler.add_prescribed([[300, 2.5, 5]], in_design=True, in_sa=False)
+sampler.add_prescribed([[300, 2.5, 5]], in_design=True, in_sce=False)
 
 # Focus region (denser sampling near a critical point)
-sampler.add_focus([400, 4.5, 8], spread=1.5, in_design=True, in_sa=True)
+sampler.add_focus([400, 4.5, 8], spread=1.5, in_design=True, in_sce=True)
 
 # Exclusion zone (avoid a problematic region)
 sampler.add_exclusion([100, 0.5, 2], spread=1.0)
 
 # Multiple restarts for better optimisation
-sampler.set_sa(n_restarts=5)
+sampler.set_sce(n_restarts=5)
 result = sampler.run(criteria='umaxpro', seed=44)
 
 # Augment an existing design

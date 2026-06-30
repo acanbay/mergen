@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ParameterSpace` — N-dimensional discrete parameter space with support for
   discrete, continuous (linear/log), and integer (linear/log) parameter types
 - `GridSampler` — memory-efficient bijective grid representation using mixed-radix indexing
-- `Sampler` — MaxPro-optimised space-filling design sampler with Simulated Annealing
+- `Sampler` — space-filling design sampler using the Stochastic Coordinate
+  Exchange (SCE) algorithm with Iterated Local Search restarts
 - Five optimisation criteria: uMaxPro, MaxPro, φ_p (p=15), CD2, Stratified L2
 - Six quality metrics: min distance, minimax distance, max |correlation|,
   2D projection CD2, CV of distances, mean distance

@@ -96,9 +96,9 @@ class TestParameterSpace:
         from mergen.sampler import Sampler
         corners = simple_space.corners
         s = Sampler(simple_space)
-        s.add_prescribed(corners, in_design=True, in_sa=False)
+        s.add_prescribed(corners, in_design=True, in_sce=False)
         s.set_design(n_samples=len(corners) + 4)
-        s.set_sa(n_restarts=1, max_iter=100)
+        s.set_sce(n_restarts=1, max_iter=100)
         r = s.run(seed=44)
         assert len(r.samples) == len(corners) + 4
 

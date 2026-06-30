@@ -15,7 +15,17 @@ import pytest
 os.environ['MPLBACKEND'] = 'Agg'
 
 # ── Bootstrap mergen package ──────────────────────────────────────────────
-SRC = os.path.join(os.path.dirname(__file__), '..', 'src', 'mergen')
+# Locate the mergen source directory.  Supports two layouts:
+#   (a) src/mergen/   — canonical packaging layout (this repo)
+#   (b) ../           — flat layout (legacy / dev sandbox)
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_CAND = [
+    os.path.join(_HERE, '..', 'src', 'mergen'),
+    os.path.join(_HERE, '..'),
+]
+SRC = next((p for p in _CAND
+            if os.path.isfile(os.path.join(p, 'space.py'))), _CAND[-1])
+SRC = os.path.abspath(SRC)
 
 
 def _load(mod_name, filename):
@@ -88,5 +98,5 @@ def constrained_space():
 def basic_result(simple_space):
     s = Sampler(simple_space)
     s.set_design(n_samples=10, n_validation=3)
-    s.set_sa(n_restarts=1, max_iter=200)
+    s.set_sce(n_restarts=1, max_iter=200)
     return s.run(seed=44)

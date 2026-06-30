@@ -10,7 +10,7 @@ from mergen.sampler import Sampler, FocusPoint, ExclusionPoint
 def _make_sampler(space, n_samples=10, n_validation=None, **sa_kwargs):
     s = Sampler(space)
     s.set_design(n_samples=n_samples, n_validation=n_validation)
-    s.set_sa(n_restarts=1, max_iter=200, **sa_kwargs)
+    s.set_sce(n_restarts=1, max_iter=200, **sa_kwargs)
     return s
 
 
@@ -23,7 +23,7 @@ class TestSamplerBasic:
     def test_validation_set_size(self, simple_space):
         s = Sampler(simple_space)
         s.set_design(n_samples=10, n_validation=3)
-        s.set_sa(n_restarts=1, max_iter=200)
+        s.set_sce(n_restarts=1, max_iter=200)
         r = s.run(seed=44)
         assert len(r.validation) == 3
 
@@ -31,7 +31,7 @@ class TestSamplerBasic:
         s = Sampler(simple_space)
         s.set_design(n_samples=10, n_validation=2,
                      extra_sets={'test': 5, 'holdout': 3})
-        s.set_sa(n_restarts=1, max_iter=200)
+        s.set_sce(n_restarts=1, max_iter=200)
         r = s.run(seed=44)
         assert len(r.sets['test'])    == 5
         assert len(r.sets['holdout']) == 3
@@ -73,9 +73,9 @@ class TestSamplerPrescribed:
     def test_in_design_true(self, simple_space):
         pt = simple_space.candidate_pool[0]
         s  = Sampler(simple_space)
-        s.add_prescribed([pt], in_design=True, in_sa=False)
+        s.add_prescribed([pt], in_design=True, in_sce=False)
         s.set_design(n_samples=10)
-        s.set_sa(n_restarts=1, max_iter=200)
+        s.set_sce(n_restarts=1, max_iter=200)
         r  = s.run(seed=44)
         assert len(r.samples) == 10
         vc = r.samples['point_type'].value_counts()
@@ -85,17 +85,17 @@ class TestSamplerPrescribed:
     def test_in_design_false(self, simple_space):
         pt = simple_space.candidate_pool[0]
         s  = Sampler(simple_space)
-        s.add_prescribed([pt], in_design=False, in_sa=True)
+        s.add_prescribed([pt], in_design=False, in_sce=True)
         s.set_design(n_samples=8)
-        s.set_sa(n_restarts=1, max_iter=200)
+        s.set_sce(n_restarts=1, max_iter=200)
         assert len(s.run(seed=44).samples) == 9   # 8 + 1 extra
 
     def test_multiple_prescribed(self, simple_space):
         pts = simple_space.candidate_pool[:3]
         s   = Sampler(simple_space)
-        s.add_prescribed(pts, in_design=True, in_sa=False)
+        s.add_prescribed(pts, in_design=True, in_sce=False)
         s.set_design(n_samples=10)
-        s.set_sa(n_restarts=1, max_iter=200)
+        s.set_sce(n_restarts=1, max_iter=200)
         r   = s.run(seed=44)
         assert len(r.samples) == 10
         assert r.samples['point_type'].value_counts().get('Prescribed', 0) == 3
@@ -103,9 +103,9 @@ class TestSamplerPrescribed:
     def test_prescribed_point_in_output(self, simple_space):
         pt = simple_space.candidate_pool[7]
         s  = Sampler(simple_space)
-        s.add_prescribed([pt], in_design=True, in_sa=False)
+        s.add_prescribed([pt], in_design=True, in_sce=False)
         s.set_design(n_samples=10)
-        s.set_sa(n_restarts=1, max_iter=200)
+        s.set_sce(n_restarts=1, max_iter=200)
         r  = s.run(seed=44)
         pts = r.samples[simple_space.names].values
         assert any(np.allclose(pt, p) for p in pts)
@@ -118,14 +118,14 @@ class TestSamplerCriteria:
     def test_all_criteria_run(self, simple_space, crit):
         s = Sampler(simple_space)
         s.set_design(n_samples=8)
-        s.set_sa(n_restarts=1, max_iter=100)
+        s.set_sce(n_restarts=1, max_iter=100)
         r = s.run(criteria=crit, seed=44)
         assert len(r.samples) == 8
 
     def test_criteria_stored_in_meta(self, simple_space):
         s = Sampler(simple_space)
         s.set_design(n_samples=8)
-        s.set_sa(n_restarts=1, max_iter=100)
+        s.set_sce(n_restarts=1, max_iter=100)
         r = s.run(criteria='umaxpro', seed=44)
         assert r._meta.get('criteria') == 'umaxpro'
 
@@ -214,7 +214,7 @@ class TestSamplerAdvanced:
         """SA with multiple restarts should still produce correct output."""
         s = Sampler(simple_space)
         s.set_design(n_samples=8)
-        s.set_sa(n_restarts=3, max_iter=100)
+        s.set_sce(n_restarts=3, max_iter=100)
         r = s.run(seed=44)
         assert len(r.samples) == 8
         assert r._meta.get('n_restarts') == 3
@@ -223,10 +223,10 @@ class TestSamplerAdvanced:
         """Focus + exclusion should not conflict and produce valid output."""
         pool = simple_space.candidate_pool
         s    = Sampler(simple_space)
-        s.add_focus(pool[0],  spread=1.5, in_design=True, in_sa=True)
+        s.add_focus(pool[0],  spread=1.5, in_design=True, in_sce=True)
         s.add_exclusion(pool[-1], spread=1.0)
         s.set_design(n_samples=10)
-        s.set_sa(n_restarts=1, max_iter=200)
+        s.set_sce(n_restarts=1, max_iter=200)
         r = s.run(seed=44)
         assert len(r.samples) >= 10
         # Exclusion point should not appear in output
@@ -240,9 +240,9 @@ class TestSamplerAdvanced:
         pt   = pool[10]
         s    = Sampler(simple_space)
         s.add_focus(pt, spread=1.0, include_center=True,
-                    in_design=True, in_sa=True)
+                    in_design=True, in_sce=True)
         s.set_design(n_samples=10)
-        s.set_sa(n_restarts=1, max_iter=200)
+        s.set_sce(n_restarts=1, max_iter=200)
         r = s.run(seed=44)
         pts = r.samples[simple_space.names].values
         assert any(np.allclose(pt, p) for p in pts)

@@ -18,7 +18,7 @@ from mergen.sequential import (
 def base_result(simple_space):
     s = Sampler(simple_space)
     s.set_design(n_samples=10, n_validation=2)
-    s.set_sa(n_restarts=1, max_iter=200)
+    s.set_sce(n_restarts=1, max_iter=200)
     return s.run(seed=44)
 
 
