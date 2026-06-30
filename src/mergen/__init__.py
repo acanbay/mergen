@@ -75,6 +75,7 @@ from .sampler    import (
     FocusPoint,
     ExclusionPoint,
 )
+from . import sequential
 
 __all__ = [
     "ParameterSpace",

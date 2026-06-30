@@ -1475,3 +1475,21 @@ class Sampler:
 
         return (np.array(chosen) if chosen
                 else np.empty((0, self.space.n_parameters)))
+
+    def _snapshot_state(self) -> dict:
+        """Capture the mutable design-spec state for safe restoration."""
+        return {
+            'prescribed_len' : len(self._prescribed),
+            'focus_len'      : len(self._focus),
+            'exclusions_len' : len(self._exclusions),
+            'n_samples'      : self._n_samples,
+            'n_validation'   : self._n_validation,
+        }
+
+    def _restore_state(self, snap: dict) -> None:
+        """Roll back any state added after ``snap`` was taken."""
+        del self._prescribed[snap['prescribed_len']:]
+        del self._focus[snap['focus_len']:]
+        del self._exclusions[snap['exclusions_len']:]
+        self._n_samples    = snap['n_samples']
+        self._n_validation = snap['n_validation']
