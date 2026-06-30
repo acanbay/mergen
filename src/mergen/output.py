@@ -834,7 +834,11 @@ def plot_comparison(result, title: bool = True,
     times  = [res.elapsed for _, res in ranked]
     best   = getattr(result, 'best_algorithm', names[0])
 
-    fig, ax = plt.subplots(figsize=(max(5.5, 1.4 * len(names) + 2.0), 4.5))
+    # Dynamic figure width: scales with number of algorithms, capped to
+    # a sensible upper bound to keep label spacing comfortable.
+    n_alg = len(names)
+    fig_w = min(14.0, max(5.0, 1.1 * n_alg + 3.5))
+    fig, ax = plt.subplots(figsize=(fig_w, 4.5))
 
     colors = ['#2a9d8f' if name == best else '#aaaaaa' for name in names]
     bars = ax.bar(names, scores, color=colors, alpha=0.9, width=0.6,
@@ -853,7 +857,7 @@ def plot_comparison(result, title: bool = True,
 
     crit_name = result._meta.get('criteria', 'criterion')
     ax.set_ylabel(f"{crit_name} score  (lower is better)", fontsize=9)
-    ax.set_xlabel("Algorithm", fontsize=9)
+    # x label intentionally omitted — algorithm names speak for themselves
     ax.tick_params(labelsize=9)
     ax.grid(axis='y', alpha=0.25, linestyle=':')
     ax.set_axisbelow(True)
@@ -861,16 +865,6 @@ def plot_comparison(result, title: bool = True,
     if title:
         ax.set_title(f"Algorithm comparison  ·  best = {best}",
                      fontsize=11, pad=10)
-
-    # Legend
-    from matplotlib.patches import Patch
-    ax.legend(
-        handles=[
-            Patch(facecolor='#2a9d8f', label=f'Best ({best})'),
-            Patch(facecolor='#aaaaaa', label='Other'),
-        ],
-        fontsize=8, loc='upper right', framealpha=0.9, borderpad=0.6,
-    )
 
     fig.tight_layout()
     fn = _resolve_filename("comparison", filename, fmt)

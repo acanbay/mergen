@@ -652,6 +652,9 @@ class Sampler:
         # Import here to avoid circular imports at module load time
         from .algorithms import get_optimizer
 
+        # Normalise the name (registry is case-insensitive on user input)
+        name = name.strip().lower()
+
         # Look up the optimiser class (raises KeyError if unknown)
         opt_cls = get_optimizer(name)
 
@@ -749,11 +752,11 @@ class Sampler:
             np.random.seed(seed)
             random.seed(seed)
 
-        # Normalise algorithm into a list
+        # Normalise algorithm into a list (case-insensitive)
         if isinstance(algorithm, str):
-            algorithm_names = [algorithm]
+            algorithm_names = [algorithm.strip().lower()]
         else:
-            algorithm_names = list(algorithm)
+            algorithm_names = [a.strip().lower() for a in algorithm]
         if not algorithm_names:
             _fatal("'algorithm' cannot be empty.")
 
