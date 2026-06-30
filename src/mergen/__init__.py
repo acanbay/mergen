@@ -59,24 +59,34 @@ __doi__ = {
     "papers"  : [],      # JOSS and other publications
 }
 
-# ── Public API (current — algorithm-independent core) ─────────────────────
-from .space    import ParameterSpace
-from .criteria import get_criterion, list_criteria
+# ── Public API (current — algorithm-independent core + algorithm registry) ─
+from .space      import ParameterSpace
+from .criteria   import get_criterion, list_criteria
+from .algorithms import (
+    BaseOptimizer,
+    OptimisationResult,
+    get_optimizer,
+    list_optimizers,
+    register_optimizer,
+)
 
 __all__ = [
     "ParameterSpace",
     "get_criterion",
     "list_criteria",
+    "BaseOptimizer",
+    "OptimisationResult",
+    "get_optimizer",
+    "list_optimizers",
+    "register_optimizer",
 ]
 
-# NOTE: Sampler, SamplingResult, FocusPoint, ExclusionPoint, and the
-# algorithm registry (get_optimizer / list_optimizers / register_optimizer)
-# are added in subsequent phases:
-#   Phase 2 — algorithms/ package + registry
+# NOTE: Sampler, SamplingResult, FocusPoint, ExclusionPoint are added in
+# subsequent phases:
 #   Phase 3 — Sampler refactor + SamplingResult.designs dict
-#   Phase 4 — SA implementation
-#   Phase 5 — SCE implementation
-#   Phase 6 — ESE implementation
+#   Phase 4 — SA  (SAOptimizer  registered via algorithms.register_optimizer)
+#   Phase 5 — SCE (SCEOptimizer registered via algorithms.register_optimizer)
+#   Phase 6 — ESE (ESEOptimizer registered via algorithms.register_optimizer)
 
 
 # ── Info banner ───────────────────────────────────────────────────────────
