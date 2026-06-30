@@ -461,3 +461,181 @@ def run_order(
         out = df.iloc[order].copy()
     out[column] = range(len(out))
     return out
+
+
+def k_fold_split(
+    sampler: "Sampler",
+    design:  Union[np.ndarray, pd.DataFrame],
+    k:       int,
+    anchor:  Union[str, int, None] = 'center',
+) -> List[Tuple[np.ndarray, np.ndarray]]:
+    """
+    Split a design into ``k`` space-filling folds for cross-validation.
+
+    Returns ``k`` ``(train_indices, test_indices)`` pairs in the same
+    format as :class:`sklearn.model_selection.KFold`. Within each pair,
+    the test fold and the training set are *both* space-filling — every
+    fold covers the parameter space rather than clustering in a
+    sub-region, so cross-validation estimates are not biased by an
+    unlucky split.
+
+    Algorithm
+    ---------
+    The design is first reordered with :func:`run_order` (sequential
+    Kennard-Stone). Then a round-robin assignment distributes rows to
+    folds: row 0 → fold 0, row 1 → fold 1, …, row k-1 → fold k-1,
+    row k → fold 0, and so on. Because consecutive rows of the
+    KS-ordering are placed as far apart as possible, each fold ends up
+    with one representative from every region of the space.
+
+    Parameters
+    ----------
+    sampler : Sampler
+        Provides parameter-space metadata for the normalisation used
+        inside :func:`run_order`.
+    design : np.ndarray or DataFrame
+        The full design to split. DataFrame columns must include all
+        parameter names.
+    k : int
+        Number of folds. ``2 ≤ k ≤ len(design)``. Folds are as
+        balanced as possible — the first ``len(design) mod k`` folds
+        receive one extra row each.
+    anchor : {'center', 'maximin', int, None}, default 'center'
+        First-point strategy for the underlying KS ordering. See
+        :func:`subsample`.
+
+    Returns
+    -------
+    list of (train_indices, test_indices)
+        Position-based indices (``0 ≤ idx < len(design)``) into the
+        input ``design``. Compatible with
+        ``design.iloc[idx]`` for DataFrames and ``design[idx]`` for
+        ndarrays.
+
+    References
+    ----------
+    Kennard, R. W. & Stone, L. A. (1969). *Technometrics*, 11(1),
+        137-148.
+    Qian, P. Z. G. (2012). Sliced Latin hypercube designs.
+        *Journal of the American Statistical Association*, 107(497),
+        393-399. [Related concept of slicing a design into
+        space-filling sub-designs.]
+    """
+    arr, _ = _coerce_design(sampler, design)
+    n      = len(arr)
+    k      = int(k)
+    if k < 2:
+        _fatal(f"k must be ≥ 2; got {k}.")
+    if k > n:
+        _fatal(f"k ({k}) cannot exceed design size ({n}).")
+
+    # KS-sequential ordering of position indices (0..n-1)
+    order = _kennard_stone_array(sampler, arr, n, anchor=anchor)
+    order = np.asarray(order, dtype=int)
+
+    # Round-robin distribution → fold membership for every position
+    fold_of_pos = np.empty(n, dtype=int)
+    for rank, pos in enumerate(order):
+        fold_of_pos[pos] = rank % k
+
+    # Build (train_idx, test_idx) pairs
+    all_idx = np.arange(n)
+    return [(all_idx[fold_of_pos != f], all_idx[fold_of_pos == f])
+            for f in range(k)]
+
+
+def nested(
+    sampler:   "Sampler",
+    n_outer:   int,
+    n_inner:   int,
+    criteria:  str  = 'cd2',
+    algorithm: Union[str, List[str]] = 'sa',
+    seed:      Optional[int] = 44,
+    verbose:   bool = True,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Build a nested pair of designs: a small *inner* design that is a
+    subset of a larger *outer* design, both space-filling.
+
+    Useful for multi-fidelity computer experiments, hierarchical
+    sensitivity studies, and any setting where two budget tiers run
+    on the same parameter space (e.g. fast/slow simulation, pilot vs.
+    main wetlab study). Every row of ``inner`` appears verbatim in
+    ``outer``.
+
+    Algorithm
+    ---------
+    1. Build the outer design via :meth:`Sampler.run` on the current
+       Sampler state (``n_samples = n_outer``).
+    2. Pick the inner design as a maximin Kennard-Stone subsample of
+       the outer (:func:`subsample` with ``anchor='maximin'``).
+
+    The resulting inner design is space-filling within outer, and
+    every outer point is space-filling in the full parameter space.
+
+    The classical He & Qian (2011) construction enforces a strict
+    LHS-preserving nesting; this pragmatic implementation does not
+    guarantee that, which is acceptable for the typical use case of
+    multi-fidelity computer experiments (where space-fillingness
+    matters more than the LHS marginals of the inner design). A
+    strict LHS-nested variant is planned for a future release.
+
+    Parameters
+    ----------
+    sampler : Sampler
+    n_outer : int
+        Size of the outer (larger) design.
+    n_inner : int
+        Size of the inner (smaller) design. ``1 ≤ n_inner < n_outer``.
+    criteria, algorithm, seed, verbose
+        Passed to :meth:`Sampler.run` when building the outer design.
+
+    Returns
+    -------
+    outer : DataFrame, shape (n_outer, d + 1)
+        The outer design with one extra boolean column ``'in_inner'``
+        flagging the rows that belong to the inner design.
+    inner : DataFrame, shape (n_inner, d + 1)
+        The inner design (subset of outer, in KS selection order).
+        Same columns as ``outer``; the ``'in_inner'`` column is
+        constant ``True``.
+
+    References
+    ----------
+    He, X. & Qian, P. Z. G. (2011). Nested orthogonal array-based
+        Latin hypercube designs. *Biometrika*, 98(3), 721-731.
+    Qian, P. Z. G. (2009). Nested Latin hypercube designs.
+        *Biometrika*, 96(4), 957-970.
+    """
+    n_outer = int(n_outer)
+    n_inner = int(n_inner)
+    if n_inner < 1:
+        _fatal(f"n_inner must be ≥ 1; got {n_inner}.")
+    if n_outer <= n_inner:
+        _fatal(
+            f"n_outer ({n_outer}) must be strictly greater than "
+            f"n_inner ({n_inner})."
+        )
+
+    # ── Step 1: outer design via Sampler.run ────────────────────────
+    snap = sampler._snapshot_state()
+    try:
+        sampler.set_design(n_samples=n_outer, n_validation=0)
+        outer_result = sampler.run(criteria=criteria, algorithm=algorithm,
+                                   seed=seed, verbose=verbose)
+    finally:
+        sampler._restore_state(snap)
+
+    outer = outer_result.samples.copy()
+    pts   = outer[sampler.space.names].to_numpy()
+
+    # ── Step 2: inner = maximin KS subsample of outer ───────────────
+    inner_pos = _kennard_stone_array(sampler, pts, n_inner, anchor='maximin')
+    inner_pos = sorted(inner_pos)        # stable order in outer.index
+
+    mask = np.zeros(len(outer), dtype=bool)
+    mask[inner_pos] = True
+    outer['in_inner'] = mask
+
+    inner = outer.iloc[inner_pos].copy()
+    return outer, inner
