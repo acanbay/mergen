@@ -835,7 +835,7 @@ class Sampler:
                 prescribed_sa_pts.append(pt)
 
         # ── Focus / exclusion sampling ─────────────────────────────────
-        print(f"  [SCE]      Sampling focus / exclusion regions...",
+        print(f"  [MERGEN]   Sampling focus / exclusion regions...",
               flush=True)
         focus_in_pts, focus_out_pts, focus_sa_pts, repel_weights, reserved = \
             self._build_focus_exclusion(gs, gmins, granges, reserved)
@@ -896,7 +896,7 @@ class Sampler:
             _corner_used = True
 
         # ── Greedy maximin seed ────────────────────────────────────────
-        print(f"  [SCE]      Greedy maximin seed (Morris & Mitchell 1995)...",
+        print(f"  [MERGEN]   Greedy maximin seed (Morris & Mitchell 1995)...",
               flush=True)
         seed_design, reserved = gs.greedy_maximin_seed(
             anchor,
