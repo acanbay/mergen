@@ -296,6 +296,29 @@ class SamplingResult:
             seed = self._meta.get('seed', '?')
             print(f"  {'Criterion':<16}: {crit}")
             print(f"  {'Seed':<16}: {seed}")
+
+            # Algorithm reporting: single or multi
+            alg = self._meta.get('algorithm', None)
+            if isinstance(alg, list):
+                print(f"  {'Algorithms':<16}: {', '.join(alg)}")
+                print(f"  {'Best algorithm':<16}: {self.best_algorithm}")
+            elif alg is not None:
+                print(f"  {'Algorithm':<16}: {alg}")
+
+        # Per-algorithm scores when multiple were run
+        if len(self.algorithm_results) > 1:
+            print(sep)
+            print(f"  Per-algorithm scores")
+            print(sep)
+            # Sort by score (best first)
+            ranked = sorted(
+                self.algorithm_results.items(),
+                key=lambda kv: kv[1].score,
+            )
+            for name, res in ranked:
+                mark = " ★" if name == self.best_algorithm else "  "
+                print(f"  {mark} {name:<6} : score={res.score:.6g}  "
+                      f"elapsed={res.elapsed:.2f}s  n_iter={res.n_iter}")
         print(f"{sep}\n")
 
     def quality_report(

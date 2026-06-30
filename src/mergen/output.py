@@ -794,6 +794,93 @@ def plot_quality(result, title: bool = True,
     plt.close(fig)
 
 
+def plot_comparison(result, title: bool = True,
+                    show: bool = True, save: bool = False,
+                    filename: Optional[str] = None,
+                    fmt: Optional[str] = None, dpi: int = 150) -> None:
+    """
+    Bar chart comparing the criterion score of each optimisation algorithm.
+
+    Only meaningful when :meth:`Sampler.run` was called with
+    ``algorithm=[...]``. The best (lowest-scoring) algorithm is
+    highlighted; bar heights show the raw criterion value, lower is
+    better. Elapsed time is annotated above each bar.
+
+    Parameters
+    ----------
+    result : SamplingResult
+        Must contain at least one entry in ``result.algorithm_results``.
+    title, show, save, filename, fmt, dpi
+        Standard plotting controls (see other ``plot_*`` functions).
+
+    Raises
+    ------
+    ValueError
+        If no algorithm results are present.
+    """
+    _require_mpl()
+    alg_results = getattr(result, 'algorithm_results', {}) or {}
+    if not alg_results:
+        raise ValueError(
+            "plot_comparison requires result.algorithm_results to be "
+            "populated. Call Sampler.run(algorithm=[...]) with multiple "
+            "algorithms to compare them."
+        )
+
+    # Sort by score (best first)
+    ranked = sorted(alg_results.items(), key=lambda kv: kv[1].score)
+    names  = [name for name, _ in ranked]
+    scores = [res.score for _, res in ranked]
+    times  = [res.elapsed for _, res in ranked]
+    best   = getattr(result, 'best_algorithm', names[0])
+
+    fig, ax = plt.subplots(figsize=(max(5.5, 1.4 * len(names) + 2.0), 4.5))
+
+    colors = ['#2a9d8f' if name == best else '#aaaaaa' for name in names]
+    bars = ax.bar(names, scores, color=colors, alpha=0.9, width=0.6,
+                  edgecolor='#333333', linewidth=0.6)
+
+    # Score + elapsed time labels above each bar
+    s_max = max(scores) if scores else 1.0
+    ax.set_ylim(0, s_max * 1.18)
+    for bar, score, t in zip(bars, scores, times):
+        h = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2,
+                h + s_max * 0.02,
+                f"{score:.4g}\n({t:.2f}s)",
+                ha='center', va='bottom', fontsize=8.5,
+                fontweight='normal')
+
+    crit_name = result._meta.get('criteria', 'criterion')
+    ax.set_ylabel(f"{crit_name} score  (lower is better)", fontsize=9)
+    ax.set_xlabel("Algorithm", fontsize=9)
+    ax.tick_params(labelsize=9)
+    ax.grid(axis='y', alpha=0.25, linestyle=':')
+    ax.set_axisbelow(True)
+
+    if title:
+        ax.set_title(f"Algorithm comparison  ·  best = {best}",
+                     fontsize=11, pad=10)
+
+    # Legend
+    from matplotlib.patches import Patch
+    ax.legend(
+        handles=[
+            Patch(facecolor='#2a9d8f', label=f'Best ({best})'),
+            Patch(facecolor='#aaaaaa', label='Other'),
+        ],
+        fontsize=8, loc='upper right', framealpha=0.9, borderpad=0.6,
+    )
+
+    fig.tight_layout()
+    fn = _resolve_filename("comparison", filename, fmt)
+    if save:
+        _savefig(fig, result, fn, dpi)
+    if show:
+        plt.show()
+    plt.close(fig)
+
+
 def plot_all(result, show_pool: bool = True, title: bool = True,
              log: Optional[list] = None,
              show: bool = True, save: bool = False,
@@ -813,6 +900,11 @@ def plot_all(result, show_pool: bool = True, title: bool = True,
     plot_correlation(result, title=title, show=show, save=save, fmt=fmt, dpi=dpi)
     plot_quality(result, title=title, show=show, save=save, fmt=fmt, dpi=dpi)
 
+    # Multi-algorithm bar chart — only when more than one was run
+    if len(getattr(result, 'algorithm_results', {}) or {}) > 1:
+        plot_comparison(result, title=title, show=show, save=save,
+                        fmt=fmt, dpi=dpi)
+
 
 # ── Dispatcher ────────────────────────────────────────────────────────────
 
@@ -829,6 +921,8 @@ def plot(result, kind: str = 'pairplot', **kwargs) -> None:
         'distances'   — pairwise distance distribution
         'correlation' — parameter correlation heatmap
         'quality'     — quality metrics bar chart
+        'comparison'  — bar chart of per-algorithm scores
+                        (only when multiple algorithms were run)
         'all'         — all of the above
     **kwargs
         show_pool, title, log, params, show, save, filename, fmt, dpi
@@ -840,6 +934,7 @@ def plot(result, kind: str = 'pairplot', **kwargs) -> None:
         'distances'  : plot_distances,
         'correlation': plot_correlation,
         'quality'    : plot_quality,
+        'comparison' : plot_comparison,
         'all'        : plot_all,
     }
     if kind not in dispatch:
@@ -896,9 +991,33 @@ def _report_header(result) -> str:
         "Run Settings",
         "─" * 40,
         f"  {'Criterion':<24} {meta.get('criteria', '?')}",
-        f"  {'Restarts':<24} {meta.get('n_restarts', '?')}",
         f"  {'Seed':<24} {meta.get('seed', '?')}",
     ]
+
+    # Algorithm reporting: single or multi
+    alg = meta.get('algorithm', None)
+    if isinstance(alg, list):
+        lines.append(f"  {'Algorithms':<24} {', '.join(alg)}")
+        if meta.get('best_algorithm'):
+            lines.append(f"  {'Best algorithm':<24} {meta['best_algorithm']}")
+    elif alg is not None:
+        lines.append(f"  {'Algorithm':<24} {alg}")
+
+    # Per-algorithm scores table when multiple were run
+    alg_results = getattr(result, 'algorithm_results', {}) or {}
+    if len(alg_results) > 1:
+        lines += [
+            "",
+            "Per-algorithm Scores",
+            "─" * 40,
+        ]
+        ranked = sorted(alg_results.items(), key=lambda kv: kv[1].score)
+        for name, res in ranked:
+            mark = "★" if name == getattr(result, 'best_algorithm', None) else " "
+            lines.append(
+                f"  {mark} {name:<8} score={res.score:<12.6g} "
+                f"elapsed={res.elapsed:.2f}s  n_iter={res.n_iter}"
+            )
 
     # Quality metrics — full table format (same as terminal)
     try:
