@@ -168,9 +168,10 @@ def list_optimizers() -> List[str]:
 # ── Auto-register built-in optimisers ────────────────────────────────────
 # Algorithms register themselves as their modules are imported here.
 
-from .sa import SAOptimizer
-register_optimizer('sa', SAOptimizer)
+from .sa  import SAOptimizer
+from .sce import SCEOptimizer
+register_optimizer('sa',  SAOptimizer)
+register_optimizer('sce', SCEOptimizer)
 
 # Future:
-#   Phase 5 — SCE : from .sce import SCEOptimizer; register_optimizer('sce', SCEOptimizer)
 #   Phase 6 — ESE : from .ese import ESEOptimizer; register_optimizer('ese', ESEOptimizer)
