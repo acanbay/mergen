@@ -82,9 +82,9 @@ def _parse_parameter(
     name: str,
     spec,
     resolution: int = _DEFAULT_RESOLUTION,
-) -> np.ndarray:
+) -> Tuple[np.ndarray, str, Optional[List[str]]]:
     """
-    Convert any supported parameter specification to a sorted 1-D float array.
+    Convert any supported parameter specification into a numeric grid.
 
     Parameters
     ----------
@@ -94,8 +94,47 @@ def _parse_parameter(
 
     Returns
     -------
-    arr : np.ndarray, dtype=float, ndim=1, len >= 1
+    arr    : np.ndarray, dtype=float, ndim=1, len >= 1
+        Sorted numeric grid. For nominal/ordinal parameters this is a
+        sequence of level indices ``[0, 1, ..., k-1]`` — the string
+        labels themselves are stored separately by the caller.
+    kind   : {'continuous', 'integer', 'discrete', 'nominal', 'ordinal'}
+        Detected parameter type.
+    labels : list of str or None
+        Category labels for nominal/ordinal parameters; ``None`` for
+        numeric parameters.
     """
+
+    # ── Categorical spec: ('nominal' | 'ordinal', [labels]) ────────────
+    if (isinstance(spec, tuple) and len(spec) == 2
+            and isinstance(spec[0], str)
+            and spec[0].lower().strip() in ('nominal', 'ordinal')):
+        kind   = spec[0].lower().strip()
+        labels = spec[1]
+
+        if not isinstance(labels, (list, tuple)) or len(labels) == 0:
+            _fatal(
+                f"Parameter '{name}' ({kind}): second element must be a "
+                f"non-empty list of level labels, got {labels!r}."
+            )
+
+        # Every label to string for uniform handling
+        labels = [str(lab) for lab in labels]
+
+        if len(set(labels)) < len(labels):
+            _fatal(
+                f"Parameter '{name}' ({kind}): duplicate labels are not "
+                f"allowed; got {labels}."
+            )
+
+        if len(labels) == 1:
+            _warn(
+                f"Parameter '{name}' ({kind}) has only 1 level. "
+                f"It will not contribute to space-filling."
+            )
+
+        arr = np.arange(len(labels), dtype=float)
+        return arr, kind, labels
 
     # ── Tuple specs: ('continuous'|'integer', min, max [, 'log'] [, opts]) ──
     if isinstance(spec, tuple) and len(spec) >= 2 and isinstance(spec[0], str):
@@ -104,7 +143,8 @@ def _parse_parameter(
         if kind not in ('continuous', 'integer'):
             _fatal(
                 f"Parameter '{name}': unknown type '{spec[0]}'. "
-                f"Use 'continuous' or 'integer', or pass a list/array of values."
+                f"Use 'continuous', 'integer', 'nominal', 'ordinal', or "
+                f"pass a list/array of numeric values."
             )
 
         if len(spec) < 3:
@@ -169,17 +209,16 @@ def _parse_parameter(
                 f"It will not contribute to space-filling."
             )
 
-        return arr.astype(float)
+        return arr.astype(float), kind, None
 
     # ── Discrete: list, tuple (of numbers), range, np.ndarray, any iterable ──
     try:
-        # Tuples of numbers fall here (not caught above since spec[0] is numeric)
         arr = np.asarray(list(spec), dtype=float)
     except (TypeError, ValueError) as exc:
         _fatal(
             f"Parameter '{name}': cannot convert values to a numeric array. "
             f"Accepted types: list, range, np.ndarray, or a "
-            f"('continuous'|'integer', min, max) tuple.\n"
+            f"('continuous'|'integer'|'nominal'|'ordinal', ...) tuple.\n"
             f"Original error: {exc}"
         )
 
@@ -206,7 +245,7 @@ def _parse_parameter(
             f"It will not contribute to space-filling."
         )
 
-    return arr.astype(float)
+    return arr.astype(float), 'discrete', None
 
 
 # ======================================================================
@@ -245,11 +284,12 @@ class ParameterSpace:
         parameters: Optional[Dict[str, object]] = None,
         resolution: int = _DEFAULT_RESOLUTION,
     ) -> None:
-        self._parameters:     Dict[str, np.ndarray] = {}
-        self._param_types:    Dict[str, str]         = {}  # 'discrete'|'continuous'|'integer'
-        self._constraints:    List[Callable]          = []
-        self._candidate_pool: Optional[np.ndarray]   = None   # lazy cache
-        self._resolution      = resolution
+        self._parameters:      Dict[str, np.ndarray] = {}
+        self._param_types:     Dict[str, str]        = {}  # per-name kind
+        self._category_labels: Dict[str, List[str]]  = {}  # nominal/ordinal
+        self._constraints:     List[Callable]        = []
+        self._candidate_pool:  Optional[np.ndarray]  = None   # lazy cache
+        self._resolution       = resolution
 
         if parameters is not None:
             if not isinstance(parameters, dict):
@@ -281,14 +321,22 @@ class ParameterSpace:
         spec : array-like or tuple
             Supported formats::
 
-                [100, 200, 300]                      # discrete explicit
-                range(10, 110, 10)                   # discrete range
-                np.arange(0.1, 1.1, 0.1)            # discrete numpy
-                ('continuous', 0.5, 5.0)             # linear grid
-                ('continuous', 1e-4, 1e-1, 'log')   # log grid
-                ('integer', 2, 10)                   # integer grid
-                ('integer', 8, 256, 'log')           # log-integer grid
+                [100, 200, 300]                                # discrete explicit
+                range(10, 110, 10)                             # discrete range
+                np.arange(0.1, 1.1, 0.1)                       # discrete numpy
+                ('continuous', 0.5, 5.0)                       # linear grid
+                ('continuous', 1e-4, 1e-1, 'log')              # log grid
+                ('integer', 2, 10)                             # integer grid
+                ('integer', 8, 256, 'log')                     # log-integer grid
                 ('continuous', 0.5, 5.0, {'resolution': 500})  # custom res
+                ('ordinal', ['low', 'med', 'high'])            # ordered categories
+                ('nominal', ['A', 'B', 'C'])                   # unordered categories
+
+            Ordinal and nominal parameters are stored internally as
+            integer level indices ``[0, 1, ..., k-1]``; the string
+            labels are kept for input/output round-tripping. Which
+            criteria can be used with each type is enforced by
+            :meth:`Sampler.run`.
 
         resolution : int, optional
             Grid size for continuous / integer-log parameters.
@@ -308,18 +356,14 @@ class ParameterSpace:
                 f"Use a different name or create a new ParameterSpace."
             )
 
-        res = resolution if resolution is not None else self._resolution
-        arr = _parse_parameter(name, spec, resolution=res)
+        res              = resolution if resolution is not None else self._resolution
+        arr, kind, labels = _parse_parameter(name, spec, resolution=res)
 
-        # Determine type label
-        if isinstance(spec, tuple) and isinstance(spec[0], str):
-            kind = spec[0].lower().strip()
-            self._param_types[name] = kind   # 'continuous' or 'integer'
-        else:
-            self._param_types[name] = 'discrete'
-
-        self._parameters[name]  = arr
-        self._candidate_pool    = None   # invalidate cache
+        self._parameters[name]   = arr
+        self._param_types[name]  = kind
+        if labels is not None:
+            self._category_labels[name] = labels
+        self._candidate_pool = None    # invalidate cache
         return self
 
     def add_constraint(self, fn: Callable) -> "ParameterSpace":
@@ -401,8 +445,77 @@ class ParameterSpace:
 
     @property
     def param_types(self) -> Dict[str, str]:
-        """Dict mapping parameter name → type ('discrete'|'continuous'|'integer')."""
+        """
+        Dict mapping parameter name -> type. Possible values are
+        ``'discrete'``, ``'continuous'``, ``'integer'``, ``'ordinal'``,
+        or ``'nominal'``.
+        """
         return dict(self._param_types)
+
+    # ── Categorical support (ordinal + nominal) ────────────────────────
+    def is_nominal(self, name: str) -> bool:
+        """Return ``True`` if *name* is a nominal (unordered) parameter."""
+        return self._param_types.get(name) == 'nominal'
+
+    def is_ordinal(self, name: str) -> bool:
+        """Return ``True`` if *name* is an ordinal (ordered) parameter."""
+        return self._param_types.get(name) == 'ordinal'
+
+    def is_categorical(self, name: str) -> bool:
+        """Return ``True`` if *name* is either nominal or ordinal."""
+        return self._param_types.get(name) in ('nominal', 'ordinal')
+
+    def category_labels(self, name: str) -> List[str]:
+        """
+        Return the level labels of a nominal or ordinal parameter.
+
+        Returns an empty list for numeric parameters. The order matches
+        the internal integer level indices ``[0, 1, ..., k-1]``, so
+        ``category_labels(name)[i]`` is the label for level ``i``.
+        """
+        return list(self._category_labels.get(name, []))
+
+    @property
+    def nominal_names(self) -> List[str]:
+        """Names of all nominal parameters, in insertion order."""
+        return [n for n in self._parameters
+                if self._param_types.get(n) == 'nominal']
+
+    @property
+    def ordinal_names(self) -> List[str]:
+        """Names of all ordinal parameters, in insertion order."""
+        return [n for n in self._parameters
+                if self._param_types.get(n) == 'ordinal']
+
+    @property
+    def categorical_names(self) -> List[str]:
+        """Names of all categorical (nominal or ordinal) parameters."""
+        return [n for n in self._parameters
+                if self._param_types.get(n) in ('nominal', 'ordinal')]
+
+    @property
+    def has_nominal(self) -> bool:
+        """``True`` if at least one parameter is nominal."""
+        return any(t == 'nominal' for t in self._param_types.values())
+
+    @property
+    def has_categorical(self) -> bool:
+        """``True`` if at least one parameter is nominal or ordinal."""
+        return any(t in ('nominal', 'ordinal')
+                   for t in self._param_types.values())
+
+    @property
+    def is_mask(self) -> np.ndarray:
+        """
+        Boolean mask, one entry per parameter (in :attr:`names` order),
+        marking which parameters are nominal. Useful for downstream
+        code that needs to switch metrics on a per-column basis
+        (Wilson & Martinez 1997 HEOM).
+        """
+        return np.array(
+            [self._param_types.get(n) == 'nominal' for n in self._parameters],
+            dtype=bool,
+        )
 
     @property
     def n_candidates(self) -> int:
