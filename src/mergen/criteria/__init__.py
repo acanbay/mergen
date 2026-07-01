@@ -44,6 +44,7 @@ from __future__ import annotations
 from .base       import BaseCriterion, _EPS
 from .umaxpro    import UMaxPro
 from .maxpro     import MaxPro
+from .maxproqq   import MaxProQQ
 from .phi_p      import PhiP
 from .cd2        import CD2
 from .stratified import StratifiedL2
@@ -53,6 +54,7 @@ __all__ = [
     "BaseCriterion",
     "UMaxPro",
     "MaxPro",
+    "MaxProQQ",
     "PhiP",
     "CD2",
     "StratifiedL2",
@@ -65,11 +67,13 @@ __all__ = [
 _REGISTRY: dict = {
     'umaxpro'       : UMaxPro,
     'maxpro'        : MaxPro,
+    'maxproqq'      : MaxProQQ,
+    'maxpro_qq'     : MaxProQQ,     # alias
     'phi_p'         : PhiP,
-    'phip'          : PhiP,        # alias
+    'phip'          : PhiP,         # alias
     'cd2'           : CD2,
     'stratified'    : StratifiedL2,
-    'stratified_l2': StratifiedL2,  # alias
+    'stratified_l2' : StratifiedL2,  # alias
 }
 
 
@@ -102,7 +106,8 @@ def get_criterion(name: str) -> BaseCriterion:
     if key not in _REGISTRY:
         available = ', '.join(
             f"'{k}'" for k in sorted(
-                set(_REGISTRY.keys()) - {'phip', 'stratified_l2'}
+                set(_REGISTRY.keys())
+                - {'phip', 'stratified_l2', 'maxpro_qq'}
             )
         )
         raise ValueError(
@@ -115,4 +120,5 @@ def get_criterion(name: str) -> BaseCriterion:
 
 def list_criteria() -> list:
     """Return the list of available criterion names (canonical, no aliases)."""
-    return sorted(set(_REGISTRY.keys()) - {'phip', 'stratified_l2'})
+    return sorted(set(_REGISTRY.keys())
+                  - {'phip', 'stratified_l2', 'maxpro_qq'})

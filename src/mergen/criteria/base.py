@@ -34,7 +34,21 @@ class BaseCriterion(ABC):
     :meth:`try_1d`) are provided in the base class as a fallback and
     may be overridden by criteria with separable structure for an
     O(n) inner loop.
+
+    Class attributes
+    ----------------
+    supports_nominal : bool
+        Whether the criterion is mathematically well-defined on
+        parameter spaces containing nominal (unordered categorical)
+        factors. ``False`` for distance- and discrepancy-based
+        criteria whose metric assumes ordered levels;
+        :class:`~mergen.sampler.Sampler` refuses to run such a
+        criterion when the space has any nominal factor. Subclasses
+        designed for mixed factor spaces (e.g. MaxProQQ, QQD) set
+        this to ``True``.
     """
+
+    supports_nominal: bool = False
 
     @abstractmethod
     def evaluate(self, X: np.ndarray, space) -> float:
