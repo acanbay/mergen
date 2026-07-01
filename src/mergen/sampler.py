@@ -87,7 +87,12 @@ import numpy as np
 import pandas as pd
 
 from .space    import ParameterSpace, GridSampler
-from .criteria import BaseCriterion, get_criterion, _EPS as _CRIT_EPS
+from .criteria import (
+    BaseCriterion,
+    get_criterion,
+    nominal_supporting_criteria,
+    _EPS as _CRIT_EPS,
+)
 
 # ── Terminal colours ──────────────────────────────────────────────────────
 _RED    = "\033[0;31m"
@@ -918,6 +923,30 @@ class Sampler:
         # For now we run the first criterion only.
         criterion  = crit_list[0]
         crit_name  = crit_names[0]
+
+        # ── Nominal / criterion compatibility check ────────────────
+        # Nominal factors are unordered categorical: distance- and
+        # discrepancy-based criteria whose kernels assume ordered
+        # levels give meaningless scores on them. Refuse to run
+        # such combinations rather than silently produce a bogus
+        # design. Ordinal factors are OK for every criterion —
+        # their integer scoring preserves an interpretable order.
+        if self.space.has_nominal and not getattr(
+            criterion, 'supports_nominal', False,
+        ):
+            supporters = ', '.join(f"'{c}'"
+                                   for c in nominal_supporting_criteria())
+            nominal_cols = self.space.nominal_names
+            _fatal(
+                f"Criterion '{crit_name}' does not support nominal "
+                f"factors.\n"
+                f"  Space has nominal column(s): {nominal_cols}.\n"
+                f"  Criteria that support nominal factors: "
+                f"{supporters or '(none registered)'}.\n"
+                f"  Ordinal factors, however, are accepted by every "
+                f"criterion — declare with "
+                f"('ordinal', [labels]) if the levels are ordered."
+            )
 
         # Space metadata
         space   = self.space

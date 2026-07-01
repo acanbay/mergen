@@ -125,3 +125,25 @@ def list_criteria() -> list:
     """Return the list of available criterion names (canonical, no aliases)."""
     return sorted(set(_REGISTRY.keys())
                   - {'phip', 'stratified_l2', 'maxpro_qq'})
+
+
+def nominal_supporting_criteria() -> list:
+    """
+    Return the canonical names of criteria that support nominal
+    (unordered categorical) factors.
+
+    Used by :class:`~mergen.sampler.Sampler` to build the diagnostic
+    message when a user requests a criterion incompatible with a
+    space that contains nominal columns.
+    """
+    seen = set()
+    out  = []
+    for name, cls in _REGISTRY.items():
+        if name in {'phip', 'stratified_l2', 'maxpro_qq'}:
+            continue                       # aliases
+        if cls in seen:
+            continue
+        if getattr(cls, 'supports_nominal', False):
+            out.append(name)
+            seen.add(cls)
+    return sorted(out)

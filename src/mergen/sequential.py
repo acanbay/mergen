@@ -59,7 +59,8 @@ from typing import List, Optional, Tuple, TYPE_CHECKING, Union
 import numpy as np
 import pandas as pd
 
-from .sampler import _fatal
+from .sampler   import _fatal
+from .distances import heom_squared
 
 if TYPE_CHECKING:
     from .sampler import Sampler, SamplingResult
@@ -163,6 +164,16 @@ def _kennard_stone_array(
     N              = len(pool)
     n_select       = int(n_select)
 
+    # When the space has any nominal factor the ordinary Euclidean
+    # distance mixes ordered and unordered dimensions, which is not
+    # meaningful. Route through HEOM (Wilson & Martinez 1997), which
+    # applies the 0/1 overlap indicator on nominal columns and the
+    # normalised Euclidean term on numerical ones. For all-numerical
+    # spaces HEOM reduces to squared Euclidean, so the flag defaults
+    # to ``None`` (no space handed to the distance helper) and the
+    # existing behaviour is preserved bit-for-bit.
+    dist_space = space if space.has_nominal else None
+
     if n_select <= 0:
         return []
     if n_select > N:
@@ -189,8 +200,9 @@ def _kennard_stone_array(
     elif anchor == 'maximin':
         avail = np.fromiter(available, dtype=int)
         sub   = norm_pool[avail]
-        diffs = sub[:, None, :] - sub[None, :, :]
-        d2    = np.sum(diffs * diffs, axis=2)
+        # (N_avail, N_avail) squared HEOM distance between all pairs.
+        d2    = heom_squared(sub[:, None, :], sub[None, :, :],
+                             space=dist_space)
         i, j  = np.unravel_index(int(np.argmax(d2)), d2.shape)
         chosen.extend([int(avail[i]), int(avail[j])])
         available.difference_update(chosen)
@@ -214,8 +226,14 @@ def _kennard_stone_array(
         avail = np.fromiter(available, dtype=int)
         ref   = norm_pool[chosen]
         cand  = norm_pool[avail]
-        diffs = cand[:, None, :] - ref[None, :, :]
-        d_min = np.sqrt(np.sum(diffs * diffs, axis=2)).min(axis=1)
+        # Broadcasting gives an (N_cand, N_ref) squared HEOM matrix
+        # in a single call; take sqrt to match the Euclidean scale
+        # used by the original comparison. sqrt is monotone so the
+        # argmax below is unchanged either way; keeping it makes the
+        # code line up with Kennard & Stone (1969) as written.
+        d2    = heom_squared(cand[:, None, :], ref[None, :, :],
+                             space=dist_space)
+        d_min = np.sqrt(d2).min(axis=1)
         best  = int(avail[int(np.argmax(d_min))])
         chosen.append(best)
         available.discard(best)

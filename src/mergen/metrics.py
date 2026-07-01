@@ -100,72 +100,98 @@ _CRIT_OPTIMISES = {
 # Metric functions — all operate on normalised [0,1]^d coordinates
 # ======================================================================
 
-def min_distance(X: np.ndarray) -> float:
-    """
-    Minimum normalised pairwise Euclidean distance (maximin criterion).
+from .distances import heom_pairwise
 
-    Higher values indicate better point separation.
+
+def _pairwise_distances(
+    X:     np.ndarray,
+    space=None,
+) -> np.ndarray:
+    """
+    Flat vector of unique upper-triangle pairwise distances.
+
+    Applies HEOM (Wilson & Martinez 1997) when *space* contains any
+    nominal factor; otherwise reduces to normalised Euclidean, which
+    lets the numerical values reported for all-numerical spaces stay
+    unchanged.
+    """
+    X = np.asarray(X, dtype=float)
+    n = len(X)
+    if n < 2:
+        return np.empty(0)
+    if space is not None and space.has_nominal:
+        D = heom_pairwise(X, space=space, squared=False)
+        iu, ju = np.triu_indices(n, k=1)
+        return D[iu, ju]
+    # Fast path: identical to the pre-categorical implementation.
+    parts = []
+    for i in range(n - 1):
+        parts.append(np.sqrt(np.sum((X[i] - X[i + 1:]) ** 2, axis=1)))
+    return np.concatenate(parts) if parts else np.empty(0)
+
+
+def min_distance(X: np.ndarray, space=None) -> float:
+    """
+    Minimum normalised pairwise distance (maximin criterion).
+
+    Higher values indicate better point separation. When *space*
+    contains nominal factors the pairwise distance is HEOM (Wilson
+    & Martinez 1997); otherwise the standard normalised Euclidean
+    distance is used.
 
     References
     ----------
     Johnson, M. E., Moore, L. M. & Ylvisaker, D. (1990).
         *Journal of Statistical Planning and Inference*, 26(2), 131-148.
+    Wilson, D. R. & Martinez, T. R. (1997). Improved heterogeneous
+        distance functions. *J. Artif. Intell. Res.*, 6, 1-34.
     """
-    X = np.asarray(X, dtype=float)
-    n = len(X)
-    if n < 2:
+    dists = _pairwise_distances(X, space=space)
+    if dists.size == 0:
         return 0.0
-    min_d = np.inf
-    for i in range(n - 1):
-        dists = np.sqrt(np.sum((X[i] - X[i + 1:]) ** 2, axis=1))
-        min_d = min(min_d, float(dists.min()))
-    return float(min_d)
+    return float(dists.min())
 
 
-def mean_distance(X: np.ndarray) -> float:
+def mean_distance(X: np.ndarray, space=None) -> float:
     """
-    Mean normalised pairwise Euclidean distance.
-    Higher values indicate better overall spread.
+    Mean normalised pairwise distance.
+
+    Higher values indicate better overall spread. Uses HEOM in the
+    presence of nominal factors; normalised Euclidean otherwise.
     """
-    X = np.asarray(X, dtype=float)
-    n = len(X)
-    if n < 2:
+    dists = _pairwise_distances(X, space=space)
+    if dists.size == 0:
         return 0.0
-    dists = []
-    for i in range(n - 1):
-        dists.extend(np.sqrt(np.sum((X[i] - X[i + 1:]) ** 2, axis=1)).tolist())
-    return float(np.mean(dists))
+    return float(dists.mean())
 
 
-def cv_distances(X: np.ndarray) -> float:
+def cv_distances(X: np.ndarray, space=None) -> float:
     """
     Coefficient of variation of pairwise distances: std / mean.
 
-    Lower values indicate more uniform spacing.
+    Lower values indicate more uniform spacing. Uses HEOM in the
+    presence of nominal factors; normalised Euclidean otherwise.
 
     References
     ----------
     Lekivetz, R. & Jones, B. (2015).
         *Quality Engineering*, 27(1), 46-52.
     """
-    X = np.asarray(X, dtype=float)
-    n = len(X)
-    if n < 2:
+    dists = _pairwise_distances(X, space=space)
+    if dists.size == 0:
         return 0.0
-    dists = []
-    for i in range(n - 1):
-        dists.extend(np.sqrt(np.sum((X[i] - X[i + 1:]) ** 2, axis=1)).tolist())
-    dists = np.array(dists)
     mu = dists.mean()
     return float(dists.std() / mu) if mu > _EPS else 0.0
 
 
-def minimax(X: np.ndarray, n_eval: int = 5_000) -> float:
+def minimax(X: np.ndarray, space=None, n_eval: int = 5_000) -> float:
     """
     Minimax (fill / coverage) distance.
 
-    The maximum over all evaluation points of the minimum distance to
-    any design point. Lower values indicate better space coverage.
+    The maximum over evaluation grid points of the minimum distance
+    to any design point. Lower values indicate better space
+    coverage. Uses HEOM when *space* has nominal factors so that
+    coverage is defined consistently on mixed spaces.
 
     References
     ----------
@@ -185,26 +211,44 @@ def minimax(X: np.ndarray, n_eval: int = 5_000) -> float:
     else:
         eval_pts = np.random.default_rng(44).uniform(0, 1, (n_eval, d))
 
+    heom_mode = space is not None and space.has_nominal
     max_min = 0.0
     for start in range(0, len(eval_pts), chunk):
-        ep      = eval_pts[start:start + chunk]
-        dists   = np.sqrt(
-            ((ep[:, np.newaxis, :] - X[np.newaxis, :, :]) ** 2).sum(axis=2)
-        )
+        ep = eval_pts[start:start + chunk]
+        if heom_mode:
+            # HEOM squared distance, chunk-vs-X broadcast.
+            from .distances import heom_squared
+            d2 = heom_squared(ep[:, None, :], X[None, :, :], space=space)
+            dists = np.sqrt(d2)
+        else:
+            dists = np.sqrt(
+                ((ep[:, np.newaxis, :] - X[np.newaxis, :, :]) ** 2).sum(axis=2)
+            )
         max_min = max(max_min, float(dists.min(axis=1).max()))
     return float(max_min)
 
 
-def max_abs_correlation(X: np.ndarray) -> float:
+def max_abs_correlation(X: np.ndarray, space=None) -> float:
     """
     Maximum absolute pairwise correlation between parameter columns.
 
     Lower values indicate better orthogonality between parameters.
     A value of 0 means parameters are completely uncorrelated.
+
+    Correlation is defined only on ordered columns, so nominal
+    columns (when *space* is provided and lists any) are excluded
+    from the pairing pool. If fewer than two ordered columns remain
+    the metric returns 0.
     """
     X = np.asarray(X, dtype=float)
     n, d = X.shape
-    if d < 2 or n < 2:
+    if n < 2:
+        return 0.0
+    if space is not None and space.has_nominal:
+        keep = ~space.is_mask
+        X = X[:, keep]
+        d = X.shape[1]
+    if d < 2:
         return 0.0
     Xc    = X - X.mean(axis=0)
     norms = np.sqrt((Xc ** 2).sum(axis=0))
@@ -215,19 +259,29 @@ def max_abs_correlation(X: np.ndarray) -> float:
     return float(np.abs(corr).max())
 
 
-def projection_cd2(X: np.ndarray) -> float:
+def projection_cd2(X: np.ndarray, space=None) -> float:
     """
     Mean centred L2 discrepancy across all 2D projections.
 
     Evaluates uniformity in every pair of parameter dimensions.
     Lower values indicate better 2D projection coverage.
 
+    Nominal columns are excluded from the projection sweep because
+    the CD2 kernel of Hickernell (1998) is defined on ordered
+    :math:`[0, 1]` axes; averaging it over pairs that involve a
+    nominal column would give a value with no interpretation.
+
     References
     ----------
     Liu, H. & Liu, M.-Q. (2023).
         *Canadian Journal of Statistics*, 51(1), 293-311.
+    Hickernell, F. J. (1998). *Mathematics of Computation*, 67(221),
+        299-322.
     """
     X = np.asarray(X, dtype=float)
+    if space is not None and space.has_nominal:
+        keep = ~space.is_mask
+        X = X[:, keep]
     d = X.shape[1]
     if d < 2:
         return 0.0
@@ -249,18 +303,18 @@ _METRIC_FN = {
 }
 
 
-def _compute_metric(name: str, X: np.ndarray) -> float:
+def _compute_metric(name: str, X: np.ndarray, space=None) -> float:
     """Compute a metric by name on normalised design X."""
     if name not in _METRIC_FN:
         raise ValueError(f"Unknown metric '{name}'. "
                          f"Available: {list(_METRIC_FN.keys())}")
-    return float(_METRIC_FN[name](X))
+    return float(_METRIC_FN[name](X, space=space))
 
 
-def _compute_criterion(name: str, X: np.ndarray) -> float:
+def _compute_criterion(name: str, X: np.ndarray, space=None) -> float:
     """Compute a criterion score by name on normalised design X."""
     from .criteria import get_criterion
-    return float(get_criterion(name).evaluate(X, space=None))
+    return float(get_criterion(name).evaluate(X, space=space))
 
 
 # ======================================================================
@@ -276,6 +330,7 @@ def _mc_baseline(
     crit_names:   List[str],
     mc_samples:   int,
     seed:         int = 44,
+    space         = None,
 ) -> Dict[str, np.ndarray]:
     """
     Draw mc_samples random designs of size n from the feasible pool
@@ -301,13 +356,13 @@ def _mc_baseline(
 
         for m in metric_names:
             try:
-                results[m].append(_compute_metric(m, X_norm))
+                results[m].append(_compute_metric(m, X_norm, space=space))
             except Exception:
                 results[m].append(np.nan)
 
         for c in crit_names:
             try:
-                results[c].append(_compute_criterion(c, X_norm))
+                results[c].append(_compute_criterion(c, X_norm, space=space))
             except Exception:
                 results[c].append(np.nan)
 
@@ -406,14 +461,14 @@ def quality_report(
     design_metrics: Dict[str, float] = {}
     for m in metric_names:
         try:
-            design_metrics[m] = _compute_metric(m, X_norm)
+            design_metrics[m] = _compute_metric(m, X_norm, space=space)
         except Exception:
             design_metrics[m] = np.nan
 
     design_criteria: Dict[str, float] = {}
     for c in crit_names:
         try:
-            design_criteria[c] = _compute_criterion(c, X_norm)
+            design_criteria[c] = _compute_criterion(c, X_norm, space=space)
         except Exception:
             design_criteria[c] = np.nan
 
@@ -426,7 +481,7 @@ def quality_report(
         mc_vals = _mc_baseline(
             gs, gmins, granges, n,
             metric_names, crit_names,
-            mc_samples
+            mc_samples, space=space,
         )
         if verbose:
             print(f"  {_GREEN}[METRICS]{_RESET}  "
