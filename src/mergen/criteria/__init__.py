@@ -47,6 +47,7 @@ from .maxpro     import MaxPro
 from .maxproqq   import MaxProQQ
 from .phi_p      import PhiP
 from .cd2        import CD2
+from .qqd        import QQD
 from .stratified import StratifiedL2
 
 
@@ -57,6 +58,7 @@ __all__ = [
     "MaxProQQ",
     "PhiP",
     "CD2",
+    "QQD",
     "StratifiedL2",
     "get_criterion",
     "list_criteria",
@@ -72,6 +74,7 @@ _REGISTRY: dict = {
     'phi_p'         : PhiP,
     'phip'          : PhiP,         # alias
     'cd2'           : CD2,
+    'qqd'           : QQD,
     'stratified'    : StratifiedL2,
     'stratified_l2' : StratifiedL2,  # alias
 }
