@@ -34,7 +34,6 @@ Lourenço, H. R., Martin, O. C. & Stützle, T. (2003). Iterated local
 
 from __future__ import annotations
 
-import random
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 
@@ -433,34 +432,31 @@ class SCEOptimizer(BaseOptimizer):
                     size=n_kick, replace=False,
                 )
 
-                # Use rng-driven random.Random to keep
-                # gs.random_point_excluding reproducible without
-                # polluting the global RNG.
-                kick_rand = random.Random(int(base_seed) + n_local_opt * 7919)
-                _saved    = random.getstate()
-                random.seed(kick_rand.randint(0, 2**31 - 1))
-                try:
-                    for ki in kick_rows:
-                        new_raw, new_idx = gs.random_point_excluding(reserved)
-                        if new_raw is None:
-                            continue
-                        if constraints is not None:
-                            p = dict(zip(param_names, new_raw))
-                            try:
-                                if not all(c(p) for c in constraints):
-                                    continue
-                            except (TypeError, KeyError):
+                # Draw replacement points from the local numpy Generator
+                # so that reproducibility does not depend on the global
+                # Python random state (which is not synchronised between
+                # a joblib parent and its worker processes).
+                for ki in kick_rows:
+                    new_raw, new_idx = gs.random_point_excluding(
+                        reserved, rng=rng,
+                    )
+                    if new_raw is None:
+                        continue
+                    if constraints is not None:
+                        p = dict(zip(param_names, new_raw))
+                        try:
+                            if not all(c(p) for c in constraints):
                                 continue
-                        old_idx = gs.point_to_index(design[ki])
-                        if old_idx >= 0:
-                            reserved.discard(old_idx)
-                        reserved.add(new_idx)
-                        design[ki] = new_raw
-                        X_norm[ki - crit_start] = (
-                            (new_raw - gmins) / granges
-                        )
-                finally:
-                    random.setstate(_saved)
+                        except (TypeError, KeyError):
+                            continue
+                    old_idx = gs.point_to_index(design[ki])
+                    if old_idx >= 0:
+                        reserved.discard(old_idx)
+                    reserved.add(new_idx)
+                    design[ki] = new_raw
+                    X_norm[ki - crit_start] = (
+                        (new_raw - gmins) / granges
+                    )
 
                 raw_score = criterion.evaluate(X_norm, space)
                 score_at_last_kick = best_score

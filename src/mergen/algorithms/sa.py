@@ -483,7 +483,7 @@ class SAOptimizer(BaseOptimizer):
             return False, raw_score, X_norm, reserved
 
         # Draw a fresh grid point that is currently unused
-        new_raw, new_idx = gs.random_point_excluding(reserved)
+        new_raw, new_idx = gs.random_point_excluding(reserved, rng=rng)
         if new_raw is None:
             return False, raw_score, X_norm, reserved
 
@@ -547,7 +547,7 @@ class SAOptimizer(BaseOptimizer):
         probe_pts = []
         probe_res: set = set()
         while len(probe_pts) < min(n_crit, gs.n_candidates):
-            pt, idx = gs.random_point_excluding(probe_res)
+            pt, idx = gs.random_point_excluding(probe_res, rng=rng)
             if pt is None:
                 break
             probe_pts.append(pt)
@@ -650,7 +650,7 @@ class SAOptimizer(BaseOptimizer):
 
         for i in kick_rows:
             for _ in range(20):  # up to 20 attempts to find a feasible replacement
-                new_pt, new_idx = gs.random_point_excluding(reserved)
+                new_pt, new_idx = gs.random_point_excluding(reserved, rng=rng)
                 if new_pt is None:
                     break
                 if constraints:

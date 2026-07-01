@@ -826,6 +826,7 @@ class GridSampler:
         self,
         reserved: set,
         max_tries: int = 100_000,
+        rng:      Optional[np.random.Generator] = None,
     ):
         """
         Draw a uniformly random feasible grid point not in *reserved*.
@@ -836,8 +837,18 @@ class GridSampler:
 
         Parameters
         ----------
-        reserved  : set of int — indices to skip
-        max_tries : int — upper bound on rejection sampling attempts
+        reserved  : set of int
+            Indices to skip.
+        max_tries : int, default 100000
+            Upper bound on rejection sampling attempts.
+        rng : numpy.random.Generator, optional
+            Random source. If ``None`` (default), Python's global
+            ``random`` module is used for backward compatibility with
+            existing callers. Pass an explicit generator to make the
+            call reproducible independently of the global random state
+            — essential when running under joblib workers, where each
+            process has its own global state that is not synchronised
+            with the parent process.
 
         Returns
         -------
@@ -846,8 +857,13 @@ class GridSampler:
         constraints = self._space._constraints
         names       = self._space.names
 
+        if rng is None:
+            _draw = lambda: random.randint(0, self.n_candidates - 1)
+        else:
+            _draw = lambda: int(rng.integers(0, self.n_candidates))
+
         for _ in range(max_tries):
-            idx = random.randint(0, self.n_candidates - 1)
+            idx = _draw()
             if idx in reserved:
                 continue
             pt = self.index_to_point(idx)
