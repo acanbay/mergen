@@ -120,9 +120,19 @@ def _column_contribution(
     -------
     np.ndarray
         The squared contribution used in the product term.
+
+    Notes
+    -----
+    Continuous columns are floored at ``_EPS`` following the same
+    convention as :class:`~mergen.criteria.MaxPro`: when two rows
+    collide on a continuous column the theoretical contribution is
+    zero, which would make the pairwise denominator vanish. The
+    floor keeps the criterion finite, which lets SA / SCE keep
+    exploring past the collision instead of stalling on ``+inf``
+    scores.
     """
     if kind == 'continuous':
-        return diff * diff
+        return np.maximum(diff * diff, _EPS)
     if kind == 'quantitative_discrete':
         return (np.abs(diff) + 1.0 / size) ** 2
     # kind == 'nominal'
@@ -248,14 +258,11 @@ class MaxProQQ(BaseCriterion):
         iu, ju = np.triu_indices(n, k=1)
         pair_prod = prod[iu, ju]
 
+        # Continuous columns are floored at _EPS in
+        # _column_contribution, so pair_prod is strictly positive
+        # even when two rows collide on every column. The optional
+        # delta adds an extra safety cushion.
         denom = pair_prod + self.delta
-        # Additional safety: if delta == 0 and a denom is exactly zero
-        # (two rows collide on every continuous column, only possible
-        # when the search violates the LHD assumption), the score is
-        # +inf — report it as such so the optimiser rejects the move.
-        if np.any(denom <= 0.0):
-            return float('inf')
-
         return float(np.sum(1.0 / denom))
 
     # ── incremental (single-point swap) ────────────────────────────
@@ -313,21 +320,17 @@ class MaxProQQ(BaseCriterion):
         old_prod = np.prod(old_contrib_cols, axis=-1)
         new_prod = np.prod(new_contrib_cols, axis=-1)
 
+        # Continuous contributions are floored at _EPS in
+        # _column_contribution, so both denom vectors are strictly
+        # positive. Optional delta adds an extra safety cushion.
         old_denom = old_prod + self.delta
         new_denom = new_prod + self.delta
-
-        # If new_denom hits zero we would return an infinite score —
-        # let the optimiser see it and reject the move.
-        if np.any(new_denom <= 0.0):
-            return float('inf'), float('inf')
 
         old_contrib = float(np.sum(1.0 / old_denom))
         new_contrib = float(np.sum(1.0 / new_denom))
 
         new_score = current_score - old_contrib + new_contrib
         if new_score <= 0.0:
-            # Numerical drift below the safety floor; treat as _EPS
-            # so log() stays finite.
             new_score = _EPS
 
         log_delta = float(np.log(new_score) - np.log(max(current_score, _EPS)))
