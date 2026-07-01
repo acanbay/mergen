@@ -776,8 +776,8 @@ def plot_quality(result, title: bool = True,
     # Legend outside plot area
     from matplotlib.patches import Patch
     legend_elements = [
-        Patch(facecolor='#2a9d8f', label='≥ 75th percentile'),
-        Patch(facecolor='#e9c46a', label='50–75th percentile'),
+        Patch(facecolor='#2a9d8f', label='>= 75th percentile'),
+        Patch(facecolor='#e9c46a', label='50-75th percentile'),
         Patch(facecolor='#e63946', label='< 50th percentile'),
         Line2D([0], [0], color='#333333', lw=1.2, ls='--', label='Baseline'),
     ]
@@ -863,7 +863,7 @@ def plot_comparison(result, title: bool = True,
     ax.set_axisbelow(True)
 
     if title:
-        ax.set_title(f"Algorithm comparison  ·  best = {best}",
+        ax.set_title(f"Algorithm comparison  --  best = {best}",
                      fontsize=11, pad=10)
 
     fig.tight_layout()
@@ -1007,7 +1007,7 @@ def _report_header(result) -> str:
         ]
         ranked = sorted(alg_results.items(), key=lambda kv: kv[1].score)
         for name, res in ranked:
-            mark = "★" if name == getattr(result, 'best_algorithm', None) else " "
+            mark = "*" if name == getattr(result, 'best_algorithm', None) else " "
             lines.append(
                 f"  {mark} {name:<8} score={res.score:<12.6g} "
                 f"elapsed={res.elapsed:.2f}s  n_iter={res.n_iter}"

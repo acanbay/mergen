@@ -78,6 +78,7 @@ Kennard, R. W. & Stone, L. A. (1969).
 
 from __future__ import annotations
 
+import os
 import random
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
@@ -104,6 +105,134 @@ def _warn(msg: str)  -> None: print(f"  {_YELLOW}[WARNING]{_RESET}  {msg}")
 def _ok(msg: str)    -> None: print(f"  {_GREEN}[MERGEN]{_RESET}   {msg}")
 def _fatal(msg: str) -> None:
     raise ValueError(f"\n{_RED}[MERGEN ERROR]{_RESET}  {msg}")
+
+
+# ======================================================================
+# Parallelism helpers
+# ======================================================================
+
+def _resolve_n_jobs(n_jobs: Optional[int]) -> int:
+    """
+    Convert a user-supplied ``n_jobs`` into a concrete positive integer
+    in the range ``[1, cpu_count]`` following the joblib convention.
+
+    Mapping (with ``cpu = os.cpu_count()``):
+
+    - ``None``         -> 1
+    - ``1, 2, ..., cpu`` -> as-is
+    - ``-1``           -> cpu
+    - ``-2``           -> cpu - 1
+    - ``-N``           -> cpu - N + 1
+
+    Invalid inputs (``0``, ``n > cpu``, ``n <= -cpu``, non-int) raise
+    a fatal error so the user can correct the call before any heavy
+    work starts.
+    """
+    cpu = os.cpu_count() or 1
+
+    if n_jobs is None:
+        return 1
+    if not isinstance(n_jobs, (int, np.integer)) or isinstance(n_jobs, bool):
+        _fatal(
+            f"n_jobs must be an integer or None; got "
+            f"{type(n_jobs).__name__}."
+        )
+    n_jobs = int(n_jobs)
+
+    if n_jobs == 0:
+        _fatal(
+            "n_jobs=0 is not allowed. Use 1 for sequential, a positive "
+            "integer for a fixed number of workers, or -1 to use all "
+            f"{cpu} CPU(s)."
+        )
+    if n_jobs > cpu:
+        _fatal(
+            f"n_jobs={n_jobs} exceeds the number of available CPUs "
+            f"({cpu}). Specify 1 <= n_jobs <= {cpu}, or use n_jobs=-1 "
+            f"for all CPUs."
+        )
+    if n_jobs > 0:
+        return n_jobs
+    # n_jobs < 0
+    if n_jobs <= -cpu:
+        _fatal(
+            f"n_jobs={n_jobs} is too negative. With {cpu} CPU(s), the "
+            f"valid negative range is -{cpu - 1} <= n_jobs <= -1 "
+            f"(equivalent positive values 1..{cpu})."
+        )
+    return cpu + 1 + n_jobs
+
+
+def _run_one_algorithm_task(
+    alg_name:        str,
+    params:          dict,
+    anchors:         np.ndarray,
+    budget:          int,
+    initial_reserved: set,
+    space:           "ParameterSpace",
+    criterion:       "BaseCriterion",
+    prescribed_in_pts:           List[np.ndarray],
+    focus_in_pts:                List[np.ndarray],
+    in_design_sa_prescribed:     List[np.ndarray],
+    focus_sa_in_design_sampled:  List[np.ndarray],
+    n_dims:          int,
+    n_frozen:        int,
+    crit_start:      int,
+    seed:            int,
+    verbose:         bool,
+):
+    """
+    Run a single optimiser end-to-end (initial design + optimise).
+
+    Top-level (module-scope) function so that joblib's pickling-based
+    multiprocessing backend can serialise the task. Called sequentially
+    from ``Sampler.run`` when ``n_jobs == 1`` and from a joblib
+    ``Parallel`` pool when ``n_jobs > 1``.
+    """
+    from .algorithms import get_optimizer
+
+    opt_cls   = get_optimizer(alg_name)
+    optimiser = opt_cls(**params)
+
+    # Per-algorithm initial design — each algorithm chooses its own
+    # starting layout via prepare_initial_design().
+    alg_reserved = set(initial_reserved)
+    seed_design, alg_reserved = optimiser.prepare_initial_design(
+        anchors  = anchors,
+        budget   = budget,
+        space    = space,
+        reserved = alg_reserved,
+        seed     = seed,
+    )
+
+    # Re-assemble the design with criterion-blind frozen rows on top.
+    # This mirrors Sampler._assemble_initial_design without needing the
+    # Sampler instance itself (which would not pickle cleanly).
+    sa_set            = {tuple(p) for p in in_design_sa_prescribed}
+    blind_prescribed  = [p for p in prescribed_in_pts
+                         if tuple(p) not in sa_set]
+    sa_focus_set      = {tuple(p) for p in focus_sa_in_design_sampled}
+    blind_focus       = [p for p in focus_in_pts
+                         if tuple(p) not in sa_focus_set]
+
+    parts: List[np.ndarray] = []
+    if blind_prescribed:
+        parts.append(np.array(blind_prescribed, dtype=float))
+    if blind_focus:
+        parts.append(np.array(blind_focus, dtype=float))
+    parts.append(seed_design)
+    full_design = (np.vstack(parts) if parts
+                   else np.empty((0, n_dims)))
+
+    return optimiser.optimize(
+        initial_design = full_design,
+        space          = space,
+        criterion      = criterion,
+        n_frozen       = n_frozen,
+        crit_start     = crit_start,
+        seed           = seed,
+        verbose        = verbose,
+    )
 
 
 # ======================================================================
@@ -316,7 +445,7 @@ class SamplingResult:
                 key=lambda kv: kv[1].score,
             )
             for name, res in ranked:
-                mark = " ★" if name == self.best_algorithm else "  "
+                mark = " *" if name == self.best_algorithm else "  "
                 print(f"  {mark} {name:<6} : score={res.score:.6g}  "
                       f"elapsed={res.elapsed:.2f}s  n_iter={res.n_iter}")
         print(f"{sep}\n")
@@ -713,6 +842,7 @@ class Sampler:
         criteria:  Union[str, List[str], BaseCriterion] = 'umaxpro',
         algorithm: Union[str, List[str]]                = 'sa',
         seed:      Optional[int]                        = 44,
+        n_jobs:    Optional[int]                        = None,
         verbose:   bool                                  = True,
     ) -> SamplingResult:
         """
@@ -734,6 +864,17 @@ class Sampler:
             Default ``'sa'``.
         seed : int or None
             Random seed for reproducibility (default 44).
+        n_jobs : int or None, optional
+            Number of parallel workers for the multi-algorithm
+            dispatcher. ``None`` (default) and ``1`` run sequentially.
+            Positive integers request that many workers (up to the
+            number of CPUs). Negative integers follow the joblib
+            convention: ``-1`` for all CPUs, ``-2`` for all but one,
+            and so on. Parallelism applies only across distinct
+            algorithms; the per-algorithm restart loop is ILS-based
+            and therefore intentionally serial. When ``n_jobs`` is
+            greater than the number of algorithms, the extra workers
+            are unused.
         verbose : bool, optional
             Print progress information. Default ``True``.
 
@@ -806,7 +947,7 @@ class Sampler:
             n_global = self._n_samples
             if n_global < loeppky:
                 _warn(
-                    f"n_samples ({n_global}) < recommended 10×n_parameters "
+                    f"n_samples ({n_global}) < recommended 10*n_parameters "
                     f"({loeppky}, Loeppky et al. 2009). Design quality may "
                     f"be reduced."
                 )
@@ -963,70 +1104,114 @@ class Sampler:
         # ── Run the requested optimiser(s) ──────────────────────────────
         from .algorithms import get_optimizer
 
+        # Resolve n_jobs and decide whether to parallelise.
+        # Parallelism applies *only* across distinct algorithms; the
+        # per-algorithm restart loop is ILS-based and intentionally
+        # serial (each restart kicks from the previous best — see
+        # Lourenco, Martin & Stutzle (2003) Handbook of Metaheuristics).
+        n_jobs_resolved = _resolve_n_jobs(n_jobs)
+        n_algos         = len(algorithm_names)
+        effective_n_jobs = min(n_jobs_resolved, n_algos)
+        run_in_parallel = effective_n_jobs > 1 and n_algos > 1
+
+        # Validate all algorithm names up front (better error than
+        # discovering a typo three workers in).
+        for alg_name in algorithm_names:
+            try:
+                get_optimizer(alg_name)
+            except KeyError:
+                _fatal(
+                    f"Optimiser {alg_name!r} is not registered. "
+                    f"Available: "
+                    f"{sorted(get_optimizer.__globals__.get('_OPTIMIZER_REGISTRY', {}).keys())}"
+                )
+                raise
+
+        # ── Progress messages ──
         if verbose:
             algos_str = ", ".join(algorithm_names)
-            _ok(f"Starting optimisation "
-                f"(criterion={crit_name}, algorithm(s)={algos_str})")
+            if run_in_parallel:
+                msg = (f"Optimising in parallel (criterion={crit_name}, "
+                       f"algorithms={algos_str}, n_jobs={effective_n_jobs})...")
+                if n_jobs_resolved > effective_n_jobs:
+                    extra = n_jobs_resolved - effective_n_jobs
+                    msg += (f"  [note: {n_jobs_resolved} workers requested, "
+                            f"only {effective_n_jobs} needed; "
+                            f"{extra} unused]")
+                _ok(msg)
+            else:
+                if n_jobs_resolved > 1 and n_algos == 1:
+                    _ok(
+                        f"n_jobs={n_jobs_resolved} requested but only one "
+                        f"algorithm to dispatch; running sequentially "
+                        f"(per-algorithm restart loop is ILS-based and "
+                        f"cannot be parallelised)."
+                    )
+                _ok(f"Optimising (criterion={crit_name}, "
+                    f"algorithm{'s' if n_algos > 1 else ''}={algos_str})...")
+
         t_run_start = time.perf_counter()
 
         # Per-algorithm results
         algorithm_results: Dict[str, "OptimisationResult"] = {}
 
-        for alg_name in algorithm_names:
+        # Build the per-algorithm task arguments once; reused for both
+        # the sequential and parallel paths so they share a single code
+        # path for the heavy lifting.
+        budget   = n_optimised_slots - (1 if _corner_used else 0)
+        eff_seed = seed if seed is not None else 44
+        tasks_args = [
+            dict(
+                alg_name                    = alg_name,
+                params                      = self._optimizer_params.get(alg_name, {}),
+                anchors                     = anchors.copy(),
+                budget                      = budget,
+                initial_reserved            = set(initial_reserved),
+                space                       = space,
+                criterion                   = criterion,
+                prescribed_in_pts           = prescribed_in_pts,
+                focus_in_pts                = focus_in_pts,
+                in_design_sa_prescribed     = in_design_sa_prescribed,
+                focus_sa_in_design_sampled  = focus_sa_in_design_sampled,
+                n_dims                      = n_dims,
+                n_frozen                    = n_frozen,
+                crit_start                  = crit_start,
+                seed                        = eff_seed,
+                # In parallel mode, suppress per-task verbose output so
+                # worker streams do not interleave.
+                verbose                     = (verbose and not run_in_parallel),
+            )
+            for alg_name in algorithm_names
+        ]
+
+        if run_in_parallel:
+            from joblib import Parallel, delayed
+            # Workers spawn fresh Python processes that re-import mergen;
+            # set MERGEN_SILENT in the child env so each worker does not
+            # print the package banner on import.
+            _prev_silent = os.environ.get('MERGEN_SILENT')
+            os.environ['MERGEN_SILENT'] = '1'
             try:
-                opt_cls = get_optimizer(alg_name)
-            except KeyError as e:
-                _fatal(f"Optimiser {alg_name!r} is not registered. "
-                       f"Available: {sorted(get_optimizer.__globals__.get('_OPTIMIZER_REGISTRY', {}).keys())}")
-                raise
-
-            # Instantiate with user-supplied params (or defaults)
-            params = self._optimizer_params.get(alg_name, {})
-            optimiser = opt_cls(**params)
-
-            if verbose and len(algorithm_names) > 1:
-                _ok(f"--- Algorithm: {alg_name} ---")
-
-            # ── Per-algorithm initial design ──
-            # Each optimiser builds its own starting design via
-            # prepare_initial_design(); the default produces a balanced
-            # LHS (Joseph et al. 2018) which matches what SA, SCE, and
-            # ESE were originally designed against, but subclasses may
-            # override for non-LHS algorithms.
-            alg_reserved = initial_reserved.copy()
-            seed_design, alg_reserved = optimiser.prepare_initial_design(
-                anchors  = anchors,
-                budget   = n_optimised_slots - (1 if _corner_used else 0),
-                space    = space,
-                reserved = alg_reserved,
-                seed     = (seed if seed is not None else 44),
-            )
-
-            # Assemble the full design with criterion-blind frozen rows
-            # at the top and the optimiser-visible rows below.
-            full_design = self._assemble_initial_design(
-                prescribed_in_pts, focus_in_pts,
-                in_design_sa_prescribed, focus_sa_in_design_sampled,
-                seed_design, n_dims,
-            )
-
-            # Hand off to the optimiser; it owns the restart logic and
-            # any algorithm-specific kicks.
-            result = optimiser.optimize(
-                initial_design = full_design,
-                space          = space,
-                criterion      = criterion,
-                n_frozen       = n_frozen,
-                crit_start     = crit_start,
-                seed           = seed if seed is not None else 44,
-                verbose        = verbose,
-            )
-
-            algorithm_results[alg_name] = result
-
-            if verbose:
-                _ok(f"{alg_name}: log(score)={np.log(max(result.score, _EPS)):.3f} "
-                    f"(elapsed {self._fmt_time(result.elapsed)})")
+                results_list = Parallel(n_jobs=effective_n_jobs)(
+                    delayed(_run_one_algorithm_task)(**ta) for ta in tasks_args
+                )
+            finally:
+                if _prev_silent is None:
+                    os.environ.pop('MERGEN_SILENT', None)
+                else:
+                    os.environ['MERGEN_SILENT'] = _prev_silent
+            for alg_name, result in zip(algorithm_names, results_list):
+                algorithm_results[alg_name] = result
+                if verbose:
+                    _ok(f"{alg_name:<6} done -- score={result.score:.4g}  "
+                        f"(elapsed {self._fmt_time(result.elapsed)})")
+        else:
+            for ta, alg_name in zip(tasks_args, algorithm_names):
+                result = _run_one_algorithm_task(**ta)
+                algorithm_results[alg_name] = result
+                if verbose:
+                    _ok(f"{alg_name:<6} done -- score={result.score:.4g}  "
+                        f"(elapsed {self._fmt_time(result.elapsed)})")
 
         t_elapsed = time.perf_counter() - t_run_start
 
@@ -1037,8 +1222,7 @@ class Sampler:
         best_score     = algorithm_results[best_algorithm].score
 
         if verbose and len(algorithm_names) > 1:
-            _ok(f"Best algorithm: {best_algorithm}  "
-                f"log(score)={np.log(max(best_score, _EPS)):.3f}  "
+            _ok(f"Best: {best_algorithm}  score={best_score:.4g}  "
                 f"(total elapsed {self._fmt_time(t_elapsed)})")
 
         # Reconstruct reserved set from the final design (used downstream
