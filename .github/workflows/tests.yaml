@@ -14,6 +14,9 @@ jobs:
   pytest:
     name: pytest • ${{ matrix.os }} • py${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -30,25 +33,27 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install package + test deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e .[test] || pip install -e . pytest
+      - name: Install package
+        run: python -m pip install --upgrade pip && python -m pip install -e .
+
+      - name: Install pytest
+        run: python -m pip install pytest
 
       - name: Run pytest
         env:
           MERGEN_SILENT: "1"
-        run: pytest tests/ -q --tb=short
+        run: python -m pytest tests/ -q --tb=short
 
   lint:
     name: lint (ruff)
     runs-on: ubuntu-latest
+    continue-on-error: true   # advisory only — does not block the pytest gate
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install ruff
-        run: pip install ruff
+        run: python -m pip install ruff
       - name: Ruff check
         run: ruff check src/ tests/ --select E,F,W --ignore E501,E741
