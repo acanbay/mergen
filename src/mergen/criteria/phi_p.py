@@ -13,7 +13,6 @@ Morris, M. D. & Mitchell, T. J. (1995). Exploratory designs for
 
 from __future__ import annotations
 
-from typing import Tuple
 
 import numpy as np
 
@@ -60,7 +59,8 @@ class PhiP(BaseCriterion):
         # current inner sum from the current Φ_p score, subtract the
         # contributions involving point i (old), add the new ones, then
         # re-apply the 1/p root.
-        mask   = np.ones(len(X), dtype=bool);  mask[i] = False
+        mask   = np.ones(len(X), dtype=bool)
+        mask[i] = False
         others = X[mask]
 
         d_old = np.sqrt(np.sum((X[i]   - others) ** 2, axis=1))
@@ -84,7 +84,8 @@ class PhiP(BaseCriterion):
         per-pair contribution d^(-p), supporting O(n) updates when only one
         coordinate of point *i* changes.
         """
-        mask   = np.ones(len(X), dtype=bool);  mask[i] = False
+        mask   = np.ones(len(X), dtype=bool)
+        mask[i] = False
         others = X[mask]
         sq     = (X[i] - others) ** 2                # (n-1, d) per-axis
         d2_tot = np.sum(sq, axis=1)                  # (n-1,) squared distance

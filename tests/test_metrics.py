@@ -6,8 +6,7 @@ import pytest
 
 import mergen
 from mergen.metrics import (
-    min_distance, mean_distance, cv_distances, minimax,
-    max_abs_correlation, projection_cd2,
+    min_distance, max_abs_correlation, projection_cd2,
 )
 
 

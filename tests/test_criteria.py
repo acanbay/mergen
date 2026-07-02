@@ -72,7 +72,8 @@ class TestMaxProQQ:
         X = np.column_stack([rng.random(10), rng.choice([0.0, 0.5, 1.0], 10)])
         crit = MaxProQQ()
         s0 = crit.evaluate(X, mixed_space)
-        X_new = X.copy();  X_new[3] = np.array([0.42, 0.5])
+        X_new = X.copy()
+        X_new[3] = np.array([0.42, 0.5])
         s_full = crit.evaluate(X_new, mixed_space)
         _, s_inc = crit.incremental(X, 3, X_new[3], mixed_space, s0)
         assert np.isclose(s_full, s_inc, rtol=1e-9)
@@ -91,7 +92,8 @@ class TestQQD:
     def test_zhou_2021_example_D1_exact(self):
         """QQD²(D^(1)) == 0.0213 from Zhang, Yang & Zhou (2021)."""
         raw = np.array([0, 2, 4, 6, 1, 3, 5, 7])
-        transform = lambda x: (2.0 * x + 1.0) / 16.0
+        def transform(x):
+            return (2.0 * x + 1.0) / 16.0
         D1_nom = np.array([0, 0, 0, 0, 1, 1, 1, 1]) / 1.0
         D_1 = np.column_stack([D1_nom, transform(raw), transform(raw)])
         space = mergen.ParameterSpace({
@@ -111,7 +113,8 @@ class TestQQD:
         X = np.column_stack([rng.random(10), rng.choice([0.0, 0.5, 1.0], 10)])
         crit = QQD()
         s0 = crit.evaluate(X, mixed_space)
-        X_new = X.copy();  X_new[3] = np.array([0.42, 0.5])
+        X_new = X.copy()
+        X_new[3] = np.array([0.42, 0.5])
         s_full = crit.evaluate(X_new, mixed_space)
         _, s_inc = crit.incremental(X, 3, X_new[3], mixed_space, s0)
         assert np.isclose(s_full, s_inc, rtol=1e-12)

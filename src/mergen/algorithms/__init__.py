@@ -168,9 +168,9 @@ def list_optimizers() -> List[str]:
 # ── Auto-register built-in optimisers ────────────────────────────────────
 # Algorithms register themselves as their modules are imported here.
 
-from .sa  import SAOptimizer
-from .sce import SCEOptimizer
-from .ese import ESEOptimizer
+from .sa  import SAOptimizer   # noqa: E402
+from .sce import SCEOptimizer  # noqa: E402
+from .ese import ESEOptimizer  # noqa: E402
 register_optimizer('sa',  SAOptimizer)
 register_optimizer('sce', SCEOptimizer)
 register_optimizer('ese', ESEOptimizer)

@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from abc      import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing   import TYPE_CHECKING, Any, Dict, Optional
+from typing   import TYPE_CHECKING, Any, Dict
 
 import numpy as np
 

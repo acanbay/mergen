@@ -11,7 +11,6 @@ Joseph, V. R., Gul, E. & Ba, S. (2015). Maximum projection designs
 
 from __future__ import annotations
 
-from typing import Tuple
 
 import numpy as np
 
@@ -47,7 +46,8 @@ class MaxPro(BaseCriterion):
         return max(score, _EPS)
 
     def incremental(self, X, i, new_pt, space, current_score):
-        mask   = np.ones(len(X), dtype=bool);  mask[i] = False
+        mask   = np.ones(len(X), dtype=bool)
+        mask[i] = False
         others = X[mask]
 
         sq_old = np.maximum((X[i]   - others) ** 2, _EPS)
@@ -62,7 +62,8 @@ class MaxPro(BaseCriterion):
 
     def begin_1d(self, X, i, current_score):
         """Precompute per-pair contributions and per-axis squared distances."""
-        mask   = np.ones(len(X), dtype=bool);  mask[i] = False
+        mask   = np.ones(len(X), dtype=bool)
+        mask[i] = False
         others = X[mask]
         sq     = np.maximum((X[i] - others) ** 2, _EPS)
         contribs = 1.0 / np.prod(sq, axis=1)

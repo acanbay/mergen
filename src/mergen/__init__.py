@@ -91,6 +91,8 @@ __all__ = [
     "SamplingResult",
     "FocusPoint",
     "ExclusionPoint",
+    "sequential",
+    "distances",
 ]
 
 # NOTE: Algorithms are added in subsequent phases:
@@ -127,6 +129,6 @@ def info() -> None:
 
 # Print banner on import.
 # To suppress: set environment variable MERGEN_SILENT=1 before importing.
-import os as _os
+import os as _os  # noqa: E402
 if not _os.environ.get('MERGEN_SILENT'):
     print(_banner())

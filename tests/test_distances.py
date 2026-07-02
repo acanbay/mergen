@@ -4,7 +4,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import mergen
 from mergen.distances import heom, heom_squared, heom_pairwise
 
 

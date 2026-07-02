@@ -45,7 +45,7 @@ Dupuy, D., Helbert, C. & Franco, J. (2015). DiceDesign and DiceEval:
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -408,9 +408,6 @@ class ESEOptimizer(BaseOptimizer):
             # We adapt based on the acceptance and improvement counts
             # *over the last outer iteration*. To keep state minimal we
             # use the running counts since the last adaptation.
-            local_iter = self.M
-            local_acc  = n_total_accepted    # cumulative — used as proxy
-            local_imp  = n_total_improved
             acc_ratio  = (n_total_accepted / max(1, n_total_iter))
             imp_ratio  = (n_total_improved / max(1, n_total_iter))
 

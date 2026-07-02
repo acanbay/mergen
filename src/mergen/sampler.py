@@ -91,7 +91,6 @@ from .criteria import (
     BaseCriterion,
     get_criterion,
     nominal_supporting_criteria,
-    _EPS as _CRIT_EPS,
 )
 
 # ── Terminal colours ──────────────────────────────────────────────────────
@@ -411,7 +410,7 @@ class SamplingResult:
         W   = 52
         sep = "─" * W
         print(f"\n{sep}")
-        print(f"  MERGEN Design Summary")
+        print("  MERGEN Design Summary")
         print(sep)
         for label in (self.PRESCRIBED, self.FOCUS, self.OPTIMISED):
             n = vc.get(label, 0)
@@ -442,7 +441,7 @@ class SamplingResult:
         # Per-algorithm scores when multiple were run
         if len(self.algorithm_results) > 1:
             print(sep)
-            print(f"  Per-algorithm scores")
+            print("  Per-algorithm scores")
             print(sep)
             # Sort by score (best first)
             ranked = sorted(
@@ -1031,7 +1030,7 @@ class Sampler:
                 prescribed_sa_pts.append(pt)
 
         # ── Focus / exclusion sampling ─────────────────────────────────
-        print(f"  [MERGEN]   Sampling focus / exclusion regions...",
+        print("  [MERGEN]   Sampling focus / exclusion regions...",
               flush=True)
         focus_in_pts, focus_out_pts, focus_sa_pts, repel_weights, reserved = \
             self._build_focus_exclusion(gs, gmins, granges, reserved)
@@ -1054,8 +1053,6 @@ class Sampler:
                                    if in_d and in_s]
         if in_design_sa_prescribed:
             anchor_parts.append(np.array(in_design_sa_prescribed, dtype=float))
-        in_design_sa_focus = [fp.point for fp in self._focus
-                              if fp.in_design and fp.in_optim]
         # focus_in_pts contains the *sampled* focus points
         # (centres + neighbours).  For anchoring, the centres alone
         # would under-utilise the focus structure; instead we anchor on
@@ -1098,7 +1095,7 @@ class Sampler:
         # BaseOptimizer is a balanced LHS (Joseph, Gul & Ba 2018),
         # which matches what SA, SCE and ESE expect from the
         # literature; subclasses may override for non-LHS algorithms.
-        print(f"  [MERGEN]   Preparing anchor points...", flush=True)
+        print("  [MERGEN]   Preparing anchor points...", flush=True)
 
         # Anchors = prescribed_in + focus_in (any explicit user points
         # that must appear unchanged in every optimiser's design).
@@ -1182,7 +1179,7 @@ class Sampler:
         t_run_start = time.perf_counter()
 
         # Per-algorithm results
-        algorithm_results: Dict[str, "OptimisationResult"] = {}
+        algorithm_results: Dict[str, Any] = {}
 
         # Build the per-algorithm task arguments once; reused for both
         # the sequential and parallel paths so they share a single code
@@ -1377,8 +1374,10 @@ class Sampler:
 
     @staticmethod
     def _fmt_time(seconds: float) -> str:
-        if seconds < 60:   return f"{seconds:.1f}s"
-        if seconds < 3600: return f"{seconds / 60:.1f} min"
+        if seconds < 60:
+            return f"{seconds:.1f}s"
+        if seconds < 3600:
+            return f"{seconds / 60:.1f} min"
         return f"{seconds / 3600:.1f} hr"
 
     # ------------------------------------------------------------------ #

@@ -49,7 +49,7 @@ from __future__ import annotations
 import itertools
 import random
 import warnings
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -971,9 +971,11 @@ class GridSampler:
         names       = self._space.names
 
         if rng is None:
-            _draw = lambda: random.randint(0, self.n_candidates - 1)
+            def _draw():
+                return random.randint(0, self.n_candidates - 1)
         else:
-            _draw = lambda: int(rng.integers(0, self.n_candidates))
+            def _draw():
+                return int(rng.integers(0, self.n_candidates))
 
         for _ in range(max_tries):
             idx = _draw()

@@ -270,7 +270,6 @@ class SCEOptimizer(BaseOptimizer):
         max_ils_kicks      = int(self.max_ils_kicks)
 
         n_accepted         = 0
-        last_improve_iter  = 0
         log_interval       = max(max_iter // 10, 500)
         n_local_opt        = 0
         score_at_last_kick = best_score
@@ -298,7 +297,6 @@ class SCEOptimizer(BaseOptimizer):
                     if iter_count >= max_iter:
                         break
 
-                    cur_value_norm = X_norm[i_rel, axis]
                     axis_levels    = gs.values[axis]
                     n_levels       = len(axis_levels)
 
@@ -391,7 +389,6 @@ class SCEOptimizer(BaseOptimizer):
                                 best_score        = true_score
                                 best_design       = design.copy()
                                 best_reserv       = reserved.copy()
-                                last_improve_iter = iter_count
                             cache = criterion.begin_1d(X_norm, i_rel, raw_score)
 
                     iter_count += 1

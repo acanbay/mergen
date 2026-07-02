@@ -41,7 +41,7 @@ Usage
 
 from __future__ import annotations
 
-from .base       import BaseCriterion, _EPS
+from .base       import BaseCriterion, _EPS  # noqa: F401
 from .umaxpro    import UMaxPro
 from .maxpro     import MaxPro
 from .maxproqq   import MaxProQQ

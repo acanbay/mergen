@@ -40,7 +40,6 @@ Vorechovsky, M. & Elias, J. (2026). uMaxPro: A coordinate-exchange
 
 from __future__ import annotations
 
-import random
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 
@@ -174,7 +173,6 @@ class SAOptimizer(BaseOptimizer):
         granges       = space.granges
         constraints   = space._constraints
         names         = space.names
-        n_dims        = space.n_parameters
 
         # ── Initial reserved set from frozen + optimised rows ───────
         reserved = set()

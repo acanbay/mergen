@@ -12,7 +12,7 @@ Tian, Y. & Xu, H. (2025). A stratified L2-discrepancy with
 
 from __future__ import annotations
 
-from typing import Optional, Tuple, Union
+from typing import Optional, Union
 
 import numpy as np
 
@@ -169,7 +169,8 @@ class StratifiedL2(BaseCriterion):
 
     # ── incremental (full recompute, same as CD2) ────────────────────
     def incremental(self, X, i, new_pt, space, current_score):
-        X_new      = X.copy(); X_new[i] = new_pt
+        X_new      = X.copy()
+        X_new[i] = new_pt
         new_score  = self.evaluate(X_new, space)
         log_delta  = np.log(max(new_score, _EPS)) - np.log(max(current_score, _EPS))
         return float(log_delta), float(new_score)

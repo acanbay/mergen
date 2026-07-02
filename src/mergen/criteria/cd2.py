@@ -11,7 +11,6 @@ Hickernell, F. J. (1998). A generalized discrepancy and quadrature
 
 from __future__ import annotations
 
-from typing import Tuple
 
 import numpy as np
 
@@ -64,7 +63,8 @@ class CD2(BaseCriterion):
         # Build updated design and recompute — CD2 cross terms make a
         # closed-form O(n·d) update possible but complex; full recompute
         # is O(n²·d) and acceptable for typical design sizes (n ≤ 200).
-        X_new    = X.copy();  X_new[i] = new_pt
+        X_new    = X.copy()
+        X_new[i] = new_pt
         new_score = self.evaluate(X_new, space)
         log_delta = np.log(max(new_score, _EPS)) - np.log(max(current_score, _EPS))
         return float(log_delta), float(new_score)

@@ -100,7 +100,7 @@ _CRIT_OPTIMISES = {
 # Metric functions — all operate on normalised [0,1]^d coordinates
 # ======================================================================
 
-from .distances import heom_pairwise
+from .distances import heom_pairwise  # noqa: E402
 
 
 def _pairwise_distances(
@@ -597,13 +597,13 @@ def _print_table(
                 print(f"  {label:<26} {_fmt_val(val):>10}  lower")
 
         if any(c != run_crit for c in crit_names):
-            print(f"  * evaluated post-hoc (not used for optimisation)")
+            print("  * evaluated post-hoc (not used for optimisation)")
 
     # Criterion note
     if run_crit and run_crit in _CRIT_OPTIMISES:
         print(sep)
         print(f"  * = primarily optimised by '{run_crit}'")
-        print(f"  For other priorities, see: mergen.criteria.list_criteria()")
+        print("  For other priorities, see: mergen.criteria.list_criteria()")
 
     if has_mc:
         print(sep)

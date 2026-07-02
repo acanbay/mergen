@@ -429,7 +429,8 @@ def plot_pairplot(result, show_pool: bool = True, title: bool = True,
                     v   = space._parameters[xc]
                     pad = (v.max() - v.min()) * 0.07 or 0.5
                     lim = (float(v.min()) - pad, float(v.max()) + pad)
-                    ax.set_xlim(lim); ax.set_ylim(lim)
+                    ax.set_xlim(lim)
+                    ax.set_ylim(lim)
                     ax.plot(lim, lim, color='#cccccc', lw=0.8, ls='--', zorder=0)
             if log:
                 all_skipped |= _apply_log(ax, xc, yc, log)
@@ -670,8 +671,10 @@ def plot_correlation(result, title: bool = True,
 
     ax.imshow(corr, vmin=0, vmax=1, cmap='RdYlGn_r', aspect='auto')
 
-    ax.set_xticks(range(d)); ax.set_xticklabels(names, rotation=45, ha='right', fontsize=tick_fs)
-    ax.set_yticks(range(d)); ax.set_yticklabels(names, fontsize=tick_fs)
+    ax.set_xticks(range(d))
+    ax.set_xticklabels(names, rotation=45, ha='right', fontsize=tick_fs)
+    ax.set_yticks(range(d))
+    ax.set_yticklabels(names, fontsize=tick_fs)
 
     for i in range(d):
         for j in range(d):
@@ -1015,7 +1018,8 @@ def _report_header(result) -> str:
 
     # Quality metrics — full table format (same as terminal)
     try:
-        import io, sys
+        import io
+        import sys
         buf = io.StringIO()
         old_stdout = sys.stdout
         sys.stdout = buf
@@ -1063,7 +1067,7 @@ def export_excel(result, filename: str = 'design.xlsx') -> None:
     Columns are auto-sized and header row is formatted.
     """
     try:
-        import openpyxl
+        import openpyxl  # noqa: F401  (availability check)
     except ImportError:
         raise ImportError(
             "openpyxl is required for Excel export. "
@@ -1091,7 +1095,10 @@ def export_markdown(result, filename: str = 'report.md') -> None:
     banner → metadata → parameter space → design summary →
     run settings → quality metrics → design tables.
     """
-    import mergen, re, io, sys as _sys
+    import mergen
+    import re
+    import io
+    import sys as _sys
     d = _outdir(result)
     os.makedirs(d, exist_ok=True)
     p = os.path.join(d, filename)
@@ -1199,7 +1206,10 @@ def export_latex(result, filename: str = 'report.tex') -> None:
     Save a LaTeX report: banner → parameter space → design summary →
     run settings → quality metrics → design tables per point type.
     """
-    import mergen, re, io, sys as _sys
+    import mergen
+    import re
+    import io
+    import sys as _sys
     d = _outdir(result)
     os.makedirs(d, exist_ok=True)
     p = os.path.join(d, filename)
@@ -1291,7 +1301,10 @@ def export_html(result, filename: str = 'report.html') -> None:
     """
     Save a self-contained HTML report with styled tables.
     """
-    import mergen, re, io, sys as _sys
+    import mergen
+    import re
+    import io
+    import sys as _sys
     d = _outdir(result)
     os.makedirs(d, exist_ok=True)
     p = os.path.join(d, filename)
@@ -1342,7 +1355,7 @@ def export_html(result, filename: str = 'report.html') -> None:
                 f"<title>Mergen Design Report</title>\n{css}\n</head>\n<body>\n")
 
         # Banner
-        f.write(f"<h1>Mergen Design Report</h1>\n")
+        f.write("<h1>Mergen Design Report</h1>\n")
         banner_lines = mergen._banner().split('\n')
         f.write("<blockquote>\n")
         for bl in banner_lines:

@@ -11,7 +11,6 @@ Vorechovsky, M. & Elias, J. (2026). Uniform Maximum Projection
 
 from __future__ import annotations
 
-from typing import Tuple
 
 import numpy as np
 
@@ -58,7 +57,8 @@ class UMaxPro(BaseCriterion):
         return max(score, _EPS)
 
     def incremental(self, X, i, new_pt, space, current_score):
-        mask   = np.ones(len(X), dtype=bool);  mask[i] = False
+        mask   = np.ones(len(X), dtype=bool)
+        mask[i] = False
         others = X[mask]
 
         sq_old = np.maximum(self._periodic_sq(X[i],   others), _EPS)
@@ -83,7 +83,8 @@ class UMaxPro(BaseCriterion):
         same point is O(n · d) — the same as a single full
         :meth:`incremental`, but split across d independent trials.
         """
-        mask   = np.ones(len(X), dtype=bool);  mask[i] = False
+        mask   = np.ones(len(X), dtype=bool)
+        mask[i] = False
         others = X[mask]                                     # (n-1, d)
         sq     = np.maximum(self._periodic_sq(X[i], others), _EPS)  # (n-1, d)
         # Per-pair full contribution: 1 / prod_v δ_v²
