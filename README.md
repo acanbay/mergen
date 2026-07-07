@@ -81,6 +81,8 @@ result.to_csv('design.csv')
 - Prescribed points: fixed coordinates always included in the design (e.g. runs already carried out)
 - Focus regions: a neighbourhood around a critical point where sampling is made denser
 - Exclusion zones: regions the design must avoid (e.g. infeasible or unsafe settings)
+- User-defined sets: externally chosen points attached as a named set (e.g. a held-out test set) with an optional custom colour
+- Existing designs: a previously generated design can be loaded as-is, and only the validation and extra sets are generated around it
 
 **Optimisation**
 
