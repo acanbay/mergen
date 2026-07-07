@@ -55,13 +55,13 @@ space = ParameterSpace({
 
 # 2. Configure and run the sampler
 sampler = Sampler(space)
-sampler.set_design(n_samples=30)
-result = sampler.run(seed=44)
+sampler.set_design()
+result = sampler.run()
 
 # 3. Inspect, visualise, export
 result.summary()
 result.quality_report()
-result.plot('pairplot')
+result.plot('pairplot', save=True)
 result.to_csv('design.csv')
 ```
 

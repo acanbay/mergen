@@ -91,6 +91,13 @@ _MIN_PS = 0.8
 _POOL_MS         = 25
 _POOL_MAX_LEVELS = 50
 
+# Candidate-pool alpha is scaled by the number of unique projected
+# points: alpha = clip(K / n_unique, MIN, MAX). Sparse grids stay
+# solid; dense grids fade so the design markers remain visible.
+_POOL_ALPHA_K    = 120.0
+_POOL_ALPHA_MIN  = 0.05
+_POOL_ALPHA_MAX  = 0.50
+
 _cnt: dict = {}
 
 
@@ -134,7 +141,11 @@ def _collect(result) -> pd.DataFrame:
     for df in getattr(result, 'sets', {}).values():
         if len(df):
             frames.append(df)
-    return pd.concat(frames, ignore_index=True)
+    out = pd.concat(frames, ignore_index=True)
+    # Focus points are part of the optimised design; plots show them with
+    # the same colour and legend entry. Exports keep the Focus label.
+    out.loc[out["point_type"] == "Focus", "point_type"] = "Optimised"
+    return out
 
 
 def _present(df: pd.DataFrame) -> list:
@@ -247,15 +258,23 @@ def _scatter(ax, df, xc: str, yc: str, present: list,
         pool  = space.candidate_pool
         names = space.names
         xi, yi = names.index(xc), names.index(yc)
-        # Sample pool for large spaces to avoid overplotting
-        _MAX_POOL_PTS = 2_000
-        if len(pool) > _MAX_POOL_PTS:
-            rng  = np.random.default_rng(44)
-            idx  = rng.choice(len(pool), size=_MAX_POOL_PTS, replace=False)
-            pool = pool[idx]
-        ax.scatter(pool[:, xi], pool[:, yi],
+        # Project onto the (xc, yc) plane and keep each grid location
+        # once. A d-dimensional grid projects many rows onto the same
+        # 2D point; drawing them all would stack translucent markers
+        # and make some cells look darker purely because of overlap,
+        # not because they carry more information. De-duplicating gives
+        # every visible candidate an identical, honest weight.
+        proj = np.unique(pool[:, [xi, yi]], axis=0)
+        # Scale alpha to the number of *unique* projected points so a
+        # dense grid stays legible without washing out the design
+        # markers. This is a display heuristic, not a statistical
+        # claim: alpha decays inversely with point count, clipped to a
+        # readable band.
+        alpha = float(np.clip(_POOL_ALPHA_K / max(len(proj), 1),
+                              _POOL_ALPHA_MIN, _POOL_ALPHA_MAX))
+        ax.scatter(proj[:, 0], proj[:, 1],
                    facecolors='#aaaaaa', edgecolors='none',
-                   s=_POOL_MS, alpha=0.45, zorder=1, linewidths=0)
+                   s=_POOL_MS, alpha=alpha, zorder=1, linewidths=0)
 
     for t in _DRAW:
         if t not in present:
@@ -297,9 +316,8 @@ def _kde_strip(ax, df, param: str, present: list, space, ec: dict) -> None:
         return
 
     v   = space._parameters[param]
-    rng = float(v.max()) - float(v.min())
-    xlo = float(v.min()) - rng * 0.07
-    xhi = float(v.max()) + rng * 0.07
+    xlo = float(v.min())
+    xhi = float(v.max())
     xg  = np.linspace(xlo, xhi, 400)
 
     all_types = list(present)
@@ -339,6 +357,7 @@ def _kde_strip(ax, df, param: str, present: list, space, ec: dict) -> None:
             continue
         c   = _color(t)
         st  = _STYLE.get(t)
+        # Jitter strip-plot points vertically to reduce overplotting.
         ms  = (st['ms']    if st else 70) * 0.55
         lw  = (st['lw']    if st else 0.5)
         eca = (st['ec']    if st else 'white')
@@ -347,7 +366,7 @@ def _kde_strip(ax, df, param: str, present: list, space, ec: dict) -> None:
         jit = rng.uniform(-0.025, 0.025, len(vals))
         ax.scatter(vals, np.full(len(vals), -0.07) + jit,
                    c=c, marker='o', s=ms, alpha=alp,
-                   edgecolors=eca, linewidths=lw, zorder=z)
+                   edgecolors=eca, linewidths=lw, zorder=z, clip_on=False)
 
     ax.axhline(0, color='#bbbbbb', lw=0.5, ls='--')
     ax.set_xlim(xlo, xhi)
@@ -376,7 +395,7 @@ def _apply_log(ax, xc: str, yc: str, log_params: list) -> set:
 # Plot functions
 # ======================================================================
 
-def plot_pairplot(result, show_pool: bool = True, title: bool = True,
+def plot_pairplot(result, show_pool: bool = False, title: bool = True,
                   log: Optional[list] = None,
                   show: bool = True, save: bool = False,
                   filename: Optional[str] = None,
@@ -386,7 +405,10 @@ def plot_pairplot(result, show_pool: bool = True, title: bool = True,
 
     Parameters
     ----------
-    show_pool : bool — overlay candidate pool (greyed out)
+    show_pool : bool — overlay the candidate pool (default False).
+                When True, the grid is projected onto each panel and
+                de-duplicated so every candidate is shown once with an
+                equal, density-scaled opacity.
     title     : bool — show figure title
     log       : list of parameter names to display on log scale
     show, save, filename, fmt, dpi — output options
@@ -490,7 +512,7 @@ def plot_1d(result, params: Optional[Union[str, list]] = None,
 
 
 def plot_2d(result, params: Optional[Union[list, List[list]]] = None,
-            show_pool: bool = True, title: bool = True,
+            show_pool: bool = False, title: bool = True,
             log: Optional[list] = None,
             show: bool = True, save: bool = False,
             filename: Optional[str] = None,
@@ -683,9 +705,6 @@ def plot_correlation(result, title: bool = True,
                     ha='center', va='center', fontsize=cell_fs,
                     color='white' if val > 0.5 else 'black')
 
-    # Invert y-axis so order matches x-axis (top-left to bottom-right diagonal)
-    ax.invert_yaxis()
-
     if title:
         ax.set_title("Parameter Correlation", fontsize=11, pad=10)
 
@@ -872,7 +891,7 @@ def plot_comparison(result, title: bool = True,
     plt.close(fig)
 
 
-def plot_all(result, show_pool: bool = True, title: bool = True,
+def plot_all(result, show_pool: bool = False, title: bool = True,
              log: Optional[list] = None,
              show: bool = True, save: bool = False,
              fmt: Optional[str] = None, dpi: int = 150) -> None:
@@ -1041,7 +1060,7 @@ def export_csv(result, filename: str = 'design.csv') -> None:
     os.makedirs(d, exist_ok=True)
     p  = os.path.join(d, filename)
     df = _full_df(result)
-    df.to_csv(p, index=True)
+    df.to_csv(p, index=True, float_format='%.10g')
     print(f"  Saved: {p}  ({len(df)} rows)")
 
 
@@ -1051,7 +1070,7 @@ def export_json(result, filename: str = 'design.json') -> None:
     os.makedirs(d, exist_ok=True)
     p  = os.path.join(d, filename)
     df = _full_df(result)
-    df.to_json(p, orient='records', indent=2)
+    df.to_json(p, orient='records', indent=2, double_precision=10)
     print(f"  Saved: {p}  ({len(df)} rows)")
 
 
@@ -1073,7 +1092,7 @@ def export_excel(result, filename: str = 'design.xlsx') -> None:
     df = _full_df(result)
 
     with pd.ExcelWriter(p, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Design', index=True)
+        df.to_excel(writer, sheet_name='Design', index=True, float_format='%.10g')
         ws = writer.sheets['Design']
         # Auto-size columns
         for col in ws.columns:
@@ -1171,26 +1190,26 @@ def export_markdown(result, filename: str = 'report.md') -> None:
                 continue
             f.write(f"### {lbl} ({len(sub)} points)\n\n")
             try:
-                f.write(sub[names].to_markdown(index=True) + "\n\n")
+                f.write(sub[names].to_markdown(index=True, floatfmt=".10g") + "\n\n")
             except Exception:
-                f.write(sub[names].to_string(index=True) + "\n\n")
+                f.write(sub[names].to_string(index=True, float_format=lambda x: f"{x:.10g}") + "\n\n")
 
         # ── Validation ────────────────────────────────────────────────
         if len(result.validation):
             f.write(f"## Validation Set ({len(result.validation)} points)\n\n")
             try:
-                f.write(result.validation[names].to_markdown(index=True) + "\n\n")
+                f.write(result.validation[names].to_markdown(index=True, floatfmt='.10g') + "\n\n")
             except Exception:
-                f.write(result.validation[names].to_string(index=True) + "\n\n")
+                f.write(result.validation[names].to_string(index=True, float_format=lambda x: f"{x:.10g}") + "\n\n")
 
         # ── Extra sets ────────────────────────────────────────────────
         for sname, sdf in getattr(result, 'sets', {}).items():
             if len(sdf):
                 f.write(f"## {sname} ({len(sdf)} points)\n\n")
                 try:
-                    f.write(sdf[names].to_markdown(index=True) + "\n\n")
+                    f.write(sdf[names].to_markdown(index=True, floatfmt='.10g') + "\n\n")
                 except Exception:
-                    f.write(sdf[names].to_string(index=True) + "\n\n")
+                    f.write(sdf[names].to_string(index=True, float_format=lambda x: f"{x:.10g}") + "\n\n")
 
     print(f"  Saved: {p}")
 
@@ -1275,18 +1294,18 @@ def export_latex(result, filename: str = 'report.tex') -> None:
             if sub.empty:
                 continue
             f.write(f"\\subsection*{{{lbl} ({len(sub)} points)}}\n\n")
-            f.write(sub[names].to_latex(index=True) + "\n")
+            f.write(sub[names].to_latex(index=True, float_format='%.10g') + "\n")
 
         # Validation
         if len(result.validation):
             f.write(f"\\subsection*{{Validation Set ({len(result.validation)} points)}}\n\n")
-            f.write(result.validation[names].to_latex(index=True) + "\n")
+            f.write(result.validation[names].to_latex(index=True, float_format='%.10g') + "\n")
 
         # Extra sets
         for sname, sdf in getattr(result, 'sets', {}).items():
             if len(sdf):
                 f.write(f"\\subsection*{{{sname} ({len(sdf)} points)}}\n\n")
-                f.write(sdf[names].to_latex(index=True) + "\n")
+                f.write(sdf[names].to_latex(index=True, float_format='%.10g') + "\n")
 
     print(f"  Saved: {p}")
 
@@ -1327,7 +1346,7 @@ def export_html(result, filename: str = 'report.html') -> None:
     """
 
     def _df_to_html(df):
-        return df.to_html(index=True, border=0, classes='')
+        return df.to_html(index=True, border=0, classes='', float_format='%.10g')
 
     def _get_metrics_text():
         try:

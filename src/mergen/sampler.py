@@ -594,6 +594,8 @@ class Sampler:
         self._n_samples:    Optional[int]         = None
         self._n_validation: Optional[int]         = None
         self._extra_sets:   Optional[Dict]        = None
+        # User-supplied named sets: {name: (points, colour_or_None)}
+        self._user_sets:    Dict[str, Tuple[np.ndarray, Optional[str]]] = {}
         self._dim_weights:  Optional[np.ndarray]  = None
 
         # Per-optimiser hyperparameter store: {'sa': {...}, 'sce': {...}, ...}
@@ -647,6 +649,58 @@ class Sampler:
         for row in pts:
             validated = self.space.validate_point(row, label="Prescribed point")
             self._prescribed.append((validated, bool(in_design), bool(in_optim)))
+        return self
+
+    def add_set(
+        self,
+        name:   str,
+        points: Union[Sequence, np.ndarray],
+        color:  Optional[str] = None,
+    ) -> "Sampler":
+        """
+        Add a user-supplied named point set (e.g. an external test set).
+
+        The points are validated against the parameter grid, reserved so
+        the optimiser cannot re-select them, and carried into the result
+        as ``result.sets[name]``. They appear in plots under ``name`` and
+        in exports as a separate table.
+
+        Parameters
+        ----------
+        name : str
+            Label of the set (e.g. ``'test'``). Must not collide with
+            the built-in labels ``'Optimised'``, ``'Validation'``,
+            ``'Prescribed'`` or ``'Focus'``, nor with a generated extra
+            set or a previously added set.
+        points : array-like
+            Single point ``[x1, x2, ...]`` or list of points. All points
+            must lie on the parameter grid.
+        color : str, optional
+            Matplotlib colour used for this set in plots
+            (e.g. ``'#3a86ff'``). If omitted, a neutral fallback colour
+            is assigned by the plotting layer.
+
+        Returns
+        -------
+        self
+        """
+        builtin = {"Optimised", "Validation", "Prescribed", "Focus"}
+        taken   = builtin | set(self._user_sets) | set(self._extra_sets or {})
+        if name in taken:
+            _fatal(f"Set name '{name}' is already in use.")
+        pts = np.asarray(points, dtype=float)
+        if pts.ndim == 1:
+            pts = pts[np.newaxis, :]
+        if pts.ndim != 2 or pts.shape[1] != self.space.n_parameters:
+            _fatal(
+                f"Each point in set '{name}' must have "
+                f"{self.space.n_parameters} coordinates, got shape {pts.shape}."
+            )
+        validated = np.vstack([
+            self.space.validate_point(row, label=f"Set '{name}' point")
+            for row in pts
+        ])
+        self._user_sets[name] = (validated, color)
         return self
 
     def add_focus(
@@ -1029,6 +1083,14 @@ class Sampler:
             if in_s:
                 prescribed_sa_pts.append(pt)
 
+        # User-supplied named sets: reserve their grid nodes so the
+        # optimiser cannot re-select them.
+        for _uname, (upts, _ucolor) in self._user_sets.items():
+            for pt in upts:
+                idx = gs.point_to_index(pt)
+                if idx >= 0:
+                    reserved.add(idx)
+
         # ── Focus / exclusion sampling ─────────────────────────────────
         print("  [MERGEN]   Sampling focus / exclusion regions...",
               flush=True)
@@ -1279,6 +1341,22 @@ class Sampler:
         cur_reserved = val_reserved.copy()
         cur_ref      = (np.vstack([final_design, val_pts])
                         if len(val_pts) else final_design)
+
+        # User-supplied sets go in first so the generated extra sets
+        # below are pushed away from them as well.
+        for uname, (upts, ucolor) in self._user_sets.items():
+            df_u = pd.DataFrame(upts, columns=names)
+            df_u['point_type'] = uname
+            if ucolor is not None:
+                df_u['color'] = ucolor
+            df_u.index.name = 'id'
+            extra_dfs[uname] = df_u
+            for up in upts:
+                idx = gs.point_to_index(up)
+                if idx >= 0:
+                    cur_reserved.add(idx)
+            cur_ref = np.vstack([cur_ref, upts])
+
         if self._extra_sets:
             for set_name, set_n in self._extra_sets.items():
                 set_pts = self._kennard_stone(
