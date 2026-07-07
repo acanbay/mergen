@@ -156,11 +156,19 @@ def _present(df: pd.DataFrame) -> list:
 
 
 def _extra_colors(result) -> dict:
-    return {
+    ec = {
         name: sdf["color"].iloc[0]
         for name, sdf in getattr(result, 'sets', {}).items()
         if len(sdf) and "color" in sdf.columns
     }
+    # Custom-labelled design points (e.g. from Sampler.load_design) may
+    # carry their colour in the samples frame itself.
+    df = result.samples
+    if "color" in df.columns:
+        for t, sub in df.groupby("point_type"):
+            if t not in _STYLE and len(sub):
+                ec.setdefault(t, sub["color"].iloc[0])
+    return ec
 
 
 def _pool_visible(space, xc: str, yc: str) -> bool:

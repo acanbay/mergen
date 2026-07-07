@@ -596,6 +596,8 @@ class Sampler:
         self._extra_sets:   Optional[Dict]        = None
         # User-supplied named sets: {name: (points, colour_or_None)}
         self._user_sets:    Dict[str, Tuple[np.ndarray, Optional[str]]] = {}
+        # Externally supplied design: (points, label, colour_or_None)
+        self._loaded_design: Optional[Tuple[np.ndarray, str, Optional[str]]] = None
         self._dim_weights:  Optional[np.ndarray]  = None
 
         # Per-optimiser hyperparameter store: {'sa': {...}, 'sce': {...}, ...}
@@ -701,6 +703,63 @@ class Sampler:
             for row in pts
         ])
         self._user_sets[name] = (validated, color)
+        return self
+
+    def load_design(
+        self,
+        points: Union[Sequence, np.ndarray, pd.DataFrame],
+        name:   str = "Existing",
+        color:  Optional[str] = None,
+    ) -> "Sampler":
+        """
+        Load an existing design instead of optimising a new one.
+
+        The supplied points become the design itself: :meth:`run` skips
+        optimisation entirely and only generates the requested
+        validation set and any extra sets (Kennard-Stone) around them.
+        Use :func:`mergen.sequential.extend` instead if you want to
+        grow the design with new optimised points.
+
+        Parameters
+        ----------
+        points : array-like or pandas.DataFrame
+            The existing design. A DataFrame is matched to the
+            parameter space by column names; an array must have one
+            column per parameter in space order. All points must lie
+            on the parameter grid.
+        name : str
+            Label under which the points appear in plots, summaries
+            and exports (default ``'Existing'``).
+        color : str, optional
+            Matplotlib colour for this label in plots. Defaults to the
+            Optimised blue (``'#3a86ff'``).
+
+        Returns
+        -------
+        self
+        """
+        if isinstance(points, pd.DataFrame):
+            missing = [p for p in self.space.names if p not in points.columns]
+            if missing:
+                _fatal(
+                    f"load_design: DataFrame is missing parameter "
+                    f"column(s) {missing}."
+                )
+            pts = points[self.space.names].to_numpy(dtype=float)
+        else:
+            pts = np.asarray(points, dtype=float)
+            if pts.ndim == 1:
+                pts = pts[np.newaxis, :]
+        if pts.ndim != 2 or pts.shape[1] != self.space.n_parameters:
+            _fatal(
+                f"load_design: each point must have "
+                f"{self.space.n_parameters} coordinates, got shape {pts.shape}."
+            )
+        validated = np.vstack([
+            self.space.validate_point(row, label="Loaded design point")
+            for row in pts
+        ])
+        self._loaded_design = (validated, str(name), color)
         return self
 
     def add_focus(
@@ -950,6 +1009,9 @@ class Sampler:
         if seed is not None:
             np.random.seed(seed)
             random.seed(seed)
+
+        if self._loaded_design is not None:
+            return self._run_loaded(seed=seed, verbose=verbose)
 
         # Normalise algorithm into a list (case-insensitive)
         if isinstance(algorithm, str):
@@ -1446,6 +1508,152 @@ class Sampler:
             'n_design'        : len(df_samples),
             'n_validation'    : len(df_val),
             'best_log_score'  : float(np.log(max(best_score, _EPS))),
+            'elapsed_sec'     : float(t_elapsed),
+        }
+        return result
+
+    def _run_loaded(
+        self,
+        seed:    Optional[int],
+        verbose: bool,
+    ) -> SamplingResult:
+        """
+        Build a :class:`SamplingResult` from an externally loaded design.
+
+        No optimisation is performed. The loaded points are reserved on
+        the grid, then the validation set and any extra sets are
+        generated around them with Kennard-Stone selection, exactly as
+        in :meth:`run`.
+        """
+        if self._prescribed or self._focus or self._exclusions:
+            _fatal(
+                "load_design cannot be combined with add_prescribed, "
+                "add_focus or add_exclusion: the loaded design is fixed. "
+                "Use mergen.sequential.extend to grow a design."
+            )
+        if self._n_samples is not None:
+            _fatal(
+                "load_design cannot be combined with n_samples: the "
+                "design size is fixed by the loaded points. Use "
+                "mergen.sequential.extend to grow a design."
+            )
+
+        t_start = time.perf_counter()
+        space   = self.space
+        pts, label, lcolor = self._loaded_design
+
+        gmins   = space.gmins
+        granges = space.granges
+        names   = space.names
+        gs      = space.grid_sampler()
+        n_dims  = space.n_parameters
+
+        n_validation = (self._n_validation
+                        if self._n_validation is not None
+                        else max(1, int(np.ceil(len(pts) * 0.20))))
+
+        print()
+        print("═" * 60)
+        print("  MERGEN — Loaded Design")
+        print("═" * 60)
+        print(f"  Parameters      : {n_dims}")
+        print(f"  Candidates      : {space.n_candidates:,}")
+        print(f"  Loaded points   : {len(pts)}  (label='{label}')")
+        print(f"  Validation      : {n_validation}")
+        print("─" * 60)
+
+        # Reserve loaded points so validation / extra sets avoid them.
+        reserved: set = set()
+        for pt in pts:
+            idx = gs.point_to_index(pt)
+            if idx >= 0:
+                reserved.add(idx)
+        for _uname, (upts, _ucolor) in self._user_sets.items():
+            for pt in upts:
+                idx = gs.point_to_index(pt)
+                if idx >= 0:
+                    reserved.add(idx)
+
+        # ── Validation set (Kennard-Stone) ─────────────────────────────
+        val_pts = self._kennard_stone(
+            gs, reserved, pts, n_validation, gmins, granges,
+        )
+        cur_reserved = reserved.copy()
+        for vp in val_pts:
+            idx = gs.point_to_index(vp)
+            if idx >= 0:
+                cur_reserved.add(idx)
+        cur_ref = np.vstack([pts, val_pts]) if len(val_pts) else pts
+
+        # ── Extra sets: user-supplied first, then generated ────────────
+        extra_dfs: Dict[str, pd.DataFrame] = {}
+        for uname, (upts, ucolor) in self._user_sets.items():
+            df_u = pd.DataFrame(upts, columns=names)
+            df_u['point_type'] = uname
+            if ucolor is not None:
+                df_u['color'] = ucolor
+            df_u.index.name = 'id'
+            extra_dfs[uname] = df_u
+            cur_ref = np.vstack([cur_ref, upts])
+        if self._extra_sets:
+            for set_name, set_n in self._extra_sets.items():
+                set_pts = self._kennard_stone(
+                    gs, cur_reserved, cur_ref, set_n, gmins, granges,
+                )
+                for sp in set_pts:
+                    idx = gs.point_to_index(sp)
+                    if idx >= 0:
+                        cur_reserved.add(idx)
+                cur_ref = (np.vstack([cur_ref, set_pts])
+                           if len(set_pts) else cur_ref)
+                df_set = (pd.DataFrame(set_pts, columns=names)
+                          if len(set_pts) else pd.DataFrame(columns=names))
+                df_set['point_type'] = set_name
+                df_set.index.name = 'id'
+                extra_dfs[set_name] = df_set
+
+        # ── Assemble result ────────────────────────────────────────────
+        df_samples = pd.DataFrame(pts, columns=names)
+        df_samples['point_type'] = label
+        if label != SamplingResult.OPTIMISED:
+            df_samples['color'] = lcolor if lcolor is not None else "#3a86ff"
+        df_samples.index.name = 'id'
+
+        df_val = (pd.DataFrame(val_pts, columns=names)
+                  if len(val_pts)
+                  else pd.DataFrame(columns=names + ['point_type']))
+        if len(df_val):
+            df_val['point_type'] = SamplingResult.VALIDATION
+            df_val.index.name = 'id'
+
+        t_elapsed = time.perf_counter() - t_start
+
+        print()
+        print("─" * 60)
+        print("  MERGEN — Final Design")
+        print("─" * 60)
+        print(f"  {label:<17}: {len(df_samples)}")
+        print(f"  Total design     : {len(df_samples)}")
+        print(f"  Validation       : {len(df_val)}")
+        for sn, sdf in extra_dfs.items():
+            print(f"  {sn:<18}: {len(sdf)}")
+        print("═" * 60)
+
+        result                    = SamplingResult(df_samples, df_val, space)
+        result.sets               = extra_dfs
+        result.designs            = {'loaded': df_samples}
+        result.algorithm_results  = {}
+        result.best_algorithm     = 'loaded'
+        result._meta              = {
+            'criteria'        : 'loaded',
+            'seed'            : seed,
+            'algorithm'       : 'loaded',
+            'best_algorithm'  : 'loaded',
+            'n_parameters'    : n_dims,
+            'n_candidates'    : space.n_candidates,
+            'n_design'        : len(df_samples),
+            'n_validation'    : len(df_val),
+            'best_log_score'  : float('nan'),
             'elapsed_sec'     : float(t_elapsed),
         }
         return result
