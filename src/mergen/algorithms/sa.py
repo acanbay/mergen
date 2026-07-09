@@ -41,7 +41,7 @@ Vorechovsky, M. & Elias, J. (2026). uMaxPro: A coordinate-exchange
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -146,6 +146,7 @@ class SAOptimizer(BaseOptimizer):
         crit_start:     int  = 0,
         seed:           int  = 44,
         verbose:        bool = True,
+        banned:         Optional[set] = None,
     ) -> OptimisationResult:
         """
         Run the SA optimisation.
@@ -175,7 +176,9 @@ class SAOptimizer(BaseOptimizer):
         names         = space.names
 
         # ── Initial reserved set from frozen + optimised rows ───────
-        reserved = set()
+        # Externally banned grid nodes (e.g. user-supplied sets or a
+        # loaded design) can never be selected by a swap.
+        reserved = set(banned or ())
         for row in initial_design:
             idx = gs.point_to_index(row)
             if idx >= 0:

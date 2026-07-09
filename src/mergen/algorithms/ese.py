@@ -45,7 +45,7 @@ Dupuy, D., Helbert, C. & Franco, J. (2015). DiceDesign and DiceEval:
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -147,6 +147,7 @@ class ESEOptimizer(BaseOptimizer):
         crit_start:     int  = 0,
         seed:           int  = 44,
         verbose:        bool = True,
+        banned:         Optional[set] = None,
     ) -> OptimisationResult:
         """
         Run the ESE optimisation.
@@ -172,8 +173,9 @@ class ESEOptimizer(BaseOptimizer):
         gmins   = space.gmins
         granges = space.granges
 
-        # Initial reserved set
-        reserved: set = set()
+        # Initial reserved set, plus externally banned grid nodes
+        # that a swap may never select.
+        reserved: set = set(banned or ())
         for row in initial_design:
             idx = gs.point_to_index(row)
             if idx >= 0:

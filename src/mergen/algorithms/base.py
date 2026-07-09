@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from abc      import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing   import TYPE_CHECKING, Any, Dict
+from typing   import TYPE_CHECKING, Any, Dict, Optional
 
 import numpy as np
 
@@ -277,9 +277,14 @@ class BaseOptimizer(ABC):
         crit_start:     int  = 0,
         seed:           int  = 44,
         verbose:        bool = True,
+        banned:         Optional[set] = None,
     ) -> OptimisationResult:
         """
         Run the optimisation.
+
+        ``banned`` is an optional set of grid indices that the swap
+        operators must never select (used for user-supplied sets and
+        externally loaded designs).
 
         Parameters
         ----------

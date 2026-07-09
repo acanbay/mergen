@@ -35,7 +35,7 @@ Lourenço, H. R., Martin, O. C. & Stützle, T. (2003). Iterated local
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -119,6 +119,7 @@ class SCEOptimizer(BaseOptimizer):
         crit_start:     int  = 0,
         seed:           int  = 44,
         verbose:        bool = True,
+        banned:         Optional[set] = None,
     ) -> OptimisationResult:
         """
         Run the SCE optimisation.
@@ -143,8 +144,9 @@ class SCEOptimizer(BaseOptimizer):
         gmins    = space.gmins
         granges  = space.granges
 
-        # Initial reserved set from the input design
-        reserved: set = set()
+        # Initial reserved set from the input design, plus externally
+        # banned grid nodes that a swap may never select.
+        reserved: set = set(banned or ())
         for row in initial_design:
             idx = gs.point_to_index(row)
             if idx >= 0:

@@ -1285,6 +1285,33 @@ class GridSampler:
                         if fixed:
                             break
 
+        # ── Step 5b: reserved repair ──
+        # Rows that landed on an already-reserved grid node (e.g. a
+        # user-supplied set added via Sampler.add_set, or an externally
+        # loaded design) are replaced with a random feasible unreserved
+        # point, honouring the contract that ``reserved`` indices never
+        # appear in the seed design.
+        if reserved:
+            occupied = set(reserved)
+            for i in range(budget):
+                idx = self.point_to_index(new_rows[i])
+                if idx < 0 or idx not in occupied:
+                    continue
+                for _ in range(50):
+                    pt, pidx = self.random_point_excluding(occupied, rng=rng)
+                    if pt is None:
+                        break
+                    if constraints:
+                        p = dict(zip(names, pt))
+                        try:
+                            if not all(c(p) for c in constraints):
+                                continue
+                        except (TypeError, KeyError):
+                            continue
+                    new_rows[i] = pt
+                    occupied.add(pidx)
+                    break
+
         # ── Step 6: update reserved and return ──
         for i in range(budget):
             idx = self.point_to_index(new_rows[i])

@@ -232,6 +232,7 @@ def _run_one_algorithm_task(
         initial_design = full_design,
         space          = space,
         criterion      = criterion,
+        banned         = initial_reserved,
         n_frozen       = n_frozen,
         crit_start     = crit_start,
         seed           = seed,

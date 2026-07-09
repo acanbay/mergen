@@ -243,3 +243,102 @@ class TestExtendFillDetail:
             assert seen.isdisjoint(test_set)
             seen |= test_set
         assert seen == set(range(len(r.best_design)))
+
+
+# ─────────────────────────────────────────────────────────────────────
+# add_set (user-supplied named sets)
+# ─────────────────────────────────────────────────────────────────────
+class TestAddSet:
+    @pytest.fixture
+    def grid10(self):
+        return mergen.ParameterSpace({
+            'x': list(range(1, 11)),
+            'y': list(range(1, 11)),
+        })
+
+    def test_points_and_color_in_result(self, grid10):
+        s = mergen.Sampler(grid10)
+        s.add_set('test', [[2, 2], [8, 8]], color='#9b5de5')
+        s.set_design(n_samples=8, n_validation=0)
+        s.set_optimizer('sa', n_restarts=1, max_iter=200)
+        r = s.run(seed=1, verbose=False)
+        assert 'test' in r.sets
+        assert len(r.sets['test']) == 2
+        assert (r.sets['test']['color'] == '#9b5de5').all()
+        assert (r.sets['test']['point_type'] == 'test').all()
+
+    def test_points_not_reselected_by_design(self, grid10):
+        s = mergen.Sampler(grid10)
+        s.add_set('test', [[2, 2], [8, 8], [5, 9]])
+        s.set_design(n_samples=10, n_validation=0)
+        s.set_optimizer('sa', n_restarts=1, max_iter=300)
+        r = s.run(seed=1, verbose=False)
+        design = set(map(tuple, r.best_design[['x', 'y']].values))
+        held   = {(2.0, 2.0), (8.0, 8.0), (5.0, 9.0)}
+        assert design.isdisjoint(held)
+
+    def test_builtin_name_rejected(self, grid10):
+        s = mergen.Sampler(grid10)
+        with pytest.raises(ValueError):
+            s.add_set('Validation', [[1, 1]])
+
+    def test_duplicate_name_rejected(self, grid10):
+        s = mergen.Sampler(grid10)
+        s.add_set('test', [[1, 1]])
+        with pytest.raises(ValueError):
+            s.add_set('test', [[2, 2]])
+
+
+# ─────────────────────────────────────────────────────────────────────
+# load_design (externally supplied designs)
+# ─────────────────────────────────────────────────────────────────────
+class TestLoadDesign:
+    @pytest.fixture
+    def grid10(self):
+        return mergen.ParameterSpace({
+            'x': list(range(1, 11)),
+            'y': list(range(1, 11)),
+        })
+
+    def test_array_default_label_and_color(self, grid10):
+        s = mergen.Sampler(grid10)
+        s.load_design([[1, 1], [5, 5], [9, 9]])
+        s.set_design(n_validation=2)
+        r = s.run(seed=1, verbose=False)
+        assert (r.samples['point_type'] == 'Existing').all()
+        assert (r.samples['color'] == '#3a86ff').all()
+        assert len(r.samples) == 3
+
+    def test_dataframe_custom_label_color(self, grid10):
+        import pandas as pd
+        prev = pd.DataFrame({'x': [2, 4, 6], 'y': [8, 6, 4]})
+        s = mergen.Sampler(grid10)
+        s.load_design(prev, name='campaign1', color='#ff8800')
+        s.set_design(n_validation=2)
+        r = s.run(seed=1, verbose=False)
+        assert (r.samples['point_type'] == 'campaign1').all()
+        assert (r.samples['color'] == '#ff8800').all()
+
+    def test_validation_generated_and_disjoint(self, grid10):
+        s = mergen.Sampler(grid10)
+        s.load_design([[1, 1], [5, 5], [9, 9], [3, 7]])
+        s.set_design(n_validation=3)
+        r = s.run(seed=1, verbose=False)
+        assert len(r.validation) == 3
+        design = set(map(tuple, r.samples[['x', 'y']].values))
+        val    = set(map(tuple, r.validation[['x', 'y']].values))
+        assert design.isdisjoint(val)
+
+    def test_rejects_n_samples(self, grid10):
+        s = mergen.Sampler(grid10)
+        s.load_design([[1, 1]])
+        s.set_design(n_samples=10)
+        with pytest.raises(ValueError):
+            s.run(seed=1, verbose=False)
+
+    def test_rejects_prescribed(self, grid10):
+        s = mergen.Sampler(grid10)
+        s.load_design([[1, 1]])
+        s.add_prescribed([[5, 5]])
+        with pytest.raises(ValueError):
+            s.run(seed=1, verbose=False)
