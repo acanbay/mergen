@@ -90,6 +90,7 @@ from .space    import ParameterSpace, GridSampler
 from .criteria import (
     BaseCriterion,
     get_criterion,
+    list_criteria,
     nominal_supporting_criteria,
 )
 
@@ -555,6 +556,62 @@ class SamplingResult:
 # ======================================================================
 # Sampler
 # ======================================================================
+
+class ComparisonResult:
+    """
+    Outcome of :meth:`Sampler.compare`.
+
+    Attributes
+    ----------
+    table : pandas.DataFrame
+        One row per (criterion, algorithm) combination, sorted by the
+        priority metrics; columns hold percentile ranks (0-100, higher
+        is better) against the shared Monte Carlo baseline. The winner
+        is flagged in the ``best`` column.
+    results : dict
+        Maps ``(criterion, algorithm)`` to the full
+        :class:`SamplingResult`, so any candidate design can be
+        inspected or exported, not only the winner.
+    best : tuple of (str, str)
+        The winning (criterion, algorithm) pair.
+    priority : tuple of str
+        The metrics that defined the ranking, in order.
+    """
+
+    def __init__(self, table, results, best, priority):
+        self.table    = table
+        self.results  = results
+        self.best     = best
+        self.priority = priority
+
+    @property
+    def best_result(self) -> "SamplingResult":
+        """The SamplingResult of the winning combination."""
+        return self.results[self.best]
+
+    def summary(self) -> None:
+        """Print the ranked comparison table."""
+        print()
+        print("═" * 72)
+        print("  MERGEN — Criterion / Algorithm Comparison")
+        print("═" * 72)
+        print(f"  Priority: {' > '.join(self.priority)}   "
+              f"(percentile vs shared MC baseline, higher is better)")
+        print("─" * 72)
+        with pd.option_context('display.width', 100,
+                               'display.float_format',
+                               lambda v: f"{v:6.1f}"):
+            print(self.table.to_string(index=False))
+        print("─" * 72)
+        print(f"  Best: criteria='{self.best[0]}', "
+              f"algorithm='{self.best[1]}'")
+        print("═" * 72)
+
+    def __repr__(self) -> str:
+        return (f"ComparisonResult(best={self.best}, "
+                f"n_combinations={len(self.results)}, "
+                f"priority={self.priority})")
+
 
 class Sampler:
     """
@@ -1658,6 +1715,159 @@ class Sampler:
             'elapsed_sec'     : float(t_elapsed),
         }
         return result
+
+    def compare(
+        self,
+        criteria:   Optional[List[str]] = None,
+        algorithms: Optional[List[str]] = None,
+        priority:   Tuple[str, ...] = ('min_distance', 'max_abs_correlation'),
+        mc_samples: int = 300,
+        seed:       int = 44,
+        verbose:    bool = True,
+    ) -> "ComparisonResult":
+        """
+        Run a criterion/algorithm sweep and rank the resulting designs.
+
+        Every (criterion, algorithm) combination is optimised with the
+        current sampler configuration. Because raw criterion scores are
+        on incomparable scales, designs are ranked on criterion-agnostic
+        quality metrics expressed as percentile ranks against a single
+        shared Monte Carlo baseline of random designs of the same size
+        (Joseph 2016; Pronzato & Mueller 2012).
+
+        Parameters
+        ----------
+        criteria : list of str, optional
+            Criteria to sweep. If None, all criteria compatible with the
+            space are used: nominal-supporting criteria when the space
+            contains a nominal factor, all remaining criteria otherwise.
+            An explicit list is used as given (with a warning if it
+            mixes in criteria that do not match the factor types).
+        algorithms : list of str, optional
+            Optimisers to sweep. If None, ``['sa']``.
+        priority : tuple of str
+            Quality metrics that define the ranking, in order of
+            importance. Ranking is lexicographic: candidates within a
+            2-percentile band of the best primary value are re-ranked
+            by the secondary metric, and so on. Available metrics:
+            min_distance, mean_distance, cv_distances, minimax,
+            max_abs_correlation, projection_cd2.
+        mc_samples : int, default 300
+            Size of the shared Monte Carlo baseline.
+        seed : int, default 44
+            Seed used for every run and for the baseline.
+        verbose : bool, default True
+            Print progress and the final ranking table.
+
+        Returns
+        -------
+        ComparisonResult
+            ``.table`` (ranked DataFrame of percentile ranks),
+            ``.results`` (dict mapping (criterion, algorithm) to the
+            full SamplingResult), ``.best`` (winning key) and
+            ``.priority``.
+        """
+        from . import metrics as _m
+
+        # ── Resolve the sweep lists ────────────────────────────────────
+        has_nominal = any(self.space.is_nominal(p) for p in self.space.names)
+        nominal_ok  = set(nominal_supporting_criteria())
+        if criteria is None:
+            if has_nominal:
+                crit_list = sorted(nominal_ok)
+            else:
+                crit_list = sorted(set(list_criteria()) - nominal_ok)
+        else:
+            crit_list = list(criteria)
+            if has_nominal:
+                bad = [cr for cr in crit_list if cr not in nominal_ok]
+                if bad:
+                    _warn(f"Criteria {bad} do not support nominal factors; "
+                          f"their scores may be meaningless for this space.")
+            else:
+                bad = [cr for cr in crit_list if cr in nominal_ok]
+                if bad:
+                    _warn(f"Criteria {bad} target nominal factors, which "
+                          f"this space does not contain; their extra terms "
+                          f"are dead weight here.")
+        alg_list = list(algorithms) if algorithms is not None else ['sa']
+
+        for m in priority:
+            if m not in _m._METRIC_FN:
+                _fatal(f"Unknown priority metric '{m}'. "
+                       f"Available: {sorted(_m._METRIC_FN)}")
+        metric_names = list(dict.fromkeys(
+            list(priority) + ['min_distance', 'max_abs_correlation',
+                              'projection_cd2', 'mean_distance']))
+
+        # ── Run every combination silently ─────────────────────────────
+        import contextlib
+        import io
+        results: Dict[Tuple[str, str], SamplingResult] = {}
+        for cr in crit_list:
+            for alg in alg_list:
+                if verbose:
+                    print(f"  [COMPARE]  {cr} + {alg} ...", flush=True)
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    res = self.run(criteria=cr, algorithm=alg,
+                                   seed=seed, verbose=False)
+                results[(cr, alg)] = res
+
+        # ── Shared Monte Carlo baseline ────────────────────────────────
+        gs      = self.space.grid_sampler()
+        gmins   = self.space.gmins
+        granges = self.space.granges
+        n_ref   = len(next(iter(results.values())).best_design)
+        if verbose:
+            print(f"  [COMPARE]  Monte Carlo baseline "
+                  f"({mc_samples} random designs, n={n_ref}) ...",
+                  flush=True)
+        baseline = _m._mc_baseline(
+            gs, gmins, granges, n_ref,
+            metric_names=metric_names, crit_names=[],
+            mc_samples=mc_samples, seed=seed, space=self.space,
+        )
+
+        # ── Percentile ranks against the shared baseline ──────────────
+        rows = []
+        for (cr, alg), res in results.items():
+            X = res.best_design[self.space.names].to_numpy(dtype=float)
+            X_norm = (X - gmins) / np.where(granges > 1e-12, granges, 1.0)
+            row = {'criterion': cr, 'algorithm': alg}
+            for m in metric_names:
+                val = _m._compute_metric(m, X_norm, space=self.space)
+                row[m] = _m._percentile_rank(
+                    val, baseline[m], m in _m._HIGHER_BETTER)
+            rows.append(row)
+        table = pd.DataFrame(rows)
+
+        # ── Lexicographic ranking with a 2-point tolerance band ───────
+        band = 2.0
+        pool = table.index.to_list()
+        for m in priority:
+            best_val = table.loc[pool, m].max()
+            pool = [i for i in pool
+                    if best_val - table.loc[i, m] <= band]
+            if len(pool) == 1:
+                break
+        best_idx = (table.loc[pool, priority[-1]].idxmax()
+                    if len(pool) > 1 else pool[0])
+        best_key = (table.loc[best_idx, 'criterion'],
+                    table.loc[best_idx, 'algorithm'])
+
+        sort_cols = [m for m in priority]
+        table = table.sort_values(sort_cols, ascending=False,
+                                  ignore_index=True)
+        table.insert(0, 'best',
+                     [' *' if (r.criterion, r.algorithm) == best_key
+                      else '' for r in table.itertuples()])
+
+        cmp = ComparisonResult(table=table, results=results,
+                               best=best_key, priority=tuple(priority))
+        if verbose:
+            cmp.summary()
+        return cmp
 
     @staticmethod
     def _fmt_time(seconds: float) -> str:
