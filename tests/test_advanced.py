@@ -342,3 +342,68 @@ class TestLoadDesign:
         s.add_prescribed([[5, 5]])
         with pytest.raises(ValueError):
             s.run(seed=1, verbose=False)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# compare (criterion / algorithm sweep)
+# ─────────────────────────────────────────────────────────────────────
+class TestCompare:
+    @pytest.fixture
+    def sampler_numeric(self):
+        space = mergen.ParameterSpace({
+            'x': list(range(1, 9)),
+            'y': list(range(1, 9)),
+        })
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=8, n_validation=0)
+        s.set_optimizer('sa', n_restarts=1, max_iter=150)
+        return s
+
+    def test_basic_flow(self, sampler_numeric, capsys):
+        cmp = sampler_numeric.compare(
+            criteria=['umaxpro', 'cd2'], mc_samples=50, verbose=False)
+        capsys.readouterr()
+        assert len(cmp.results) == 2
+        assert len(cmp.table) == 2
+        assert cmp.best in cmp.results
+
+    def test_numeric_auto_filter(self, sampler_numeric, capsys):
+        cmp = sampler_numeric.compare(mc_samples=50, verbose=False)
+        capsys.readouterr()
+        crits = {k[0] for k in cmp.results}
+        assert 'maxproqq' not in crits
+        assert 'qqd' not in crits
+
+    def test_nominal_auto_filter(self, capsys):
+        space = mergen.ParameterSpace({
+            'x':   list(range(1, 9)),
+            'cat': ('nominal', ['A', 'B', 'C']),
+        })
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=8, n_validation=0)
+        s.set_optimizer('sa', n_restarts=1, max_iter=150)
+        cmp = s.compare(mc_samples=50, verbose=False)
+        capsys.readouterr()
+        assert {k[0] for k in cmp.results} == {'maxproqq', 'qqd'}
+
+    def test_invalid_priority_metric(self, sampler_numeric):
+        with pytest.raises(ValueError):
+            sampler_numeric.compare(
+                criteria=['umaxpro'], priority=('no_such_metric',),
+                mc_samples=50, verbose=False)
+
+    def test_best_result_consistency(self, sampler_numeric, capsys):
+        cmp = sampler_numeric.compare(
+            criteria=['umaxpro', 'phi_p'], mc_samples=50, verbose=False)
+        capsys.readouterr()
+        assert cmp.best_result is cmp.results[cmp.best]
+
+    def test_percentiles_in_range(self, sampler_numeric, capsys):
+        cmp = sampler_numeric.compare(
+            criteria=['umaxpro', 'cd2'], mc_samples=50, verbose=False)
+        capsys.readouterr()
+        cols = [c for c in cmp.table.columns
+                if c not in ('best', 'criterion', 'algorithm')]
+        vals = cmp.table[cols].to_numpy(dtype=float)
+        assert not any(map(lambda v: v != v, vals.ravel()))   # no NaN
+        assert (vals >= 0).all() and (vals <= 100).all()
