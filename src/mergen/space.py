@@ -164,6 +164,7 @@ def _parse_parameter(
         # Scale and optional resolution override
         scale = 'linear'
         res   = resolution
+        rnd   = None       # optional decimal-place rounding for grid nodes
         for item in spec[3:]:
             if isinstance(item, str):
                 if item.lower() in ('log', 'log10', 'logarithmic'):
@@ -175,6 +176,7 @@ def _parse_parameter(
                     )
             elif isinstance(item, dict):
                 res = int(item.get('resolution', res))
+                rnd = item.get('round', rnd)
 
         if lo <= 0 and scale == 'log':
             _fatal(
@@ -195,6 +197,25 @@ def _parse_parameter(
                 arr = arr[(arr >= lo) & (arr <= hi)]
             else:
                 arr = np.arange(int(round(lo)), int(round(hi)) + 1, dtype=float)
+
+        # Optional rounding of grid nodes to a fixed number of decimal
+        # places. Real continuous factors are only adjustable to the
+        # precision of the apparatus, so rounding the grid to that
+        # precision keeps the node values physically meaningful and makes
+        # load_design / add_set round-trips exact. Rounding can merge
+        # neighbouring nodes; the grid is de-duplicated and the user is
+        # warned if fewer distinct nodes remain than requested. Applies to
+        # continuous and integer-log grids; plain integer grids are
+        # already exact.
+        if rnd is not None and not (kind == 'integer' and scale == 'linear'):
+            n_before = len(arr)
+            arr = np.unique(np.round(arr, int(rnd)))
+            if len(arr) < n_before:
+                _warn(
+                    f"Parameter '{name}': rounding to {int(rnd)} decimal "
+                    f"place(s) reduced the grid from {n_before} to "
+                    f"{len(arr)} distinct node(s)."
+                )
 
         if len(arr) == 0:
             _fatal(
