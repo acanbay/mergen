@@ -732,12 +732,15 @@ def plot_quality(result, title: bool = True,
     """
     Quality metrics bar chart.
 
-    Computes all default metrics and displays them as horizontal bars.
-    Metrics are evaluated on the unit-normalised design (each factor
-    scaled to [0, 1]), so values share a common [0, 1] range. The dashed
-    marker on each bar is that metric's Monte Carlo baseline median (the
-    median over random designs). Bars are coloured green (good) to red
-    (poor) by percentile rank against that baseline.
+    All default metrics are drawn as horizontal bars on a single axis
+    that auto-ranges to the data, so a small value is still visible
+    rather than collapsing to nothing. Each bar shows the true metric
+    value (annotated with the value and its percentile rank); the dashed
+    vertical marker on each bar is that metric's Monte Carlo baseline
+    (the median over random designs). Bars are coloured green (good) to
+    red (poor) by percentile rank against that baseline. Metrics are on
+    different scales, so bar lengths are meaningful per metric (versus
+    its own baseline), not for comparing one metric against another.
     """
     _require_mpl()
     from . import metrics as _metrics
@@ -748,9 +751,9 @@ def plot_quality(result, title: bool = True,
     labels = [_metrics.metric_latex(m) for m in metric_names]
     values = [stats.get(m, np.nan) for m in metric_names]
     ranks  = [stats.get(f'{m}_percentile_rank', None) for m in metric_names]
-    baselines = [stats.get(f'{m}_baseline_median', None) for m in metric_names]
+    baselines = [stats.get(f'{m}_baseline_median', None)
+                 for m in metric_names]
 
-    # Figure: wider to accommodate labels + legend outside
     fig, ax = plt.subplots(figsize=(9, max(3.5, len(metric_names) * 0.7)))
 
     colors = []
@@ -764,45 +767,65 @@ def plot_quality(result, title: bool = True,
         else:
             colors.append('#e63946')
 
-    y_pos = range(len(metric_names))
-    ax.barh(list(y_pos), values, color=colors, alpha=0.85, height=0.6)
+    y_pos = list(range(len(metric_names)))
+    ax.barh(y_pos, values, color=colors, alpha=0.85, height=0.6)
 
-    # Baseline markers: a vertical dashed line at each metric's Monte
-    # Carlo baseline median, drawn in data coordinates so it is robust
-    # to y-axis inversion.
+    # Monte Carlo baseline markers: a vertical dashed line at each
+    # metric's baseline median, drawn in data coordinates.
     bar_height = 0.6
     marker_height = bar_height * 1.1
     for i, (bl, v) in enumerate(zip(baselines, values)):
         if bl is not None and not np.isnan(bl):
             ax.plot([bl, bl], [i - marker_height / 2, i + marker_height / 2],
-                       color='#333333', lw=1.2, ls='--', alpha=0.7)
+                    color='#333333', lw=1.2, ls='--', alpha=0.7)
 
-    # Value labels beside bars
-    ax.set_xlim(0, 1.0)
+    # Auto-ranged axis: include values and baselines so nothing is
+    # clipped, with head-room for the annotations.
+    x_max = max((x for x in values + baselines
+                 if x is not None and not np.isnan(x)), default=1.0)
+
+    # Place each value label a fixed pixel offset past its bar end.
+    bar_pad_px = 4.0
+    ax.set_xlim(0, x_max * 1.02)
+    texts = []
     for i, (v, r) in enumerate(zip(values, ranks)):
         if not np.isnan(v):
             label = f"{v:.4f}"
             if r is not None and not np.isnan(r):
                 label += f"  ({r:.0f}th pct)"
-            # Keep the label inside the axes: place it to the right of the
-            # bar, but if the bar is long, place it inside the bar end.
-            if v <= 0.6:
-                ax.text(v + 0.012, i, label, va='center', fontsize=8)
-            else:
-                ax.text(v - 0.012, i, label, va='center', ha='right',
-                        fontsize=8, color='white')
+            t = ax.annotate(label, xy=(v, i),
+                            xytext=(bar_pad_px, 0),
+                            textcoords='offset points',
+                            va='center', ha='left', fontsize=8)
+            texts.append(t)
 
-    ax.set_yticks(list(y_pos))
+    # Expand the x-axis until every label's right edge is comfortably
+    # inside the right spine. Because the pixel<->data ratio itself
+    # depends on the current xlim, iterate a couple of times so the
+    # final xlim accounts for the label widths at that same xlim.
+    margin_px = 10.0
+    for _ in range(3):
+        fig.canvas.draw()
+        inv = ax.transData.inverted()
+        x0_data, _ = inv.transform((0, 0))
+        right_data = x_max
+        for t in texts:
+            bb = t.get_window_extent()
+            x1_data, _ = inv.transform((bb.x1 + margin_px, 0))
+            right_data = max(right_data, x1_data)
+        if abs(ax.get_xlim()[1] - right_data) < x_max * 1e-3:
+            break
+        ax.set_xlim(0, right_data)
+
+    ax.set_yticks(y_pos)
     ax.set_yticklabels(labels, fontsize=10)
-    ax.set_xlabel("Metric value (normalised)", fontsize=11)
-    ax.set_xticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    ax.set_xlabel("Metric value", fontsize=11)
     ax.tick_params(labelsize=9)
     ax.invert_yaxis()
 
     if title:
         ax.set_title("Design Quality Metrics", fontsize=11, pad=10)
 
-    # Legend outside plot area
     from matplotlib.patches import Patch
     legend_elements = [
         Patch(facecolor='#2a9d8f', label='>= 75th percentile'),
