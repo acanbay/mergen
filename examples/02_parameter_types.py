@@ -11,9 +11,11 @@ constraint is applied before optimisation.
 
 Parameters
 ----------
-- flow_rate (0.1-10.0 mL/min, continuous, 25-level grid): span the
-  operating envelope of the pump; a tighter grid gives more
-  resolution along this rate-controlling factor.
+- flow_rate (0.1-10.0 mL/min, continuous, 25-level grid, rounded to
+  2 decimals): span the operating envelope of the pump; a tighter grid
+  gives more resolution along this rate-controlling factor, and the
+  rounding keeps the node values at a precision the pump can actually
+  be set to.
 - temperature (20-100 degC, 5-degree steps): the heater exposes only
   a discrete ladder, so it is entered as an explicit list.
 - n_stages (1-20, integer): column length options offered by the
@@ -55,7 +57,7 @@ from mergen import ParameterSpace, Sampler
 #    A per-parameter resolution override is passed as an options dict
 #    on the specification tuple (see 'flow_rate' below).
 space = ParameterSpace({
-    'flow_rate':   ('continuous', 0.1, 10.0, {'resolution': 25}),  # continuous, 25-level grid
+    'flow_rate':   ('continuous', 0.1, 10.0, {'resolution': 25, 'round': 2}),  # continuous, 25-level grid
     'temperature': range(20, 101, 5),                              # discrete list
     'n_stages':    ('integer', 1, 20),                             # integer interval
     'catalyst':    ('nominal', ['A', 'B', 'C']),                   # unordered labels
@@ -77,4 +79,3 @@ result.summary()
 result.quality_report()
 result.plot('pairplot', save=True)
 result.to_csv('parameter_types.csv')
-result.to_markdown('parameter_types_report.md')

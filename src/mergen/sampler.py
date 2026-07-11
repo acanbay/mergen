@@ -711,6 +711,41 @@ class Sampler:
             self._prescribed.append((validated, bool(in_design), bool(in_optim)))
         return self
 
+    def _encode_points(self, points, context: str) -> np.ndarray:
+        """
+        Convert a list/array of points to the numeric grid encoding.
+
+        Nominal factors are stored internally as integer category
+        indices, so string category labels (e.g. 'adam') are mapped to
+        their index before the array is built. Numeric factors pass
+        through unchanged. Accepts a single point or a list of points.
+        """
+        rows = list(points)
+        if len(rows) and np.ndim(rows[0]) == 0:
+            rows = [rows]                      # a single point
+        names = self.space.names
+        encoded = []
+        for row in rows:
+            if len(row) != len(names):
+                _fatal(
+                    f"{context}: each point must have {len(names)} "
+                    f"coordinates, got {len(row)}."
+                )
+            vals = []
+            for name, v in zip(names, row):
+                if self.space.is_nominal(name) and isinstance(v, str):
+                    labels = self.space.category_labels(name)
+                    if v not in labels:
+                        _fatal(
+                            f"{context}: '{v}' is not a level of nominal "
+                            f"factor '{name}'. Valid levels: {labels}."
+                        )
+                    vals.append(float(labels.index(v)))
+                else:
+                    vals.append(float(v))
+            encoded.append(vals)
+        return np.asarray(encoded, dtype=float)
+
     def add_set(
         self,
         name:   str,
@@ -748,14 +783,7 @@ class Sampler:
         taken   = builtin | set(self._user_sets) | set(self._extra_sets or {})
         if name in taken:
             _fatal(f"Set name '{name}' is already in use.")
-        pts = np.asarray(points, dtype=float)
-        if pts.ndim == 1:
-            pts = pts[np.newaxis, :]
-        if pts.ndim != 2 or pts.shape[1] != self.space.n_parameters:
-            _fatal(
-                f"Each point in set '{name}' must have "
-                f"{self.space.n_parameters} coordinates, got shape {pts.shape}."
-            )
+        pts = self._encode_points(points, context=f"Set '{name}'")
         validated = np.vstack([
             self.space.validate_point(row, label=f"Set '{name}' point")
             for row in pts
@@ -803,11 +831,11 @@ class Sampler:
                     f"load_design: DataFrame is missing parameter "
                     f"column(s) {missing}."
                 )
-            pts = points[self.space.names].to_numpy(dtype=float)
+            pts = self._encode_points(
+                points[self.space.names].to_numpy(dtype=object).tolist(),
+                context="load_design")
         else:
-            pts = np.asarray(points, dtype=float)
-            if pts.ndim == 1:
-                pts = pts[np.newaxis, :]
+            pts = self._encode_points(points, context="load_design")
         if pts.ndim != 2 or pts.shape[1] != self.space.n_parameters:
             _fatal(
                 f"load_design: each point must have "

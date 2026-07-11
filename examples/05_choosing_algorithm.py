@@ -9,9 +9,10 @@ produces a direct, self-explanatory bar chart comparing their scores.
 
 Parameters
 ----------
-- factor_a, factor_b, factor_c, factor_d (0.0-1.0, continuous): four
-  generic normalised inputs, large enough that the choice of
-  optimiser starts to matter.
+- factor_a, factor_b, factor_c, factor_d (0.0-1.0, continuous,
+  rounded to 3 decimals): four generic normalised inputs, large enough
+  that the choice of optimiser starts to matter; rounding keeps the
+  node values clean.
 
 What to look at
 ---------------
@@ -49,10 +50,10 @@ from mergen import ParameterSpace, Sampler
 #    a few minutes; a finer resolution is fine for production use of
 #    a single, chosen algorithm.
 space = ParameterSpace({
-    'factor_a': ('continuous', 0.0, 1.0, {'resolution': 20}),
-    'factor_b': ('continuous', 0.0, 1.0, {'resolution': 20}),
-    'factor_c': ('continuous', 0.0, 1.0, {'resolution': 20}),
-    'factor_d': ('continuous', 0.0, 1.0, {'resolution': 20}),
+    'factor_a': ('continuous', 0.0, 1.0, {'resolution': 20, 'round': 3}),
+    'factor_b': ('continuous', 0.0, 1.0, {'resolution': 20, 'round': 3}),
+    'factor_c': ('continuous', 0.0, 1.0, {'resolution': 20, 'round': 3}),
+    'factor_d': ('continuous', 0.0, 1.0, {'resolution': 20, 'round': 3}),
 })
 
 # 2. Fix a shared, modest compute budget for each optimiser, then run

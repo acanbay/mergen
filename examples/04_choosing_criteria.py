@@ -10,9 +10,12 @@ not on the raw optimisation score.
 
 Parameters
 ----------
-- factor_a, factor_b, factor_c (0.0-1.0, continuous): three generic
-  normalised inputs to a numerical model; the ranges are unit-scaled
-  so the comparison is not tied to any particular unit system.
+- factor_a, factor_b, factor_c (0.0-1.0, continuous, 15-level grid,
+  rounded to 3 decimals): three generic normalised inputs to a
+  numerical model; the ranges are unit-scaled so the comparison is not
+  tied to any unit system. The moderate grid lets every criterion be
+  optimised at full effort while the sweep still runs in a couple of
+  minutes.
 
 What to look at
 ---------------
@@ -27,6 +30,9 @@ What to look at
   make the individual effect of each factor harder to separate.
 - The winning design's saved pairplot: an even spread in every panel
   is the visual signature of a good space-filling design.
+- The saved quality plot: each metric's percentile against the Monte
+  Carlo baseline shown as a bar, so the winner's quality is legible at
+  a glance rather than read off a table.
 - winner_design.csv: the winning benchmark rows, ready for the
   downstream modelling step.
 
@@ -40,26 +46,23 @@ Mergen features used
   design saved as a pairplot (PNG) and a CSV. quality_report() stays
   in the terminal.
 
-Estimated runtime: a few minutes (compare() runs one optimisation per
-criterion; the optimiser is tuned down from its default restart count
-to keep the sweep quick for a demonstration).
+Estimated runtime: a minute or two (compare() runs one optimisation
+per criterion over a moderate grid).
 """
 from mergen import ParameterSpace, Sampler
 
 # 1. Define a purely numeric parameter space.
 space = ParameterSpace({
-    'factor_a': ('continuous', 0.0, 1.0),
-    'factor_b': ('continuous', 0.0, 1.0),
-    'factor_c': ('continuous', 0.0, 1.0),
+    'factor_a': ('continuous', 0.0, 1.0, {'resolution': 15, 'round': 3}),
+    'factor_b': ('continuous', 0.0, 1.0, {'resolution': 15, 'round': 3}),
+    'factor_c': ('continuous', 0.0, 1.0, {'resolution': 15, 'round': 3}),
 })
 
-# 2. Configure the sampler. The optimiser is tuned down from its
-#    default restart count so the five-criterion sweep below finishes
-#    in a few minutes; increase n_restarts / max_iter for production
-#    use of a single criterion.
+# 2. Configure the sampler and compare every compatible criterion.
+#    The moderate grid keeps the five-criterion sweep quick while each
+#    criterion is optimised at full effort.
 sampler = Sampler(space)
 sampler.set_design(n_samples=30)
-sampler.set_optimizer('sa', n_restarts=2, max_iter=400)
 comparison = sampler.compare(priority=('min_distance', 'max_abs_correlation'))
 
 # 3. Save the comparison table itself: which criterion won, and by
@@ -72,4 +75,5 @@ comparison.table.to_markdown('outputs/comparison_table.md', index=False)
 best = comparison.best_result
 best.quality_report()
 best.plot('pairplot', save=True)
+best.plot('quality', save=True)
 best.to_csv('winner_design.csv')
