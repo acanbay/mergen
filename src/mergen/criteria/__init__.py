@@ -62,6 +62,7 @@ __all__ = [
     "StratifiedL2",
     "get_criterion",
     "list_criteria",
+    "criterion_latex",
 ]
 
 
@@ -78,6 +79,35 @@ _REGISTRY: dict = {
     'stratified'    : StratifiedL2,
     'stratified_l2' : StratifiedL2,  # alias
 }
+
+
+# LaTeX math labels for the criteria, for use in rendering targets
+# (plots, LaTeX / Markdown / HTML exports). Plain-text targets
+# (terminal, CSV, Excel) keep the registry name. Notation follows the
+# source papers: phi_p (Morris & Mitchell 1995); MaxPro (Joseph, Gul &
+# Ba 2015); centered L2-discrepancy CD_2 (Hickernell 1998); stratified
+# L2-discrepancy SL_2 (Tian & Xu 2025).
+_CRITERION_LATEX = {
+    'umaxpro'    : r'$\mathrm{UMaxPro}$',
+    'maxpro'     : r'$\mathrm{MaxPro}$',
+    'maxproqq'   : r'$\mathrm{MaxPro}_{\mathrm{QQ}}$',
+    'phi_p'      : r'$\phi_p$',
+    'cd2'        : r'$\mathrm{CD}_2$',
+    'qqd'        : r'$\mathrm{QQD}$',
+    'stratified' : r'$\mathrm{SL}_2$',
+}
+
+
+def criterion_latex(name: str) -> str:
+    """Return the LaTeX math label for a criterion, or the name itself.
+
+    Aliases resolve to their canonical label. Plain-text output targets
+    (terminal, CSV) should use the raw name instead of this label.
+    """
+    aliases = {'maxpro_qq': 'maxproqq', 'phip': 'phi_p',
+               'stratified_l2': 'stratified'}
+    key = aliases.get(name, name)
+    return _CRITERION_LATEX.get(key, name)
 
 
 def get_criterion(name: str) -> BaseCriterion:

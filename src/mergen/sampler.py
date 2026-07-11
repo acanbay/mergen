@@ -1864,8 +1864,9 @@ class Sampler:
                 _fatal(f"Unknown priority metric '{m}'. "
                        f"Available: {sorted(_m._METRIC_FN)}")
         metric_names = list(dict.fromkeys(
-            list(priority) + ['min_distance', 'max_abs_correlation',
-                              'projection_cd2', 'mean_distance']))
+            list(priority) + ['min_distance', 'minimax',
+                              'max_abs_correlation', 'projection_cd2',
+                              'cv_distances', 'mean_distance']))
 
         # ── Run every combination silently ─────────────────────────────
         import contextlib
@@ -1923,9 +1924,16 @@ class Sampler:
         best_key = (table.loc[best_idx, 'criterion'],
                     table.loc[best_idx, 'algorithm'])
 
-        sort_cols = [m for m in priority]
-        table = table.sort_values(sort_cols, ascending=False,
-                                  ignore_index=True)
+        # Order rows by production order: criteria as the user listed
+        # them, and within each criterion the algorithms in their listed
+        # order. This keeps the table (and the heat map) grouped and
+        # readable, rather than shuffled by score.
+        crit_order = {cr: i for i, cr in enumerate(crit_list)}
+        alg_order = {al: i for i, al in enumerate(alg_list)}
+        table['_c'] = table['criterion'].map(crit_order)
+        table['_a'] = table['algorithm'].map(alg_order)
+        table = table.sort_values(['_c', '_a'], ignore_index=True)
+        table = table.drop(columns=['_c', '_a'])
         table.insert(0, 'best',
                      [' *' if (r.criterion, r.algorithm) == best_key
                       else '' for r in table.itertuples()])

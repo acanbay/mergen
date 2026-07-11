@@ -407,3 +407,210 @@ class TestCompare:
         vals = cmp.table[cols].to_numpy(dtype=float)
         assert not any(map(lambda v: v != v, vals.ravel()))   # no NaN
         assert (vals >= 0).all() and (vals <= 100).all()
+
+
+class TestCompareSixMetrics:
+    """compare() reports all six quality metrics, not a subset."""
+
+    @pytest.fixture
+    def sampler_numeric(self):
+        space = mergen.ParameterSpace({
+            'x': list(range(1, 9)),
+            'y': list(range(1, 9)),
+        })
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=8, n_validation=0)
+        s.set_optimizer('sa', n_restarts=1, max_iter=150)
+        return s
+
+    def test_all_six_metrics_present(self, sampler_numeric, capsys):
+        cmp = sampler_numeric.compare(
+            criteria=['cd2', 'phi_p'], mc_samples=50, verbose=False)
+        capsys.readouterr()
+        cols = [c for c in cmp.table.columns
+                if c not in ('best', 'criterion', 'algorithm')]
+        for m in ('min_distance', 'minimax', 'max_abs_correlation',
+                  'projection_cd2', 'cv_distances', 'mean_distance'):
+            assert m in cols
+
+
+class TestCompareOrdering:
+    """Rows follow production order (criteria then algorithms as listed)."""
+
+    @pytest.fixture
+    def sampler_numeric(self):
+        space = mergen.ParameterSpace({
+            'x': list(range(1, 9)),
+            'y': list(range(1, 9)),
+        })
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=8, n_validation=0)
+        s.set_optimizer('sa', n_restarts=1, max_iter=120)
+        s.set_optimizer('sce', n_restarts=1, max_iter=120)
+        return s
+
+    def test_row_order_matches_input(self, sampler_numeric, capsys):
+        crits = ['phi_p', 'cd2', 'maxpro']
+        algs = ['sa', 'sce']
+        cmp = sampler_numeric.compare(
+            algorithms=algs, criteria=crits, mc_samples=40, verbose=False)
+        capsys.readouterr()
+        got = [(r.criterion, r.algorithm) for r in cmp.table.itertuples()]
+        expected = [(c, a) for c in crits for a in algs]
+        assert got == expected
+
+    def test_best_marker_present(self, sampler_numeric, capsys):
+        cmp = sampler_numeric.compare(
+            criteria=['cd2', 'phi_p'], mc_samples=40, verbose=False)
+        capsys.readouterr()
+        marks = [r.best.strip() for r in cmp.table.itertuples()]
+        assert marks.count('*') == 1
+
+
+class TestComparisonResultOutputs:
+    """ComparisonResult.plot() and .to_markdown() produce artefacts."""
+
+    @pytest.fixture
+    def comparison(self):
+        space = mergen.ParameterSpace({
+            'x': list(range(1, 9)),
+            'y': list(range(1, 9)),
+        })
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=8, n_validation=0)
+        s.set_optimizer('sa', n_restarts=1, max_iter=120)
+        return s.compare(criteria=['cd2', 'phi_p'],
+                         mc_samples=40, verbose=False)
+
+    def test_plot_saves_file(self, comparison, tmp_path, capsys):
+        import matplotlib
+        matplotlib.use('Agg')
+        comparison.output_dir = str(tmp_path)
+        comparison.plot(save=True, show=False, filename='cmp.png')
+        capsys.readouterr()
+        assert (tmp_path / 'cmp.png').exists()
+
+    def test_to_markdown_saves_file(self, comparison, tmp_path, capsys):
+        comparison.output_dir = str(tmp_path)
+        comparison.to_markdown('cmp.md')
+        capsys.readouterr()
+        assert (tmp_path / 'cmp.md').exists()
+        text = (tmp_path / 'cmp.md').read_text()
+        assert 'criterion' in text
+
+
+class TestQualityReportDefaultPercentile:
+    """quality_report() runs the MC baseline by default."""
+
+    def test_default_includes_percentile(self, capsys):
+        space = mergen.ParameterSpace({
+            'x': list(range(1, 9)),
+            'y': list(range(1, 9)),
+        })
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=8, n_validation=0)
+        s.set_optimizer('sa', n_restarts=1, max_iter=120)
+        r = s.run(criteria='cd2', verbose=False)
+        rep = r.quality_report(verbose=False)
+        capsys.readouterr()
+        assert any(k.endswith('_percentile_rank') for k in rep)
+
+    def test_opt_out_with_zero(self, capsys):
+        space = mergen.ParameterSpace({
+            'x': list(range(1, 9)),
+            'y': list(range(1, 9)),
+        })
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=8, n_validation=0)
+        s.set_optimizer('sa', n_restarts=1, max_iter=120)
+        r = s.run(criteria='cd2', verbose=False)
+        rep = r.quality_report(mc_samples=0, verbose=False)
+        capsys.readouterr()
+        assert not any(k.endswith('_percentile_rank') for k in rep)
+
+
+class TestLatexLabels:
+    """LaTeX label helpers for criteria and metrics."""
+
+    def test_criterion_latex(self):
+        from mergen.criteria import criterion_latex
+        assert criterion_latex('phi_p') == r'$\phi_p$'
+        assert criterion_latex('cd2') == r'$\mathrm{CD}_2$'
+        # alias resolves
+        assert criterion_latex('phip') == r'$\phi_p$'
+        # unknown falls back to the name
+        assert criterion_latex('nope') == 'nope'
+
+    def test_metric_latex(self):
+        from mergen.metrics import metric_latex
+        assert metric_latex('min_distance') == r'$d_{\min}$'
+        assert metric_latex('mean_distance') == r'$\bar{d}$'
+        assert metric_latex('nope') == 'nope'
+
+
+class TestReportExportsLatex:
+    """LaTeX/HTML/Markdown reports carry math labels and modern markup."""
+
+    @pytest.fixture
+    def result(self, tmp_path):
+        space = mergen.ParameterSpace({
+            'x': list(range(1, 9)),
+            'y': list(range(1, 9)),
+        })
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=8, n_validation=0)
+        s.set_optimizer('sa', n_restarts=1, max_iter=120)
+        r = s.run(criteria='phi_p', verbose=False)
+        r.output_dir = str(tmp_path)
+        return r, tmp_path
+
+    def test_latex_booktabs_and_label(self, result, capsys):
+        r, tmp_path = result
+        r.to_latex('r.tex')
+        capsys.readouterr()
+        text = (tmp_path / 'r.tex').read_text()
+        assert 'toprule' in text and 'hline' not in text
+        assert r'$\phi_p$' in text
+
+    def test_html_mathjax_and_label(self, result, capsys):
+        r, tmp_path = result
+        r.to_html('r.html')
+        capsys.readouterr()
+        text = (tmp_path / 'r.html').read_text()
+        assert 'MathJax' in text
+        assert r'$\phi_p$' in text
+
+    def test_markdown_label(self, result, capsys):
+        r, tmp_path = result
+        r.to_markdown('r.md')
+        capsys.readouterr()
+        text = (tmp_path / 'r.md').read_text()
+        assert r'$\phi_p$' in text
+
+
+class TestNominalStringEncoding:
+    """add_set / load_design accept string labels for nominal factors."""
+
+    @pytest.fixture
+    def sampler_nominal(self):
+        space = mergen.ParameterSpace({
+            'depth': list(range(1, 9)),
+            'opt':   ('nominal', ['adam', 'sgd', 'rmsprop']),
+        })
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=6, n_validation=0)
+        s.set_optimizer('sa', n_restarts=1, max_iter=100)
+        return s
+
+    def test_add_set_string_label(self, sampler_nominal, capsys):
+        sampler_nominal.add_set('baseline', [[2, 'adam'], [5, 'sgd']])
+        capsys.readouterr()
+        # no exception means the label was encoded to its category index
+
+    def test_load_design_string_label(self, sampler_nominal, capsys):
+        sampler_nominal.load_design([[2, 'adam'], [5, 'rmsprop']])
+        capsys.readouterr()
+
+    def test_invalid_label_rejected(self, sampler_nominal):
+        with pytest.raises((ValueError, KeyError)):
+            sampler_nominal.add_set('bad', [[2, 'nadam']])

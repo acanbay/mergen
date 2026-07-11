@@ -313,9 +313,9 @@ def _scatter(ax, df, xc: str, yc: str, present: list,
             pad = (v.max() - v.min()) * 0.07 or 0.5
             setter(float(v.min()) - pad, float(v.max()) + pad)
 
-    ax.set_xlabel(xc, fontsize=9)
-    ax.set_ylabel(yc, fontsize=9)
-    ax.tick_params(labelsize=7)
+    ax.set_xlabel(xc, fontsize=11)
+    ax.set_ylabel(yc, fontsize=11)
+    ax.tick_params(labelsize=9)
 
 
 def _kde_strip(ax, df, param: str, present: list, space, ec: dict) -> None:
@@ -380,9 +380,9 @@ def _kde_strip(ax, df, param: str, present: list, space, ec: dict) -> None:
     ax.set_xlim(xlo, xhi)
     ax.set_ylim(-0.18, 1.12)
     ax.set_yticks([0, 0.5, 1.0])
-    ax.set_yticklabels(['0', '0.5', '1'], fontsize=7)
-    ax.set_xlabel(param, fontsize=9)
-    ax.tick_params(labelsize=7)
+    ax.set_yticklabels(['0', '0.5', '1'], fontsize=9)
+    ax.set_xlabel(param, fontsize=11)
+    ax.tick_params(labelsize=9)
 
 
 def _apply_log(ax, xc: str, yc: str, log_params: list) -> set:
@@ -452,8 +452,8 @@ def plot_pairplot(result, show_pool: bool = False, title: bool = True,
             is_self = (xc == yc)
             _scatter(ax, df, xc, yc, present, space,
                      show_pool and not is_self, ec)
-            ax.set_xlabel(xc if i == nd - 1 else "", fontsize=9)
-            ax.set_ylabel(yc if j == 0 else "", fontsize=9)
+            ax.set_xlabel(xc if i == nd - 1 else "", fontsize=11)
+            ax.set_ylabel(yc if j == 0 else "", fontsize=11)
             if is_self:
                 if xc in space._parameters:
                     v   = space._parameters[xc]
@@ -558,8 +558,8 @@ def plot_2d(result, params: Optional[Union[list, List[list]]] = None,
     for idx, (xc, yc) in enumerate(pairs):
         ax = axes[idx // ncols, idx % ncols]
         _scatter(ax, df, xc, yc, present, space, show_pool, ec)
-        ax.set_xlabel(xc, fontsize=9)
-        ax.set_ylabel(yc, fontsize=9)
+        ax.set_xlabel(xc, fontsize=11)
+        ax.set_ylabel(yc, fontsize=11)
         if log:
             _apply_log(ax, xc, yc, log)
             plotted |= {xc, yc}
@@ -638,9 +638,9 @@ def plot_distances(result, title: bool = True,
 
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(bottom=0)
-    ax.set_xlabel("Normalised pairwise distance", fontsize=10)
-    ax.set_ylabel("Density", fontsize=10)
-    ax.tick_params(labelsize=8)
+    ax.set_xlabel("Normalised pairwise distance", fontsize=11)
+    ax.set_ylabel("Density", fontsize=11)
+    ax.tick_params(labelsize=9)
 
     if title:
         cx  = (_LPAD + pw / 2) / fw
@@ -741,7 +741,7 @@ def plot_quality(result, title: bool = True,
     stats = result.quality_report(mc_samples=200, verbose=False)
 
     metric_names = _metrics._DEFAULT_METRICS
-    labels = [_metrics._METRIC_LABELS.get(m, m) for m in metric_names]
+    labels = [_metrics.metric_latex(m) for m in metric_names]
     values = [stats.get(m, np.nan) for m in metric_names]
     ranks  = [stats.get(f'{m}_percentile_rank', None) for m in metric_names]
 
@@ -789,9 +789,9 @@ def plot_quality(result, title: bool = True,
             ax.text(v + x_max * 0.01, i, label, va='center', fontsize=8)
 
     ax.set_yticks(list(y_pos))
-    ax.set_yticklabels(labels, fontsize=9)
-    ax.set_xlabel("Metric value", fontsize=9)
-    ax.tick_params(labelsize=8)
+    ax.set_yticklabels(labels, fontsize=10)
+    ax.set_xlabel("Metric value", fontsize=11)
+    ax.tick_params(labelsize=9)
     ax.invert_yaxis()
 
     if title:
@@ -880,7 +880,7 @@ def plot_comparison(result, title: bool = True,
                 fontweight='normal')
 
     crit_name = result._meta.get('criteria', 'criterion')
-    ax.set_ylabel(f"{crit_name} score  (lower is better)", fontsize=9)
+    ax.set_ylabel(f"{crit_name} score  (lower is better)", fontsize=11)
     # x label intentionally omitted — algorithm names speak for themselves
     ax.tick_params(labelsize=9)
     ax.grid(axis='y', alpha=0.25, linestyle=':')
@@ -919,10 +919,12 @@ def plot_comparison_matrix(comparison, title: bool = True,
     n_rows = len(table)
     n_cols = len(metric_cols)
 
+    from .criteria import criterion_latex
     row_labels = []
     for r in table.itertuples():
         star = '* ' if getattr(r, 'best', '').strip() else '  '
-        row_labels.append(f"{star}{r.criterion} / {r.algorithm}")
+        clab = criterion_latex(r.criterion)
+        row_labels.append(f"{star}{clab} / {r.algorithm}")
 
     data = table[metric_cols].to_numpy(dtype=float)
 
@@ -938,10 +940,10 @@ def plot_comparison_matrix(comparison, title: bool = True,
 
     ax.set_xticks(range(n_cols))
     from . import metrics as _metrics
-    ax.set_xticklabels([_metrics._METRIC_LABELS.get(m, m) for m in metric_cols],
-                       rotation=30, ha='right', fontsize=8)
+    ax.set_xticklabels([_metrics.metric_latex(m) for m in metric_cols],
+                       rotation=30, ha='right', fontsize=10)
     ax.set_yticks(range(n_rows))
-    ax.set_yticklabels(row_labels, fontsize=8, fontfamily='monospace')
+    ax.set_yticklabels(row_labels, fontsize=10, fontfamily='monospace')
 
     # Annotate each cell with its percentile.
     for i in range(n_rows):
@@ -1232,7 +1234,9 @@ def export_markdown(result, filename: str = 'report.md') -> None:
 
         # ── Run Settings ──────────────────────────────────────────────
         f.write("## Run Settings\n\n")
-        f.write(f"- **Criterion**: {meta.get('criteria', '?')}\n")
+        from .criteria import criterion_latex as _clx
+        _crit = meta.get('criteria', '?')
+        f.write(f"- **Criterion**: {_clx(_crit) if isinstance(_crit, str) else _crit}\n")
         f.write(f"- **Restarts**: {meta.get('n_restarts', '?')}\n")
         f.write(f"- **Seed**: {meta.get('seed', '?')}\n")
         f.write("\n---\n\n")
@@ -1344,7 +1348,9 @@ def export_latex(result, filename: str = 'report.tex') -> None:
         # Run Settings
         f.write("\\subsection*{Run Settings}\n\n")
         f.write("\\begin{tabular}{ll}\n\\toprule\n")
-        f.write(f"Criterion & {meta.get('criteria', '?')} \\\\\n")
+        from .criteria import criterion_latex as _clx
+        _crit = meta.get('criteria', '?')
+        f.write(f"Criterion & {_clx(_crit) if isinstance(_crit, str) else _crit} \\\\\n")
         f.write(f"Restarts & {meta.get('n_restarts', '?')} \\\\\n")
         f.write(f"Seed & {meta.get('seed', '?')} \\\\\n")
         f.write("\\bottomrule\n\\end{tabular}\n\n")
@@ -1462,9 +1468,16 @@ def export_html(result, filename: str = 'report.html') -> None:
             return ''
 
     with open(p, 'w', encoding='utf-8') as f:
+        mathjax = (
+            "<script>window.MathJax={tex:{inlineMath:[['$','$']]}};</script>\n"
+            "<script async "
+            "src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js'>"
+            "</script>")
         f.write(f"<!DOCTYPE html>\n<html lang='en'>\n<head>\n"
                 f"<meta charset='UTF-8'>\n"
-                f"<title>Mergen Design Report</title>\n{css}\n</head>\n<body>\n")
+                f"<meta name='viewport' content='width=device-width, initial-scale=1'>\n"
+                f"<title>Mergen Design Report</title>\n{css}\n{mathjax}\n"
+                f"</head>\n<body>\n")
 
         # Banner
         f.write("<h1>Mergen Design Report</h1>\n")
@@ -1502,7 +1515,9 @@ def export_html(result, filename: str = 'report.html') -> None:
 
         # Run settings
         f.write("<h2>Run Settings</h2>\n<ul>\n")
-        f.write(f"  <li><strong>Criterion</strong>: {meta.get('criteria', '?')}</li>\n")
+        from .criteria import criterion_latex as _clx
+        _crit = meta.get('criteria', '?')
+        f.write(f"  <li><strong>Criterion</strong>: {_clx(_crit) if isinstance(_crit, str) else _crit}</li>\n")
         f.write(f"  <li><strong>Restarts</strong>: {meta.get('n_restarts', '?')}</li>\n")
         f.write(f"  <li><strong>Seed</strong>: {meta.get('seed', '?')}</li>\n")
         f.write("</ul>\n<hr>\n")

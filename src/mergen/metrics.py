@@ -77,6 +77,26 @@ _METRIC_LABELS = {
     'mean_distance'      : 'Mean distance',
 }
 
+# LaTeX math labels for the metrics, for use in rendering targets
+# (plots, LaTeX / Markdown / HTML exports). Plain-text targets
+# (terminal, CSV, Excel) keep the names above. References for the
+# notation: min/mean pairwise distance and maximin d_min (Johnson,
+# Moore & Ylvisaker 1990); minimax d_mM (Johnson et al. 1990);
+# centered L2-discrepancy CD_2 (Hickernell 1998).
+_METRIC_LATEX = {
+    'min_distance'       : r'$d_{\min}$',
+    'minimax'            : r'$d_{\mathrm{mM}}$',
+    'max_abs_correlation': r'$|\rho|_{\max}$',
+    'projection_cd2'     : r'$\mathrm{CD}_2^{\mathrm{proj}}$',
+    'cv_distances'       : r'$\mathrm{CV}_d$',
+    'mean_distance'      : r'$\bar{d}$',
+}
+
+
+def metric_latex(name: str) -> str:
+    """Return the LaTeX math label for a metric, or the name itself."""
+    return _METRIC_LATEX.get(name, name)
+
 # Higher is better for these
 _HIGHER_BETTER = {'min_distance', 'mean_distance'}
 
