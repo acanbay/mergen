@@ -83,9 +83,7 @@ comparison = sampler.compare(
 )
 
 # 3. Save the ranking table.
-import os
-os.makedirs('outputs', exist_ok=True)
-comparison.table.to_markdown('outputs/comparison_table.md', index=False)
+comparison.to_markdown('comparison_table.md')
 
 # 4. Inspect and save the winning set of benchmark points.
 best = comparison.best_result

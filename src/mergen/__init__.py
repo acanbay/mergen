@@ -72,6 +72,7 @@ from .algorithms import (
 from .sampler    import (
     Sampler,
     SamplingResult,
+    ComparisonResult,
     FocusPoint,
     ExclusionPoint,
 )
@@ -89,16 +90,12 @@ __all__ = [
     "register_optimizer",
     "Sampler",
     "SamplingResult",
+    "ComparisonResult",
     "FocusPoint",
     "ExclusionPoint",
     "sequential",
     "distances",
 ]
-
-# NOTE: Algorithms are added in subsequent phases:
-#   Phase 4 — SA  (SAOptimizer  registered via algorithms.register_optimizer)
-#   Phase 5 — SCE (SCEOptimizer registered via algorithms.register_optimizer)
-#   Phase 6 — ESE (ESEOptimizer registered via algorithms.register_optimizer)
 
 
 # ── Info banner ───────────────────────────────────────────────────────────

@@ -84,10 +84,9 @@ comparison = sampler.compare(
 )
 
 # 3. Save the comparison table itself: which criterion won, and by
-#    how much on each quality metric.
-import os
-os.makedirs('outputs', exist_ok=True)
-comparison.table.to_markdown('outputs/comparison_table.md', index=False)
+#    how much on each quality metric. to_markdown() writes under the
+#    output directory, creating it if needed.
+comparison.to_markdown('comparison_table.md')
 
 # 4. Inspect and save the winning design.
 best = comparison.best_result
