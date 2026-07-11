@@ -22,11 +22,11 @@ Parameters (stepped grids, as real scans are stepped rather than
 continuous; LaTeX names so the physics notation appears on the axes and
 in the exported header)
 ----------
-- tan(beta): a log-like ladder [1, 2, 5, 10, 20, 30, 50].
+- tan(beta): a log-like ladder [1, 2, 5, 10, 15, 20].
 - cos(beta - alpha): the alignment region, in steps around zero.
-- m_H (heavy CP-even scalar): 200-1000 GeV in 100 GeV steps.
-- m_A (CP-odd scalar): 200-1000 GeV in 100 GeV steps.
-- m_H+- (charged scalar): 200-1000 GeV in 100 GeV steps.
+- m_H (heavy CP-even scalar): 300-1500 GeV in 200 GeV steps.
+- m_A (CP-odd scalar): 300-1500 GeV in 200 GeV steps.
+- m_H+- (charged scalar): 300-1500 GeV in 200 GeV steps.
 
 What to look at
 ---------------
@@ -47,11 +47,17 @@ Mergen features used
 - LaTeX parameter names used directly as space keys, so they appear on
   plot axes and in the CSV header.
 - Sampler.compare(): all factors are numeric, so criteria=None sweeps
-  the numeric criteria and ranks them on coverage percentiles.
+  the numeric criteria and ranks them on coverage percentiles. Each
+  combination is optimised n_repeats times (default 5) from
+  reproducible seeds and ranked on the mean metric percentile via a
+  Pareto/Utopia rule, so the choice is stable rather than tied to one
+  seed.
 - ComparisonResult.best_result and its saved ranking table.
 
-Estimated runtime: a minute or two (compare over several criteria in
-five dimensions).
+Estimated runtime: several minutes on one core (several criteria in
+five dimensions, each repeated). On a multi-core machine pass
+n_jobs=-1 to compare() to parallelise the repeats (identical result,
+faster); leave it at the default to stay single-core.
 """
 from mergen import ParameterSpace, Sampler
 
@@ -59,11 +65,11 @@ from mergen import ParameterSpace, Sampler
 #    used verbatim as keys so the physics notation propagates to the
 #    plot axes and the exported header.
 space = ParameterSpace({
-    r'$\tan\beta$':          [1, 2, 5, 10, 20, 30, 50],
+    r'$\tan\beta$':          [1, 2, 5, 10, 15, 20],
     r'$\cos(\beta-\alpha)$': [-0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3],
-    r'$m_H$':                range(200, 1001, 100),
-    r'$m_A$':                range(200, 1001, 100),
-    r'$m_{H^\pm}$':          range(200, 1001, 100),
+    r'$m_H$':                range(300, 1501, 200),
+    r'$m_A$':                range(300, 1501, 200),
+    r'$m_{H^\pm}$':          range(300, 1501, 200),
 })
 
 # 2. Compare the numeric criteria and pick the best coverage. The
@@ -72,7 +78,9 @@ space = ParameterSpace({
 sampler = Sampler(space)
 sampler.set_design(n_samples=40)
 sampler.set_optimizer('sa', n_restarts=2, max_iter=400)
-comparison = sampler.compare()
+comparison = sampler.compare(
+    n_jobs=1,  # one core; set n_jobs=-1 to use all cores (same result)
+)
 
 # 3. Save the ranking table.
 import os

@@ -733,7 +733,11 @@ def plot_quality(result, title: bool = True,
     Quality metrics bar chart.
 
     Computes all default metrics and displays them as horizontal bars.
-    Bars are coloured green (good) to red (poor) relative to a random baseline.
+    Metrics are evaluated on the unit-normalised design (each factor
+    scaled to [0, 1]), so values share a common [0, 1] range. The dashed
+    marker on each bar is that metric's Monte Carlo baseline median (the
+    median over random designs). Bars are coloured green (good) to red
+    (poor) by percentile rank against that baseline.
     """
     _require_mpl()
     from . import metrics as _metrics
@@ -744,9 +748,6 @@ def plot_quality(result, title: bool = True,
     labels = [_metrics.metric_latex(m) for m in metric_names]
     values = [stats.get(m, np.nan) for m in metric_names]
     ranks  = [stats.get(f'{m}_percentile_rank', None) for m in metric_names]
-
-    # Normalise values to [0, 1] for bar length
-    # For higher-is-better: value as-is; for lower-is-better: 1 - normalised
     baselines = [stats.get(f'{m}_baseline_median', None) for m in metric_names]
 
     # Figure: wider to accommodate labels + legend outside
@@ -766,31 +767,35 @@ def plot_quality(result, title: bool = True,
     y_pos = range(len(metric_names))
     ax.barh(list(y_pos), values, color=colors, alpha=0.85, height=0.6)
 
-    # Baseline markers
-    # Draw a vertical dashed line for each baseline value directly on the
-    # data coordinates. This is more robust to y-axis inversions than
-    # using axes coordinates with ymin/ymax. The line's height is set
-    # slightly larger than the bar height for better visibility.
+    # Baseline markers: a vertical dashed line at each metric's Monte
+    # Carlo baseline median, drawn in data coordinates so it is robust
+    # to y-axis inversion.
     bar_height = 0.6
-    marker_height = bar_height * 1.1  # 110% of the bar height
+    marker_height = bar_height * 1.1
     for i, (bl, v) in enumerate(zip(baselines, values)):
         if bl is not None and not np.isnan(bl):
             ax.plot([bl, bl], [i - marker_height / 2, i + marker_height / 2],
                        color='#333333', lw=1.2, ls='--', alpha=0.7)
 
-    # Value labels inside bars (avoid overflow)
-    x_max = max((v for v in values if not np.isnan(v)), default=1.0)
-    ax.set_xlim(0, x_max * 1.35)
+    # Value labels beside bars
+    ax.set_xlim(0, 1.0)
     for i, (v, r) in enumerate(zip(values, ranks)):
         if not np.isnan(v):
             label = f"{v:.4f}"
             if r is not None and not np.isnan(r):
                 label += f"  ({r:.0f}th pct)"
-            ax.text(v + x_max * 0.01, i, label, va='center', fontsize=8)
+            # Keep the label inside the axes: place it to the right of the
+            # bar, but if the bar is long, place it inside the bar end.
+            if v <= 0.6:
+                ax.text(v + 0.012, i, label, va='center', fontsize=8)
+            else:
+                ax.text(v - 0.012, i, label, va='center', ha='right',
+                        fontsize=8, color='white')
 
     ax.set_yticks(list(y_pos))
     ax.set_yticklabels(labels, fontsize=10)
-    ax.set_xlabel("Metric value", fontsize=11)
+    ax.set_xlabel("Metric value (normalised)", fontsize=11)
+    ax.set_xticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
     ax.tick_params(labelsize=9)
     ax.invert_yaxis()
 
@@ -803,7 +808,8 @@ def plot_quality(result, title: bool = True,
         Patch(facecolor='#2a9d8f', label='>= 75th percentile'),
         Patch(facecolor='#e9c46a', label='50-75th percentile'),
         Patch(facecolor='#e63946', label='< 50th percentile'),
-        Line2D([0], [0], color='#333333', lw=1.2, ls='--', label='Baseline'),
+        Line2D([0], [0], color='#333333', lw=1.2, ls='--',
+               label='Monte Carlo baseline'),
     ]
     ax.legend(handles=legend_elements, fontsize=8,
               loc='upper left', bbox_to_anchor=(1.01, 1.0),

@@ -37,10 +37,15 @@ Mergen features used
 --------------------
 - A nominal factor in a mostly numeric space.
 - Sampler.compare(): on a mixed space, criteria=None auto-selects the
-  nominal-supporting criteria, so the comparison is valid.
+  nominal-supporting criteria, so the comparison is valid. Each
+  combination is optimised n_repeats times (default 5) from
+  reproducible seeds and ranked on the mean metric percentile via a
+  Pareto/Utopia rule.
 - ComparisonResult.best_result and its saved table.
 
-Estimated runtime: a minute or two.
+Estimated runtime: a few minutes on one core. On a multi-core machine
+pass n_jobs=-1 to compare() to run the repeats in parallel (same
+result, faster); leave it at the default to stay single-core.
 """
 from mergen import ParameterSpace, Sampler
 
@@ -57,7 +62,9 @@ space = ParameterSpace({
 sampler = Sampler(space)
 sampler.set_design(n_samples=25)
 sampler.set_optimizer('sa', n_restarts=2, max_iter=400)
-comparison = sampler.compare()
+comparison = sampler.compare(
+    n_jobs=1,  # one core; set n_jobs=-1 to use all cores (same result)
+)
 
 # 3. Save the ranking table.
 import os

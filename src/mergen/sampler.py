@@ -1918,13 +1918,11 @@ class Sampler:
                 for alg in alg_list
                 for ri, rs in enumerate(rep_seeds)]
 
-        if verbose:
-            for cr in crit_list:
-                for alg in alg_list:
-                    print(f"  [COMPARE]  {cr} + {alg} "
-                          f"({n_repeats} repeat"
-                          f"{'s' if n_repeats > 1 else ''}) ...",
-                          flush=True)
+        # Which (criterion, algorithm) pairs to announce, in order. In
+        # sequential mode each is printed just before its runs start, so
+        # progress is visible; in parallel mode the runs are concurrent,
+        # so all pairs are announced up front.
+        combo_order = [(cr, alg) for cr in crit_list for alg in alg_list]
 
         def _one_job(cr, alg, rs):
             buf = io.StringIO()
@@ -1932,8 +1930,17 @@ class Sampler:
                 return self.run(criteria=cr, algorithm=alg,
                                 seed=rs, verbose=False)
 
+        def _announce(cr, alg):
+            print(f"  [COMPARE]  {cr} + {alg} "
+                  f"({n_repeats} repeat"
+                  f"{'s' if n_repeats > 1 else ''}) ...",
+                  flush=True)
+
         effective_n_jobs = _resolve_n_jobs(n_jobs)
         if effective_n_jobs > 1 and len(jobs) > 1:
+            if verbose:
+                for cr, alg in combo_order:
+                    _announce(cr, alg)
             from joblib import Parallel, delayed
             _prev_silent = os.environ.get('MERGEN_SILENT')
             os.environ['MERGEN_SILENT'] = '1'
@@ -1946,7 +1953,13 @@ class Sampler:
                 else:
                     os.environ['MERGEN_SILENT'] = _prev_silent
         else:
-            job_results = [_one_job(cr, alg, rs) for cr, alg, _ri, rs in jobs]
+            job_results = []
+            announced = set()
+            for cr, alg, _ri, rs in jobs:
+                if verbose and (cr, alg) not in announced:
+                    _announce(cr, alg)
+                    announced.add((cr, alg))
+                job_results.append(_one_job(cr, alg, rs))
 
         # Regroup by combination, preserving repeat order.
         results: Dict[Tuple[str, str], SamplingResult] = {}

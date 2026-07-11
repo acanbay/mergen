@@ -63,7 +63,10 @@ sampler.set_design(n_samples=20)
 sampler.set_optimizer('sa', n_restarts=2, max_iter=300)
 sampler.set_optimizer('sce', n_restarts=2, max_iter=300)
 sampler.set_optimizer('ese', M=30, J=15)
-result = sampler.run(criteria='phi_p', algorithm=['sa', 'sce', 'ese'])
+result = sampler.run(
+    criteria='phi_p', algorithm=['sa', 'sce', 'ese'],
+    n_jobs=1,  # one core; set n_jobs=-1 to run the algorithms in parallel
+)
 
 # 3. Inspect and save the outcome.
 result.summary()
