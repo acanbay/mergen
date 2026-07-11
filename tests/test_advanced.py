@@ -661,3 +661,43 @@ class TestParetoUtopiaRanking:
                     for i in range(len(pts)) if is_pareto(i)]
         best_d = float(np.linalg.norm(utopia - best_vec))
         assert abs(best_d - min(pareto_d)) < 1e-9
+
+
+class TestCompareRepeatsAndParallel:
+    """n_repeats averaging is reproducible and n_jobs does not change it."""
+
+    @pytest.fixture
+    def sampler_numeric(self):
+        space = mergen.ParameterSpace({
+            'x': list(range(1, 9)),
+            'y': list(range(1, 9)),
+        })
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=8, n_validation=0)
+        s.set_optimizer('sa', n_restarts=1, max_iter=120)
+        return s
+
+    def test_repeats_reproducible(self, sampler_numeric, capsys):
+        # Same base seed + n_repeats -> identical table, twice.
+        kw = dict(criteria=['cd2', 'phi_p'], algorithms=['sa'],
+                  seed=44, n_repeats=3, mc_samples=40, verbose=False)
+        a = sampler_numeric.compare(**kw)
+        b = sampler_numeric.compare(**kw)
+        capsys.readouterr()
+        assert a.best == b.best
+        cols = ['min_distance', 'max_abs_correlation']
+        assert a.table[cols].round(6).equals(b.table[cols].round(6))
+
+    def test_njobs_matches_sequential(self, sampler_numeric, capsys):
+        import os
+        kw = dict(criteria=['cd2', 'phi_p'], algorithms=['sa'],
+                  seed=44, n_repeats=2, mc_samples=40, verbose=False)
+        seq = sampler_numeric.compare(n_jobs=1, **kw)
+        capsys.readouterr()
+        # Only exercise the parallel path when >1 CPU is available.
+        if (os.cpu_count() or 1) > 1:
+            par = sampler_numeric.compare(n_jobs=2, **kw)
+            capsys.readouterr()
+            assert seq.best == par.best
+            cols = ['min_distance', 'max_abs_correlation']
+            assert seq.table[cols].round(6).equals(par.table[cols].round(6))

@@ -1792,6 +1792,8 @@ class Sampler:
         priority:   Tuple[str, ...] = ('min_distance', 'max_abs_correlation'),
         mc_samples: int = 300,
         seed:       int = 44,
+        n_repeats:  int = 5,
+        n_jobs:     Optional[int] = None,
         verbose:    bool = True,
     ) -> "ComparisonResult":
         """
@@ -1827,7 +1829,22 @@ class Sampler:
         mc_samples : int, default 300
             Size of the shared Monte Carlo baseline.
         seed : int, default 44
-            Seed used for every run and for the baseline.
+            Base seed. All randomness (the repeats and the Monte Carlo
+            baseline) is derived from it, so the whole comparison
+            reproduces exactly from this one number.
+        n_repeats : int, default 5
+            Number of independent optimiser runs per combination. Each
+            run uses a distinct seed derived from ``seed`` via
+            NumPy's SeedSequence.spawn (independent, not consecutive
+            integers), and the ranking uses the mean metric percentile
+            across the runs. This keeps the selected "best" from hinging
+            on a single lucky or unlucky seed. Use ``n_repeats=1`` for a
+            single run.
+        n_jobs : int or None, default None
+            Number of parallel workers for the combination x repeat
+            runs, following the joblib convention (None or 1 -> one
+            worker, -1 -> all cores). The runs are independent, so this
+            scales well; results are identical regardless of n_jobs.
         verbose : bool, default True
             Print progress and the final ranking table.
 
@@ -1873,24 +1890,74 @@ class Sampler:
                               'max_abs_correlation', 'projection_cd2',
                               'cv_distances', 'mean_distance']))
 
-        # ── Run every combination silently ─────────────────────────────
+        if n_repeats < 1:
+            _fatal(f"n_repeats must be >= 1; got {n_repeats}")
+
+        # Independent, reproducible seeds for the repeats. NumPy's
+        # SeedSequence.spawn derives child seeds that are effectively
+        # independent (unlike consecutive integers, which can be
+        # correlated) yet fully determined by the base ``seed``, so the
+        # whole comparison reproduces exactly from that one number.
+        seed_seq = np.random.SeedSequence(seed)
+        rep_seeds = [int(cs.generate_state(1)[0])
+                     for cs in seed_seq.spawn(n_repeats)]
+
+        # ── Run every (combination, repeat) job ────────────────────────
+        # Each job is one independent optimisation; they share nothing,
+        # so the whole grid of combinations x repeats parallelises
+        # cleanly. n_jobs follows the joblib convention (None -> 1,
+        # -1 -> all cores).
         import contextlib
         import io
-        results: Dict[Tuple[str, str], SamplingResult] = {}
-        for cr in crit_list:
-            for alg in alg_list:
-                if verbose:
-                    print(f"  [COMPARE]  {cr} + {alg} ...", flush=True)
-                buf = io.StringIO()
-                with contextlib.redirect_stdout(buf):
-                    res = self.run(criteria=cr, algorithm=alg,
-                                   seed=seed, verbose=False)
-                results[(cr, alg)] = res
-
-        # ── Shared Monte Carlo baseline ────────────────────────────────
         gs      = self.space.grid_sampler()
         gmins   = self.space.gmins
         granges = self.space.granges
+
+        jobs = [(cr, alg, ri, rs)
+                for cr in crit_list
+                for alg in alg_list
+                for ri, rs in enumerate(rep_seeds)]
+
+        if verbose:
+            for cr in crit_list:
+                for alg in alg_list:
+                    print(f"  [COMPARE]  {cr} + {alg} "
+                          f"({n_repeats} repeat"
+                          f"{'s' if n_repeats > 1 else ''}) ...",
+                          flush=True)
+
+        def _one_job(cr, alg, rs):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                return self.run(criteria=cr, algorithm=alg,
+                                seed=rs, verbose=False)
+
+        effective_n_jobs = _resolve_n_jobs(n_jobs)
+        if effective_n_jobs > 1 and len(jobs) > 1:
+            from joblib import Parallel, delayed
+            _prev_silent = os.environ.get('MERGEN_SILENT')
+            os.environ['MERGEN_SILENT'] = '1'
+            try:
+                job_results = Parallel(n_jobs=effective_n_jobs)(
+                    delayed(_one_job)(cr, alg, rs) for cr, alg, _ri, rs in jobs)
+            finally:
+                if _prev_silent is None:
+                    os.environ.pop('MERGEN_SILENT', None)
+                else:
+                    os.environ['MERGEN_SILENT'] = _prev_silent
+        else:
+            job_results = [_one_job(cr, alg, rs) for cr, alg, _ri, rs in jobs]
+
+        # Regroup by combination, preserving repeat order.
+        results: Dict[Tuple[str, str], SamplingResult] = {}
+        per_combo_designs: Dict[Tuple[str, str], list] = {}
+        for (cr, alg, ri, _rs), res in zip(jobs, job_results):
+            per_combo_designs.setdefault((cr, alg), [None] * n_repeats)
+            per_combo_designs[(cr, alg)][ri] = res
+        for key, designs in per_combo_designs.items():
+            results[key] = designs[0]
+
+        # ── Shared Monte Carlo baseline ────────────────────────────────
         n_ref   = len(next(iter(results.values())).best_design)
         if verbose:
             print(f"  [COMPARE]  Monte Carlo baseline "
@@ -1902,16 +1969,20 @@ class Sampler:
             mc_samples=mc_samples, seed=seed, space=self.space,
         )
 
-        # ── Percentile ranks against the shared baseline ──────────────
+        # ── Mean percentile ranks across repeats, per combination ─────
         rows = []
-        for (cr, alg), res in results.items():
-            X = res.best_design[self.space.names].to_numpy(dtype=float)
-            X_norm = (X - gmins) / np.where(granges > 1e-12, granges, 1.0)
+        for (cr, alg), designs in per_combo_designs.items():
             row = {'criterion': cr, 'algorithm': alg}
             for m in metric_names:
-                val = _m._compute_metric(m, X_norm, space=self.space)
-                row[m] = _m._percentile_rank(
-                    val, baseline[m], m in _m._HIGHER_BETTER)
+                pcts = []
+                for res in designs:
+                    X = res.best_design[self.space.names].to_numpy(dtype=float)
+                    X_norm = (X - gmins) / np.where(granges > 1e-12,
+                                                    granges, 1.0)
+                    val = _m._compute_metric(m, X_norm, space=self.space)
+                    pcts.append(_m._percentile_rank(
+                        val, baseline[m], m in _m._HIGHER_BETTER))
+                row[m] = float(np.mean(pcts))
             rows.append(row)
         table = pd.DataFrame(rows)
 
