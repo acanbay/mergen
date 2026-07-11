@@ -899,6 +899,74 @@ def plot_comparison(result, title: bool = True,
     plt.close(fig)
 
 
+def plot_comparison_matrix(comparison, title: bool = True,
+                           show: bool = True, save: bool = False,
+                           filename: Optional[str] = None,
+                           fmt: Optional[str] = None, dpi: int = 150) -> None:
+    """
+    Heat map of a ComparisonResult's percentile-rank table.
+
+    Rows are (criterion, algorithm) combinations, columns are the
+    quality metrics, and the cell colour encodes the percentile rank
+    (green good, red poor) against the shared Monte Carlo baseline. The
+    winning combination's row label is marked with a star.
+    """
+    _require_mpl()
+
+    table = comparison.table
+    metric_cols = [col for col in table.columns
+                   if col not in ('best', 'criterion', 'algorithm')]
+    n_rows = len(table)
+    n_cols = len(metric_cols)
+
+    row_labels = []
+    for r in table.itertuples():
+        star = '* ' if getattr(r, 'best', '').strip() else '  '
+        row_labels.append(f"{star}{r.criterion} / {r.algorithm}")
+
+    data = table[metric_cols].to_numpy(dtype=float)
+
+    fig, ax = plt.subplots(
+        figsize=(max(6.0, 1.1 * n_cols + 3.0),
+                 max(2.4, 0.5 * n_rows + 1.4)))
+
+    # Green-yellow-red colormap keyed to percentile (0-100).
+    from matplotlib.colors import LinearSegmentedColormap
+    cmap = LinearSegmentedColormap.from_list(
+        'mergen_pct', ['#e63946', '#e9c46a', '#2a9d8f'])
+    im = ax.imshow(data, cmap=cmap, vmin=0, vmax=100, aspect='auto')
+
+    ax.set_xticks(range(n_cols))
+    from . import metrics as _metrics
+    ax.set_xticklabels([_metrics._METRIC_LABELS.get(m, m) for m in metric_cols],
+                       rotation=30, ha='right', fontsize=8)
+    ax.set_yticks(range(n_rows))
+    ax.set_yticklabels(row_labels, fontsize=8, fontfamily='monospace')
+
+    # Annotate each cell with its percentile.
+    for i in range(n_rows):
+        for j in range(n_cols):
+            v = data[i, j]
+            ax.text(j, i, f"{v:.0f}", ha='center', va='center',
+                    fontsize=8,
+                    color='white' if (v < 33 or v > 80) else '#222222')
+
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label('percentile rank', fontsize=8)
+    cbar.ax.tick_params(labelsize=7)
+
+    if title:
+        ax.set_title("Criterion / Algorithm Comparison", fontsize=11, pad=10)
+
+    fig.tight_layout()
+    fn = _resolve_filename("comparison_matrix", filename, fmt)
+    if save:
+        _savefig(fig, comparison, fn, dpi)
+    if show:
+        plt.show()
+    plt.close(fig)
+
+
 def plot_all(result, show_pool: bool = False, title: bool = True,
              log: Optional[list] = None,
              show: bool = True, save: bool = False,
@@ -1245,23 +1313,25 @@ def export_latex(result, filename: str = 'report.tex') -> None:
             f.write(f"% {line}\n")
         f.write(f"% Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
 
+        f.write("% Requires \\usepackage{booktabs} in the document preamble.\n\n")
         f.write("\\section*{Mergen Design Report}\n\n")
 
         # Parameter Space
         f.write("\\subsection*{Parameter Space}\n\n")
         f.write("\\begin{tabular}{llrl}\n")
-        f.write("\\hline\nParameter & Type & Levels & Range \\\\\n\\hline\n")
+        f.write("\\toprule\nParameter & Type & Levels & Range \\\\\n\\midrule\n")
         for name, vals in zip(space.names, space.values):
             ptype = space._param_types.get(name, 'discrete')
             f.write(f"{name} & {ptype} & {len(vals)} & "
                     f"[{float(vals.min()):.4g}, {float(vals.max()):.4g}] \\\\\n")
-        f.write(f"\\hline\nFeasible candidates & & {space.n_candidates} & \\\\\n")
-        f.write("\\hline\n\\end{tabular}\n\n")
+        f.write("\\midrule\n")
+        f.write(f"Feasible candidates & & {space.n_candidates} & \\\\\n")
+        f.write("\\bottomrule\n\\end{tabular}\n\n")
 
         # Design Summary
         f.write("\\subsection*{Design Summary}\n\n")
         vc = result.samples["point_type"].value_counts()
-        f.write("\\begin{tabular}{lr}\n\\hline\n")
+        f.write("\\begin{tabular}{lr}\n\\toprule\n")
         for lbl in ("Prescribed", "Focus", "Optimised"):
             n = vc.get(lbl, 0)
             if n:
@@ -1269,15 +1339,15 @@ def export_latex(result, filename: str = 'report.tex') -> None:
         f.write(f"Total design & {len(result.samples)} \\\\\n")
         if len(result.validation):
             f.write(f"Validation & {len(result.validation)} \\\\\n")
-        f.write("\\hline\n\\end{tabular}\n\n")
+        f.write("\\bottomrule\n\\end{tabular}\n\n")
 
         # Run Settings
         f.write("\\subsection*{Run Settings}\n\n")
-        f.write("\\begin{tabular}{ll}\n\\hline\n")
+        f.write("\\begin{tabular}{ll}\n\\toprule\n")
         f.write(f"Criterion & {meta.get('criteria', '?')} \\\\\n")
         f.write(f"Restarts & {meta.get('n_restarts', '?')} \\\\\n")
         f.write(f"Seed & {meta.get('seed', '?')} \\\\\n")
-        f.write("\\hline\n\\end{tabular}\n\n")
+        f.write("\\bottomrule\n\\end{tabular}\n\n")
 
         # Quality Metrics
         f.write("\\subsection*{Quality Metrics}\n\n")
@@ -1336,20 +1406,41 @@ def export_html(result, filename: str = 'report.html') -> None:
 
     css = """
     <style>
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-             max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #222; }
-      h1   { color: #1a1a2e; border-bottom: 2px solid #3a86ff; padding-bottom: 0.3rem; }
-      h2   { color: #16213e; margin-top: 2rem; }
-      h3   { color: #0f3460; }
-      blockquote { border-left: 4px solid #3a86ff; margin: 0; padding: 0.5rem 1rem;
-                   background: #f8f9ff; color: #444; }
-      pre  { background: #f4f4f8; padding: 1rem; border-radius: 6px;
-             font-size: 0.85rem; overflow-x: auto; }
-      table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.9rem; }
-      th    { background: #3a86ff; color: white; padding: 0.5rem 0.8rem; text-align: left; }
-      td    { padding: 0.4rem 0.8rem; border-bottom: 1px solid #e0e0e0; }
-      tr:nth-child(even) td { background: #f8f9ff; }
-      hr    { border: none; border-top: 1px solid #ddd; margin: 2rem 0; }
+      :root { --ink: #1f2933; --muted: #6b7280; --rule: #e5e7eb;
+              --accent: #3a86ff; --zebra: #fafbfc; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+             Roboto, Helvetica, Arial, sans-serif;
+             max-width: 880px; margin: 2.5rem auto; padding: 0 1.25rem;
+             color: var(--ink); line-height: 1.65; font-size: 15px; }
+      h1 { font-weight: 600; font-size: 1.7rem; letter-spacing: -0.01em;
+           margin-bottom: 0.2rem; padding-bottom: 0.4rem;
+           border-bottom: 2px solid var(--accent); }
+      h2 { font-weight: 600; font-size: 1.2rem; margin-top: 2.2rem;
+           color: var(--ink); }
+      h3 { font-weight: 600; font-size: 1.0rem; color: var(--muted); }
+      blockquote { border-left: 3px solid var(--accent); margin: 1rem 0;
+                   padding: 0.4rem 1rem; color: var(--muted);
+                   font-size: 0.9rem; }
+      pre { background: #f6f8fa; padding: 1rem; border-radius: 6px;
+            font-size: 0.82rem; line-height: 1.5; overflow-x: auto;
+            border: 1px solid var(--rule); }
+      table { border-collapse: collapse; width: 100%; margin: 1.2rem 0;
+              font-size: 0.9rem; }
+      th { background: #f3f4f6; color: var(--ink); font-weight: 600;
+           text-align: left; padding: 0.55rem 0.8rem;
+           border-bottom: 2px solid var(--rule); }
+      td { padding: 0.45rem 0.8rem; border-bottom: 1px solid var(--rule); }
+      td:not(:first-child), th:not(:first-child) { text-align: right;
+                 font-variant-numeric: tabular-nums; }
+      tbody tr:nth-child(even) td { background: var(--zebra); }
+      tbody tr:hover td { background: #eef4ff; }
+      hr { border: none; border-top: 1px solid var(--rule); margin: 2rem 0; }
+      @media print {
+        body { max-width: none; margin: 0; font-size: 11pt; color: #000; }
+        h1 { border-color: #000; }
+        thead th { background: #eee; }
+        tbody tr:hover td { background: transparent; }
+      }
     </style>
     """
 

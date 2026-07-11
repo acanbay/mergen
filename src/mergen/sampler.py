@@ -460,7 +460,7 @@ class SamplingResult:
         self,
         metrics:          Union[str, list]   = 'default',
         criteria_metrics: Optional[list]     = None,
-        mc_samples:       int                = 0,
+        mc_samples:       int                = 300,
         verbose:          bool               = True,
     ) -> dict:
         """
@@ -468,12 +468,18 @@ class SamplingResult:
 
         Delegates to :func:`mergen.metrics.quality_report`.
 
+        Each metric is reported both as a raw value and as a percentile
+        rank against a Monte Carlo baseline of random designs of the
+        same size, so the table shows not just the value but whether it
+        is good. Pass ``mc_samples=0`` to skip the baseline (values
+        only).
+
         Parameters
         ----------
         metrics          : ``'default'`` or list of metric names
         criteria_metrics : list of criterion names to evaluate post-hoc
         mc_samples       : number of random designs for the Monte Carlo
-                           baseline (``0`` disables the baseline)
+                           baseline (``0`` disables it; default ``300``)
         verbose          : print the metrics table (default ``True``)
 
         Returns
@@ -606,6 +612,37 @@ class ComparisonResult:
         print(f"  Best: criteria='{self.best[0]}', "
               f"algorithm='{self.best[1]}'")
         print("═" * 72)
+
+    def plot(self, save: bool = False, filename: Optional[str] = None,
+             show: bool = True, **kwargs) -> None:
+        """
+        Heat map of the percentile-rank table.
+
+        Rows are (criterion, algorithm) combinations, columns are the
+        quality metrics, cell colour encodes the percentile rank; the
+        winning row is starred. Saved under ``outputs/`` when
+        ``save=True``.
+        """
+        from . import output as _output
+        _output.plot_comparison_matrix(
+            self, save=save, filename=filename, show=show, **kwargs)
+
+    def to_markdown(self, filename: str) -> None:
+        """
+        Save the ranked comparison table as a Markdown file under the
+        output directory.
+
+        Unlike calling ``comparison.table.to_markdown(...)`` directly,
+        this writes into ``outputs/`` (creating it if needed), matching
+        where the plots and design exports are saved.
+        """
+        import os
+        outdir = getattr(self, 'output_dir', 'outputs')
+        os.makedirs(outdir, exist_ok=True)
+        path = filename if os.path.isabs(filename) or os.path.dirname(filename) \
+            else os.path.join(outdir, filename)
+        self.table.to_markdown(path, index=False)
+        print(f"  Saved: {path}")
 
     def __repr__(self) -> str:
         return (f"ComparisonResult(best={self.best}, "
@@ -1240,8 +1277,9 @@ class Sampler:
                     reserved.add(idx)
 
         # ── Focus / exclusion sampling ─────────────────────────────────
-        print("  [MERGEN]   Sampling focus / exclusion regions...",
-              flush=True)
+        if self._focus or self._exclusions:
+            print("  [MERGEN]   Sampling focus / exclusion regions...",
+                  flush=True)
         focus_in_pts, focus_out_pts, focus_sa_pts, repel_weights, reserved = \
             self._build_focus_exclusion(gs, gmins, granges, reserved)
 
@@ -1305,7 +1343,8 @@ class Sampler:
         # BaseOptimizer is a balanced LHS (Joseph, Gul & Ba 2018),
         # which matches what SA, SCE and ESE expect from the
         # literature; subclasses may override for non-LHS algorithms.
-        print("  [MERGEN]   Preparing anchor points...", flush=True)
+        if self._prescribed or self._focus:
+            print("  [MERGEN]   Preparing anchor points...", flush=True)
 
         # Anchors = prescribed_in + focus_in (any explicit user points
         # that must appear unchanged in every optimiser's design).
