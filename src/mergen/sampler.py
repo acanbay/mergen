@@ -641,21 +641,7 @@ class ComparisonResult:
         os.makedirs(outdir, exist_ok=True)
         path = filename if os.path.isabs(filename) or os.path.dirname(filename) \
             else os.path.join(outdir, filename)
-        # Write the table by hand rather than via pandas.to_markdown so
-        # the export has no optional 'tabulate' dependency.
-        cols = list(self.table.columns)
-
-        def _fmt(v):
-            if isinstance(v, float):
-                return f"{v:.4g}"
-            return str(v)
-
-        lines = ["| " + " | ".join(cols) + " |",
-                 "| " + " | ".join("---" for _ in cols) + " |"]
-        for row in self.table.itertuples(index=False):
-            lines.append("| " + " | ".join(_fmt(v) for v in row) + " |")
-        with open(path, 'w') as fh:
-            fh.write("\n".join(lines) + "\n")
+        self.table.to_markdown(path, index=False)
         print(f"  Saved: {path}")
 
     def __repr__(self) -> str:
