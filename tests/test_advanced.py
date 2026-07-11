@@ -495,7 +495,7 @@ class TestComparisonResultOutputs:
         comparison.to_markdown('cmp.md')
         capsys.readouterr()
         assert (tmp_path / 'cmp.md').exists()
-        text = (tmp_path / 'cmp.md').read_text()
+        text = (tmp_path / 'cmp.md').read_text(encoding='utf-8')
         assert 'criterion' in text
 
 
@@ -568,7 +568,7 @@ class TestReportExportsLatex:
         r, tmp_path = result
         r.to_latex('r.tex')
         capsys.readouterr()
-        text = (tmp_path / 'r.tex').read_text()
+        text = (tmp_path / 'r.tex').read_text(encoding='utf-8')
         assert 'toprule' in text and 'hline' not in text
         assert r'$\phi_p$' in text
 
@@ -576,7 +576,7 @@ class TestReportExportsLatex:
         r, tmp_path = result
         r.to_html('r.html')
         capsys.readouterr()
-        text = (tmp_path / 'r.html').read_text()
+        text = (tmp_path / 'r.html').read_text(encoding='utf-8')
         assert 'MathJax' in text
         assert r'$\phi_p$' in text
 
@@ -584,7 +584,7 @@ class TestReportExportsLatex:
         r, tmp_path = result
         r.to_markdown('r.md')
         capsys.readouterr()
-        text = (tmp_path / 'r.md').read_text()
+        text = (tmp_path / 'r.md').read_text(encoding='utf-8')
         assert r'$\phi_p$' in text
 
 

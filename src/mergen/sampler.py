@@ -641,7 +641,9 @@ class ComparisonResult:
         os.makedirs(outdir, exist_ok=True)
         path = filename if os.path.isabs(filename) or os.path.dirname(filename) \
             else os.path.join(outdir, filename)
-        self.table.to_markdown(path, index=False)
+        md = self.table.to_markdown(index=False)
+        with open(path, 'w', encoding='utf-8') as fh:
+            fh.write(md + "\n")
         print(f"  Saved: {path}")
 
     def __repr__(self) -> str:
