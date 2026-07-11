@@ -614,3 +614,50 @@ class TestNominalStringEncoding:
     def test_invalid_label_rejected(self, sampler_nominal):
         with pytest.raises((ValueError, KeyError)):
             sampler_nominal.add_set('bad', [[2, 'nadam']])
+
+
+class TestParetoUtopiaRanking:
+    """compare() selects the best design by Pareto/Utopia, not by a
+    single dominant metric."""
+
+    def test_balanced_beats_lopsided(self, capsys):
+        # Build a comparison, then verify the chosen 'best' is Pareto
+        # optimal and closest to the Utopia point on the priority axes.
+        import numpy as np
+        space = mergen.ParameterSpace({
+            'x': list(range(1, 11)),
+            'y': list(range(1, 11)),
+        })
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=12, n_validation=0)
+        s.set_optimizer('sa', n_restarts=2, max_iter=200)
+        s.set_optimizer('sce', n_restarts=2, max_iter=200)
+        prio = ('min_distance', 'max_abs_correlation')
+        cmp = s.compare(criteria=['cd2', 'maxpro', 'phi_p'],
+                        algorithms=['sa', 'sce'],
+                        priority=prio, mc_samples=60, verbose=False)
+        capsys.readouterr()
+
+        t = cmp.table
+        pts = t[list(prio)].to_numpy(dtype=float)
+        best_row = t[t['best'].str.strip() == '*'].iloc[0]
+        best_vec = best_row[list(prio)].to_numpy(dtype=float)
+
+        # 1. The winner must be Pareto-optimal (not dominated by anyone).
+        dominated = any(
+            np.all(p >= best_vec) and np.any(p > best_vec)
+            for p in pts if not np.array_equal(p, best_vec))
+        assert not dominated
+
+        # 2. Among Pareto-optimal designs, the winner is closest to Utopia.
+        utopia = np.full(len(prio), 100.0)
+
+        def is_pareto(i):
+            return not any(
+                np.all(pts[j] >= pts[i]) and np.any(pts[j] > pts[i])
+                for j in range(len(pts)) if j != i)
+
+        pareto_d = [float(np.linalg.norm(utopia - pts[i]))
+                    for i in range(len(pts)) if is_pareto(i)]
+        best_d = float(np.linalg.norm(utopia - best_vec))
+        assert abs(best_d - min(pareto_d)) < 1e-9

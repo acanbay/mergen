@@ -1815,12 +1815,15 @@ class Sampler:
         algorithms : list of str, optional
             Optimisers to sweep. If None, ``['sa']``.
         priority : tuple of str
-            Quality metrics that define the ranking, in order of
-            importance. Ranking is lexicographic: candidates within a
-            2-percentile band of the best primary value are re-ranked
-            by the secondary metric, and so on. Available metrics:
-            min_distance, mean_distance, cv_distances, minimax,
-            max_abs_correlation, projection_cd2.
+            Quality metrics treated as competing objectives when
+            selecting the best design. All are on a common 0-100
+            percentile scale (higher is better) and are honoured jointly
+            via a Pareto/Utopia rule (Lu, Anderson-Cook & Robinson
+            2011): the non-dominated designs are kept, and the one
+            closest to the Utopia point (every metric = 100) is chosen.
+            No weights are needed and no single metric dominates.
+            Available metrics: min_distance, mean_distance, cv_distances,
+            minimax, max_abs_correlation, projection_cd2.
         mc_samples : int, default 300
             Size of the shared Monte Carlo baseline.
         seed : int, default 44
@@ -1912,17 +1915,39 @@ class Sampler:
             rows.append(row)
         table = pd.DataFrame(rows)
 
-        # ── Lexicographic ranking with a 2-point tolerance band ───────
-        band = 2.0
-        pool = table.index.to_list()
-        for m in priority:
-            best_val = table.loc[pool, m].max()
-            pool = [i for i in pool
-                    if best_val - table.loc[i, m] <= band]
-            if len(pool) == 1:
-                break
-        best_idx = (table.loc[pool, priority[-1]].idxmax()
-                    if len(pool) > 1 else pool[0])
+        # ── Pareto-frontier ranking with a Utopia-point selection ─────
+        # The priority metrics are treated as competing objectives, all
+        # already on a common 0-100 percentile scale (higher is better).
+        # Rather than collapsing them with arbitrary weights (a weighted
+        # sum favours extreme corner solutions and needs weights that are
+        # not natural to set) or with a strict lexicographic order (which
+        # lets the first metric dominate and all but ignores the rest),
+        # designs are ranked with the Pareto/Utopia approach of Lu,
+        # Anderson-Cook & Robinson (2011): keep the non-dominated
+        # (Pareto-optimal) designs, then pick the one closest to the
+        # Utopia point where every metric reaches 100. This honours every
+        # priority metric without a weight choice.
+        obj = list(priority)
+        pts = table[obj].to_numpy(dtype=float)
+        n = len(pts)
+
+        def _dominates(a, b):
+            # a dominates b: no worse on any objective, better on at least
+            # one (all objectives are "higher is better" here).
+            return bool(np.all(a >= b) and np.any(a > b))
+
+        pareto = []
+        for i in range(n):
+            if not any(_dominates(pts[j], pts[i]) for j in range(n)
+                       if j != i):
+                pareto.append(i)
+
+        # Utopia point = best achievable on each objective (100 for a
+        # percentile). Choose the Pareto design closest to it.
+        utopia = np.full(len(obj), 100.0)
+        dists = {i: float(np.linalg.norm(utopia - pts[i])) for i in pareto}
+        best_pos = min(dists, key=dists.get)
+        best_idx = table.index[best_pos]
         best_key = (table.loc[best_idx, 'criterion'],
                     table.loc[best_idx, 'algorithm'])
 
