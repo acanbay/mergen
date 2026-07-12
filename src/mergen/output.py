@@ -983,8 +983,8 @@ def plot_comparison_matrix(comparison, title: bool = True,
                     color='white' if (v < 33 or v > 80) else '#222222')
 
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label('percentile rank', fontsize=8)
-    cbar.ax.tick_params(labelsize=7)
+    cbar.set_label('percentile rank', fontsize=11)
+    cbar.ax.tick_params(labelsize=9)
 
     if title:
         ax.set_title("Criterion / Algorithm Comparison", fontsize=11, pad=10)

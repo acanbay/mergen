@@ -168,6 +168,26 @@ def _resolve_n_jobs(n_jobs: Optional[int]) -> int:
     return cpu + 1 + n_jobs
 
 
+def _compare_one_job(sampler, cr, alg, ri, rs):
+    """
+    Run one (criterion, algorithm, repeat) optimisation for ``compare``.
+
+    Top-level (module-scope) function so that joblib's pickling-based
+    ``multiprocessing`` backend can serialise the task (a locally defined
+    closure cannot be pickled by the standard ``pickle`` module). The
+    ``Sampler`` is passed explicitly and is itself picklable. Returns the
+    job's identity together with its result so that results collected out
+    of submission order can still be regrouped correctly.
+    """
+    import contextlib
+    import io
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        res = sampler.run(criteria=cr, algorithm=alg,
+                          seed=rs, verbose=False)
+    return (cr, alg, ri), res
+
+
 def _run_one_algorithm_task(
     alg_name:        str,
     params:          dict,
@@ -1469,9 +1489,19 @@ class Sampler:
             _prev_silent = os.environ.get('MERGEN_SILENT')
             os.environ['MERGEN_SILENT'] = '1'
             try:
-                results_list = Parallel(n_jobs=effective_n_jobs)(
-                    delayed(_run_one_algorithm_task)(**ta) for ta in tasks_args
-                )
+                # See compare() for the rationale: fork-based
+                # 'multiprocessing' where available avoids loky's
+                # per-task overhead; loky elsewhere. The context manager
+                # guarantees the pool is shut down on exit/Ctrl-C.
+                import multiprocessing as _mp
+                _backend = ('multiprocessing'
+                            if 'fork' in _mp.get_all_start_methods()
+                            else 'loky')
+                with Parallel(n_jobs=effective_n_jobs,
+                              backend=_backend) as parallel:
+                    results_list = parallel(
+                        delayed(_run_one_algorithm_task)(**ta)
+                        for ta in tasks_args)
             finally:
                 if _prev_silent is None:
                     os.environ.pop('MERGEN_SILENT', None)
@@ -1907,8 +1937,6 @@ class Sampler:
         # so the whole grid of combinations x repeats parallelises
         # cleanly. n_jobs follows the joblib convention (None -> 1,
         # -1 -> all cores).
-        import contextlib
-        import io
         gs      = self.space.grid_sampler()
         gmins   = self.space.gmins
         granges = self.space.granges
@@ -1918,18 +1946,6 @@ class Sampler:
                 for alg in alg_list
                 for ri, rs in enumerate(rep_seeds)]
 
-        # Which (criterion, algorithm) pairs to announce, in order. In
-        # sequential mode each is printed just before its runs start, so
-        # progress is visible; in parallel mode the runs are concurrent,
-        # so all pairs are announced up front.
-        combo_order = [(cr, alg) for cr in crit_list for alg in alg_list]
-
-        def _one_job(cr, alg, rs):
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                return self.run(criteria=cr, algorithm=alg,
-                                seed=rs, verbose=False)
-
         def _announce(cr, alg):
             print(f"  [COMPARE]  {cr} + {alg} "
                   f"({n_repeats} repeat"
@@ -1938,15 +1954,72 @@ class Sampler:
 
         effective_n_jobs = _resolve_n_jobs(n_jobs)
         if effective_n_jobs > 1 and len(jobs) > 1:
-            if verbose:
-                for cr, alg in combo_order:
-                    _announce(cr, alg)
             from joblib import Parallel, delayed
             _prev_silent = os.environ.get('MERGEN_SILENT')
             os.environ['MERGEN_SILENT'] = '1'
+            from collections import Counter
+            remaining = Counter((cr, alg) for cr, alg, _ri, _rs in jobs)
+            n_combos = len(remaining)
+            # Each optimisation is a short, Python-object-bound job, so a
+            # thread backend would be serialised by the GIL and give no
+            # speed-up. Process parallelism is needed. The default 'loky'
+            # backend pays a large per-task serialisation/spawn overhead
+            # that can make many short jobs slower than serial
+            # (joblib #1443), so where the OS provides the 'fork' start
+            # method (Linux, WSL, macOS) the cheaper 'multiprocessing'
+            # backend is used; elsewhere (Windows) we fall back to loky.
+            # The fork backend cannot stream results, so per-combination
+            # progress is only shown once the whole pool finishes; the
+            # notice below makes clear the run is working in the meantime.
+            import multiprocessing as _mp
+            _use_fork = 'fork' in _mp.get_all_start_methods()
+            if verbose:
+                print(f"  [COMPARE]  running {n_combos} combination"
+                      f"{'s' if n_combos > 1 else ''} "
+                      f"({n_repeats} repeat"
+                      f"{'s' if n_repeats > 1 else ''} each) "
+                      f"on {effective_n_jobs} workers ...", flush=True)
+                if _use_fork:
+                    print("  [COMPARE]  progress is reported once the "
+                          "workers finish; please wait ...", flush=True)
+            done = 0
+            job_results = []
             try:
-                job_results = Parallel(n_jobs=effective_n_jobs)(
-                    delayed(_one_job)(cr, alg, rs) for cr, alg, _ri, rs in jobs)
+                # Each result carries its own (criterion, algorithm,
+                # repeat) identity, so regrouping is robust regardless of
+                # completion order. The context manager guarantees the
+                # worker pool is shut down on normal exit, exceptions and
+                # Ctrl-C, so no worker processes are left running.
+                if _use_fork:
+                    with Parallel(n_jobs=effective_n_jobs,
+                                  backend='multiprocessing') as parallel:
+                        job_results = parallel(
+                            delayed(_compare_one_job)(self, cr, alg, ri, rs)
+                            for cr, alg, ri, rs in jobs)
+                    if verbose:
+                        for (cr, alg, _ri), _res in job_results:
+                            remaining[(cr, alg)] -= 1
+                            if remaining[(cr, alg)] == 0:
+                                done += 1
+                                print(f"  [COMPARE]  [{done}/{n_combos}]"
+                                      f"  {cr} + {alg}  done", flush=True)
+                else:
+                    # Windows: loky supports streaming, so each
+                    # combination is reported as it completes.
+                    with Parallel(n_jobs=effective_n_jobs,
+                                  return_as='generator') as parallel:
+                        stream = parallel(
+                            delayed(_compare_one_job)(self, cr, alg, ri, rs)
+                            for cr, alg, ri, rs in jobs)
+                        for (cr, alg, _ri), res in stream:
+                            job_results.append(((cr, alg, _ri), res))
+                            remaining[(cr, alg)] -= 1
+                            if verbose and remaining[(cr, alg)] == 0:
+                                done += 1
+                                print(f"  [COMPARE]  [{done}/{n_combos}]"
+                                      f"  {cr} + {alg}  done", flush=True)
+                                print(f"  [COMPARE]  [{done}/{n_combos}]"
+                                      f"  {cr} + {alg}  done", flush=True)
             finally:
                 if _prev_silent is None:
                     os.environ.pop('MERGEN_SILENT', None)
@@ -1955,16 +2028,19 @@ class Sampler:
         else:
             job_results = []
             announced = set()
-            for cr, alg, _ri, rs in jobs:
+            for cr, alg, ri, rs in jobs:
                 if verbose and (cr, alg) not in announced:
                     _announce(cr, alg)
                     announced.add((cr, alg))
-                job_results.append(_one_job(cr, alg, rs))
+                job_results.append(_compare_one_job(self, cr, alg, ri, rs))
 
-        # Regroup by combination, preserving repeat order.
+        # Regroup by combination, preserving repeat order. Each entry is
+        # ((criterion, algorithm, repeat_index), result); using the
+        # explicit identity keeps regrouping correct even when parallel
+        # results arrived out of order.
         results: Dict[Tuple[str, str], SamplingResult] = {}
         per_combo_designs: Dict[Tuple[str, str], list] = {}
-        for (cr, alg, ri, _rs), res in zip(jobs, job_results):
+        for (cr, alg, ri), res in job_results:
             per_combo_designs.setdefault((cr, alg), [None] * n_repeats)
             per_combo_designs[(cr, alg)][ri] = res
         for key, designs in per_combo_designs.items():
