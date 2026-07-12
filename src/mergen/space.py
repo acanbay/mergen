@@ -1367,6 +1367,31 @@ class GridSampler:
                     occupied.add(pidx)
                     break
 
+        # ── Step 5c: uniqueness pass ──
+        # Rows are assembled from independent per-axis pools, so two new
+        # rows (or a new row and an anchor) can coincide. A design must
+        # never contain duplicate points; replace any duplicate with a
+        # random feasible unreserved point (constraint-checked by
+        # random_point_excluding).
+        seen = set(reserved)
+        for pt in selected:
+            aidx = self.point_to_index(pt)
+            if aidx >= 0:
+                seen.add(aidx)
+        for i in range(budget):
+            idx = self.point_to_index(new_rows[i])
+            if idx >= 0 and idx not in seen:
+                seen.add(idx)
+                continue
+            pt, pidx = self.random_point_excluding(seen, rng=rng)
+            if pt is None:
+                _fatal(
+                    "Could not build a duplicate-free initial design: "
+                    "no unreserved feasible grid point is left. "
+                    "Relax the constraints or reduce n_samples.")
+            new_rows[i] = pt
+            seen.add(pidx)
+
         # ── Step 6: update reserved and return ──
         for i in range(budget):
             idx = self.point_to_index(new_rows[i])

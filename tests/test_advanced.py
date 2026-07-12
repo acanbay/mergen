@@ -403,8 +403,10 @@ class TestCompare:
         best = cmp.best_result
         assert isinstance(best, mergen.SamplingResult)
         bc, ba = cmp.best
-        r = sampler_numeric.run(criteria=bc, algorithm=ba,
-                                seed=44, n_repeats=1, verbose=False)
+        r = sampler_numeric.run(
+            criteria=bc, algorithm=ba, seed=44, n_repeats=5,
+            priority=('min_distance', 'max_abs_correlation'),
+            verbose=False)
         capsys.readouterr()
         import numpy as np
         cols = sampler_numeric.space.names

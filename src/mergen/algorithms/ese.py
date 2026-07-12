@@ -326,16 +326,28 @@ class ESEOptimizer(BaseOptimizer):
                                   rtol=1e-9, atol=1e-9):
                         continue
 
-                    # Constraint check on both resulting rows
+                    # Constraint + duplicate check on both resulting rows
+                    row_i = design[i_abs].copy()
+                    row_j = design[j_abs].copy()
+                    row_i[v], row_j[v] = row_j[v], row_i[v]
                     if constraints:
-                        row_i = design[i_abs].copy()
-                        row_j = design[j_abs].copy()
-                        row_i[v], row_j[v] = row_j[v], row_i[v]
                         p_i = dict(zip(names, row_i))
                         p_j = dict(zip(names, row_j))
                         if not (all(c(p_i) for c in constraints) and
                                 all(c(p_j) for c in constraints)):
                             continue
+                    # A column swap between rows i and j can make either
+                    # new row coincide with a *third* design row, which
+                    # distance-free criteria (e.g. CD2) do not punish;
+                    # designs must never contain duplicate points.
+                    dup_i = np.all(np.isclose(design, row_i,
+                                              rtol=1e-9, atol=1e-9), axis=1)
+                    dup_j = np.all(np.isclose(design, row_j,
+                                              rtol=1e-9, atol=1e-9), axis=1)
+                    dup_i[i_abs] = dup_i[j_abs] = False
+                    dup_j[i_abs] = dup_j[j_abs] = False
+                    if dup_i.any() or dup_j.any():
+                        continue
 
                     # Δscore via two incremental updates
                     new_i = (
@@ -490,15 +502,23 @@ class ESEOptimizer(BaseOptimizer):
                 if np.isclose(design[i_abs, v], design[j_abs, v],
                               rtol=1e-9, atol=1e-9):
                     continue
+                row_i = design[i_abs].copy()
+                row_j = design[j_abs].copy()
+                row_i[v], row_j[v] = row_j[v], row_i[v]
                 if constraints:
-                    row_i = design[i_abs].copy()
-                    row_j = design[j_abs].copy()
-                    row_i[v], row_j[v] = row_j[v], row_i[v]
                     p_i = dict(zip(names, row_i))
                     p_j = dict(zip(names, row_j))
                     if not (all(c(p_i) for c in constraints) and
                             all(c(p_j) for c in constraints)):
                         continue
+                dup_i = np.all(np.isclose(design, row_i,
+                                          rtol=1e-9, atol=1e-9), axis=1)
+                dup_j = np.all(np.isclose(design, row_j,
+                                          rtol=1e-9, atol=1e-9), axis=1)
+                dup_i[i_abs] = dup_i[j_abs] = False
+                dup_j[i_abs] = dup_j[j_abs] = False
+                if dup_i.any() or dup_j.any():
+                    continue
                 design[i_abs, v], design[j_abs, v] = (
                     design[j_abs, v], design[i_abs, v])
                 break

@@ -505,9 +505,18 @@ class SCEOptimizer(BaseOptimizer):
         constraints = space._constraints if space._constraints else None
         names       = space.names
 
+        # Belt-and-braces against a stale ``reserved``: also exclude the
+        # current design rows' indices so a kick replacement can never
+        # coincide with an existing design point.
+        occupied = set(reserved)
+        for row in design:
+            ridx = gs.point_to_index(row)
+            if ridx >= 0:
+                occupied.add(ridx)
+
         for i in kick_rows:
             for _ in range(20):
-                new_pt, new_idx = gs.random_point_excluding(reserved)
+                new_pt, new_idx = gs.random_point_excluding(occupied)
                 if new_pt is None:
                     break
                 if constraints:
@@ -517,7 +526,9 @@ class SCEOptimizer(BaseOptimizer):
                 old_idx = gs.point_to_index(design[i])
                 if old_idx >= 0:
                     reserved.discard(old_idx)
+                    occupied.discard(old_idx)
                 reserved.add(new_idx)
+                occupied.add(new_idx)
                 design[i] = new_pt
                 break
 

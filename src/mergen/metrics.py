@@ -392,18 +392,24 @@ def _mc_baseline(
 def _percentile_rank(design_val: float, mc_vals: np.ndarray,
                      higher_better: bool) -> float:
     """
-    Fraction of mc_vals that the design_val outperforms, as a percentage.
-
-    higher_better=True  → pct of mc_vals < design_val
-    higher_better=False → pct of mc_vals > design_val
+    Percentile rank of ``design_val`` within ``mc_vals`` with midrank
+    tie handling: values strictly beaten count fully, ties count half
+    (the standard "mean" definition, cf. scipy.stats.percentileofscore
+    with kind='mean'). On a discrete grid many random designs share the
+    same metric value (e.g. an adjacent-cell minimum distance); with a
+    strict count a design that ties the entire baseline would misleadingly
+    display as the 0th percentile, whereas midrank correctly places it
+    mid-distribution.
     """
     mc_clean = mc_vals[~np.isnan(mc_vals)]
     if len(mc_clean) == 0:
         return np.nan
+    equal = np.isclose(mc_clean, design_val, rtol=1e-9, atol=1e-12)
     if higher_better:
-        return float(np.mean(mc_clean < design_val) * 100)
+        beaten = (mc_clean < design_val) & ~equal
     else:
-        return float(np.mean(mc_clean > design_val) * 100)
+        beaten = (mc_clean > design_val) & ~equal
+    return float((beaten.mean() + 0.5 * equal.mean()) * 100)
 
 
 # ======================================================================

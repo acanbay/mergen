@@ -348,10 +348,25 @@ class SAOptimizer(BaseOptimizer):
             if accepted:
                 n_accepted += 1
                 if raw_score < best_score and raw_score > _CRIT_EPS:
-                    best_score  = raw_score
-                    best_design = design.copy()
+                    # Incremental score updates accumulate floating-point
+                    # error over thousands of steps (severe for phi_p's
+                    # d^-p scale, p = 15): the running score can drift far
+                    # below the design's true value, silently recording
+                    # garbage designs as "best". Verify every candidate
+                    # best with a full evaluate and resync the running
+                    # score so drift cannot compound (same safeguard as
+                    # ESE's best-tracking).
+                    raw_score = float(criterion.evaluate(X_norm, space))
+                    if raw_score < best_score and raw_score > _CRIT_EPS:
+                        best_score  = raw_score
+                        best_design = design.copy()
 
             T *= cooling
+
+            # Periodic resync as extra insurance against drift in long
+            # stretches without a candidate best.
+            if (it + 1) % 500 == 0:
+                raw_score = float(criterion.evaluate(X_norm, space))
 
             if verbose and (it + 1) % log_interval == 0:
                 print(f"    iter {it+1:>{len(str(max_iter))}}/{max_iter}  "
@@ -402,16 +417,28 @@ class SAOptimizer(BaseOptimizer):
                       rtol=1e-9, atol=1e-9):
             return False, raw_score, X_norm
 
-        # Constraint check on BOTH resulting rows
+        # Constraint + duplicate check on BOTH resulting rows
+        row_i = design[i_abs].copy()
+        row_j = design[j_abs].copy()
+        row_i[v], row_j[v] = row_j[v], row_i[v]
         if constraints:
-            row_i = design[i_abs].copy()
-            row_j = design[j_abs].copy()
-            row_i[v], row_j[v] = row_j[v], row_i[v]
             p_i = dict(zip(names, row_i))
             p_j = dict(zip(names, row_j))
             if not (all(c(p_i) for c in constraints) and
                     all(c(p_j) for c in constraints)):
                 return False, raw_score, X_norm
+        # A column swap between rows i and j can make either new row
+        # coincide with a *third* design row, which distance-free
+        # criteria (e.g. CD2) do not punish; designs must never contain
+        # duplicate points.
+        dup_i = np.all(np.isclose(design, row_i,
+                                  rtol=1e-9, atol=1e-9), axis=1)
+        dup_j = np.all(np.isclose(design, row_j,
+                                  rtol=1e-9, atol=1e-9), axis=1)
+        dup_i[i_abs] = dup_i[j_abs] = False
+        dup_j[i_abs] = dup_j[j_abs] = False
+        if dup_i.any() or dup_j.any():
+            return False, raw_score, X_norm
 
         # Compute Δscore via two incremental updates (i then j on updated X)
         gmins, granges = space.gmins, space.granges
@@ -483,8 +510,17 @@ class SAOptimizer(BaseOptimizer):
         if not (0 <= i_rel < len(X_norm)):
             return False, raw_score, X_norm, reserved
 
-        # Draw a fresh grid point that is currently unused
-        new_raw, new_idx = gs.random_point_excluding(reserved, rng=rng)
+        # Draw a fresh grid point that is currently unused. Swap moves
+        # do not maintain ``reserved``, so it can be stale here;
+        # excluding the *current* design rows' indices as well
+        # guarantees the replacement never coincides with an existing
+        # design point.
+        occupied = set(reserved)
+        for row in design:
+            ridx = gs.point_to_index(row)
+            if ridx >= 0:
+                occupied.add(ridx)
+        new_raw, new_idx = gs.random_point_excluding(occupied, rng=rng)
         if new_raw is None:
             return False, raw_score, X_norm, reserved
 
@@ -649,9 +685,19 @@ class SAOptimizer(BaseOptimizer):
         rng = np.random.default_rng(seed + r_idx + 500)
         kick_rows = rng.choice(np.arange(n_frozen, n), size=k, replace=False)
 
+        # Swap moves during the sweeps do not maintain ``reserved``, so
+        # it can be stale here; excluding the *current* design rows'
+        # indices as well guarantees the replacement never coincides
+        # with an existing design point.
+        occupied = set(reserved)
+        for row in design:
+            ridx = gs.point_to_index(row)
+            if ridx >= 0:
+                occupied.add(ridx)
+
         for i in kick_rows:
             for _ in range(20):  # up to 20 attempts to find a feasible replacement
-                new_pt, new_idx = gs.random_point_excluding(reserved, rng=rng)
+                new_pt, new_idx = gs.random_point_excluding(occupied, rng=rng)
                 if new_pt is None:
                     break
                 if constraints:
@@ -660,7 +706,9 @@ class SAOptimizer(BaseOptimizer):
                         continue
                 old_idx = gs.point_to_index(design[i])
                 reserved.discard(old_idx)
+                occupied.discard(old_idx)
                 reserved.add(new_idx)
+                occupied.add(new_idx)
                 design[i] = new_pt
                 break
 

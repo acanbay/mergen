@@ -168,6 +168,53 @@ def _resolve_n_jobs(n_jobs: Optional[int]) -> int:
     return cpu + 1 + n_jobs
 
 
+def _select_repeat(reps, priority, space):
+    """
+    Pick the representative repeat from a list of OptimisationResults.
+
+    With ``priority=None`` the repeat with the strictly lowest criterion
+    score wins (ties: first in spawn order) — the classic best-of-k
+    restarts rule.
+
+    With a ``priority`` tuple of metric names, the repeat whose design
+    is closest to the Utopia point of those metrics wins (Lu,
+    Anderson-Cook & Robinson 2011). The optimiser minimises a smooth
+    proxy criterion, but near-optimal proxy scores can correspond to
+    designs with very different coverage properties; selecting the final
+    design by the *true* objectives (optimise-by-proxy,
+    select-by-objective) makes the delivered design stable under
+    incidental setting changes such as n_restarts. Raw metric values are
+    min-max normalised across the repeats (no Monte Carlo baseline
+    needed), each oriented so 1 is best; ties break on the lower
+    criterion score, then on spawn order. Deterministic throughout.
+    """
+    if len(reps) == 1:
+        return reps[0]
+    if not priority:
+        best = reps[0]
+        for r in reps[1:]:
+            if r.score < best.score:
+                best = r
+        return best
+    from . import metrics as _m
+    import numpy as np
+    gmins, granges = space.gmins, space.granges
+    denom = np.where(granges > 1e-12, granges, 1.0)
+    vals = np.empty((len(reps), len(priority)), dtype=float)
+    for i, r in enumerate(reps):
+        Xn = (np.asarray(r.design, dtype=float) - gmins) / denom
+        for j, m in enumerate(priority):
+            v = float(_m._compute_metric(m, Xn, space=space))
+            vals[i, j] = v if m in _m._HIGHER_BETTER else -v
+    lo, hi = vals.min(axis=0), vals.max(axis=0)
+    span = np.where((hi - lo) > 1e-15, hi - lo, 1.0)
+    norm = (vals - lo) / span                     # 1 = best per metric
+    dist = np.linalg.norm(1.0 - norm, axis=1)     # Utopia distance
+    order = sorted(range(len(reps)),
+                   key=lambda i: (dist[i], reps[i].score, i))
+    return reps[order[0]]
+
+
 def _compare_one_job(sampler, cr, alg, seed, n_repeats):
     """
     Run one (criterion, algorithm) combination for ``compare`` through
@@ -1110,6 +1157,7 @@ class Sampler:
         algorithm: Union[str, List[str]]                = 'sa',
         seed:      Optional[int]                        = 44,
         n_repeats: int                                  = 1,
+        priority:  Optional[Tuple[str, ...]]            = None,
         n_jobs:    Optional[int]                        = None,
         verbose:   bool                                  = True,
     ) -> SamplingResult:
@@ -1132,6 +1180,22 @@ class Sampler:
             Default ``'sa'``.
         seed : int or None
             Random seed for reproducibility (default 44).
+        n_repeats : int, default 1
+            Number of independent optimisation repeats. Repeat seeds are
+            derived from ``seed`` via NumPy's SeedSequence.spawn; the
+            representative repeat is returned (see ``priority``).
+        priority : tuple of str, optional
+            Quality-metric names used to pick the representative repeat
+            when ``n_repeats > 1``. ``None`` (default) keeps the repeat
+            with the lowest criterion score (classic best-of-k
+            restarts). When given — e.g.
+            ``('min_distance', 'max_abs_correlation')`` — the repeat
+            whose design lies closest to the Utopia point of these
+            metrics is returned instead (optimise-by-proxy,
+            select-by-objective), which keeps the delivered design
+            stable when near-optimal criterion scores correspond to
+            different coverage trade-offs. Pass the same tuple used in
+            :meth:`compare` to reproduce its ``best_result`` exactly.
         n_jobs : int or None, optional
             Number of parallel workers for the multi-algorithm
             dispatcher. ``None`` (default) and ``1`` run sequentially.
@@ -1539,21 +1603,18 @@ class Sampler:
             results_list = [_run_one_algorithm_task(**ta)
                             for ta in tasks_args]
 
-        # Keep, for each algorithm, the best (lowest-score) repeat and
-        # also the full list of repeat results (in spawn order) so that
-        # compare() can reuse the very same optimisations rather than
-        # re-deriving them. With n_repeats == 1 the best is that single
-        # run. Ties break on the first-seen repeat (spawn order) so the
-        # choice is deterministic.
+        # Keep, for each algorithm, the representative repeat: the
+        # lowest-score repeat by default, or — when ``priority`` is given
+        # — the repeat closest to the Utopia point of those metrics (see
+        # _select_repeat). The full repeat list (spawn order) is kept so
+        # compare() can reuse the very same optimisations. Deterministic
+        # in both modes.
         _repeats_by_alg: Dict[str, list] = {}
         for alg_name, result in zip(task_alg, results_list):
             _repeats_by_alg.setdefault(alg_name, []).append(result)
         for alg_name, reps in _repeats_by_alg.items():
-            best = reps[0]
-            for result in reps[1:]:
-                if result.score < best.score:
-                    best = result
-            algorithm_results[alg_name] = best
+            algorithm_results[alg_name] = _select_repeat(
+                reps, priority, space)
         if verbose:
             for alg_name in algorithm_names:
                 result = algorithm_results[alg_name]
@@ -1911,10 +1972,12 @@ class Sampler:
             Number of independent optimiser runs per combination. Each
             run uses a distinct seed derived from ``seed`` via
             NumPy's SeedSequence.spawn (independent, not consecutive
-            integers), and the ranking uses the mean metric percentile
-            across the runs. This keeps the selected "best" from hinging
-            on a single lucky or unlucky seed. Use ``n_repeats=1`` for a
-            single run.
+            integers); the best-scoring repeat represents the
+            combination, exactly as ``run(seed, n_repeats)`` would
+            deliver it, and the table reports that design's metric
+            percentiles. More repeats therefore improve every
+            combination's delivered design rather than averaging over
+            seed luck. Use ``n_repeats=1`` for a single run.
         n_jobs : int or None, default None
             Number of parallel workers for the combination x repeat
             runs, following the joblib convention (None or 1 -> one
@@ -2050,18 +2113,16 @@ class Sampler:
                 job_results.append(
                     _compare_one_job(self, cr, alg, seed, n_repeats))
 
-        # For each combination keep the best (lowest-score) repeat as its
-        # representative design — identical to what run(seed, n_repeats)
-        # returns for that combination.
+        # For each combination keep the representative repeat, selected
+        # with the same priority-aware rule run(seed, n_repeats,
+        # priority) applies (see _select_repeat), so the table describes
+        # exactly the design each combination delivers for the user's
+        # stated priorities.
         results: Dict[Tuple[str, str], SamplingResult] = {}
         per_combo_designs: Dict[Tuple[str, str], list] = {}
         for (cr, alg), reps in job_results:
             per_combo_designs[(cr, alg)] = reps
-            best = reps[0]
-            for res in reps[1:]:
-                if res.score < best.score:
-                    best = res
-            results[(cr, alg)] = best
+            results[(cr, alg)] = _select_repeat(reps, priority, self.space)
 
         # ── Shared Monte Carlo baseline ────────────────────────────────
         n_ref   = len(np.asarray(next(iter(results.values())).design))
@@ -2075,23 +2136,23 @@ class Sampler:
             mc_samples=mc_samples, seed=seed, space=self.space,
         )
 
-        # ── Mean percentile ranks across repeats, per combination ─────
+        # ── Percentile ranks of the best repeat, per combination ──────
+        # run(seed, n_repeats) delivers the best-scoring repeat, so the
+        # table describes exactly the design each combination delivers:
+        # its rows match the winner's quality report one-to-one. (A mean
+        # over repeats would describe average seed behaviour instead of
+        # the delivered design and would disagree with best_result.)
         rows = []
         for (cr, alg), designs in per_combo_designs.items():
             row = {'criterion': cr, 'algorithm': alg}
+            best_res = results[(cr, alg)]
+            X = np.asarray(best_res.design, dtype=float)
+            X_norm = (X - gmins) / np.where(granges > 1e-12,
+                                            granges, 1.0)
             for m in metric_names:
-                pcts = []
-                for res in designs:
-                    # res is an OptimisationResult; res.design is the
-                    # optimised design as an (n, d) array in the original
-                    # parameter space.
-                    X = np.asarray(res.design, dtype=float)
-                    X_norm = (X - gmins) / np.where(granges > 1e-12,
-                                                    granges, 1.0)
-                    val = _m._compute_metric(m, X_norm, space=self.space)
-                    pcts.append(_m._percentile_rank(
-                        val, baseline[m], m in _m._HIGHER_BETTER))
-                row[m] = float(np.mean(pcts))
+                val = _m._compute_metric(m, X_norm, space=self.space)
+                row[m] = float(_m._percentile_rank(
+                    val, baseline[m], m in _m._HIGHER_BETTER))
             rows.append(row)
         table = pd.DataFrame(rows)
 
@@ -2154,6 +2215,7 @@ class Sampler:
         _bc, _ba = best_key
         cmp._best_result = self.run(criteria=_bc, algorithm=_ba,
                                     seed=seed, n_repeats=n_repeats,
+                                    priority=tuple(priority),
                                     n_jobs=1, verbose=False)
         if verbose:
             cmp.summary()

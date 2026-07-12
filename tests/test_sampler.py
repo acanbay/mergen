@@ -92,7 +92,7 @@ class TestBackwardCompatibility:
         s.set_design(n_samples=15, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=1500)
         r = s.run(criteria='cd2', algorithm='sa', seed=44, verbose=False)
-        assert np.isclose(r.best_score, 0.054914, rtol=1e-4)
+        assert np.isclose(r.best_score, 0.059917, rtol=1e-4)
 
 
 class TestParallel:
