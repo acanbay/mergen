@@ -1306,6 +1306,40 @@ class GridSampler:
                         if fixed:
                             break
 
+            # ── Step 5a: guaranteed-feasibility fallback ──
+            # The in-axis swap repair preserves per-axis balance but is
+            # not guaranteed to succeed. Any row still violating a
+            # constraint is replaced with a uniformly random *feasible*
+            # grid point (rejection sampling), so the returned seed is
+            # always feasible. Feasibility is a hard requirement;
+            # per-axis balance is only a preference and may be slightly
+            # degraded by the replacement.
+            still_bad = []
+            for i in range(budget):
+                p = dict(zip(names, new_rows[i]))
+                try:
+                    if not all(c(p) for c in constraints):
+                        still_bad.append(i)
+                except (TypeError, KeyError):
+                    still_bad.append(i)
+            if still_bad:
+                occupied = set(reserved)
+                for i in range(budget):
+                    idx = self.point_to_index(new_rows[i])
+                    if idx >= 0:
+                        occupied.add(idx)
+                for vi in still_bad:
+                    bad_idx = self.point_to_index(new_rows[vi])
+                    occupied.discard(bad_idx)
+                    pt, pidx = self.random_point_excluding(occupied, rng=rng)
+                    if pt is None:
+                        _fatal(
+                            "Could not build a feasible initial design: "
+                            "no unreserved feasible grid point is left. "
+                            "Relax the constraints or reduce n_samples.")
+                    new_rows[vi] = pt
+                    occupied.add(pidx)
+
         # ── Step 5b: reserved repair ──
         # Rows that landed on an already-reserved grid node (e.g. a
         # user-supplied set added via Sampler.add_set, or an externally

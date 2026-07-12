@@ -396,7 +396,21 @@ class TestCompare:
         cmp = sampler_numeric.compare(
             criteria=['umaxpro', 'phi_p'], mc_samples=50, verbose=False)
         capsys.readouterr()
-        assert cmp.best_result is cmp.results[cmp.best]
+        # best_result is a full SamplingResult for the winning
+        # combination, and it must match what a standalone run() produces
+        # for that same combination with the same seed and n_repeats —
+        # compare() and run() share a single seed derivation.
+        best = cmp.best_result
+        assert isinstance(best, mergen.SamplingResult)
+        bc, ba = cmp.best
+        r = sampler_numeric.run(criteria=bc, algorithm=ba,
+                                seed=44, n_repeats=1, verbose=False)
+        capsys.readouterr()
+        import numpy as np
+        cols = sampler_numeric.space.names
+        assert np.allclose(
+            np.sort(best.samples[cols].to_numpy(dtype=float), axis=0),
+            np.sort(r.samples[cols].to_numpy(dtype=float), axis=0))
 
     def test_percentiles_in_range(self, sampler_numeric, capsys):
         cmp = sampler_numeric.compare(

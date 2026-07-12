@@ -35,7 +35,7 @@ class TestMetricFunctionsBackwardCompat:
         rp = num_result.quality_report(verbose=False)
         # locked pre-categorical values
         assert np.isclose(rp['min_distance'], 0.141421, atol=1e-4)
-        assert np.isclose(rp['projection_cd2'], 0.056862, atol=1e-4)
+        assert np.isclose(rp['projection_cd2'], 0.054914, atol=1e-4)
 
 
 class TestMetricFunctionsWithSpace:

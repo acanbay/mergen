@@ -168,24 +168,26 @@ def _resolve_n_jobs(n_jobs: Optional[int]) -> int:
     return cpu + 1 + n_jobs
 
 
-def _compare_one_job(sampler, cr, alg, ri, rs):
+def _compare_one_job(sampler, cr, alg, seed, n_repeats):
     """
-    Run one (criterion, algorithm, repeat) optimisation for ``compare``.
+    Run one (criterion, algorithm) combination for ``compare`` through
+    the public :meth:`Sampler.run`, so the two entry points share a
+    single optimisation path and a single seed derivation. Returns the
+    combination identity together with the list of repeat results (in
+    spawn order), from which compare() averages the metrics and keeps the
+    best repeat as the representative design.
 
-    Top-level (module-scope) function so that joblib's pickling-based
-    ``multiprocessing`` backend can serialise the task (a locally defined
-    closure cannot be pickled by the standard ``pickle`` module). The
-    ``Sampler`` is passed explicitly and is itself picklable. Returns the
-    job's identity together with its result so that results collected out
-    of submission order can still be regrouped correctly.
+    Top-level (module-scope) function so joblib's pickling-based
+    ``multiprocessing`` backend can serialise the task; the ``Sampler``
+    is passed explicitly and is itself picklable.
     """
     import contextlib
     import io
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        res = sampler.run(criteria=cr, algorithm=alg,
-                          seed=rs, verbose=False)
-    return (cr, alg, ri), res
+        res = sampler.run(criteria=cr, algorithm=alg, seed=seed,
+                          n_repeats=n_repeats, n_jobs=1, verbose=False)
+    return (cr, alg), res._repeats_by_alg[alg]
 
 
 def _run_one_algorithm_task(
@@ -609,11 +611,14 @@ class ComparisonResult:
         self.results  = results
         self.best     = best
         self.priority = priority
+        self._best_result = None   # set by Sampler.compare after ranking
 
     @property
     def best_result(self) -> "SamplingResult":
-        """The SamplingResult of the winning combination."""
-        return self.results[self.best]
+        """The full SamplingResult of the winning combination, identical
+        to calling run() for that combination with the same seed and
+        n_repeats."""
+        return self._best_result
 
     def summary(self) -> None:
         """Print the ranked comparison table."""
@@ -1104,6 +1109,7 @@ class Sampler:
         criteria:  Union[str, List[str], BaseCriterion] = 'umaxpro',
         algorithm: Union[str, List[str]]                = 'sa',
         seed:      Optional[int]                        = 44,
+        n_repeats: int                                  = 1,
         n_jobs:    Optional[int]                        = None,
         verbose:   bool                                  = True,
     ) -> SamplingResult:
@@ -1401,15 +1407,29 @@ class Sampler:
         # ── Run the requested optimiser(s) ──────────────────────────────
         from .algorithms import get_optimizer
 
+        # Independent, reproducible seeds for the repeats, derived from
+        # the base seed via NumPy's SeedSequence.spawn. This is the SAME
+        # derivation compare() relies on, so that run(seed=s,
+        # n_repeats=k) for one (criterion, algorithm) reproduces exactly
+        # what compare(seed=s, n_repeats=k) evaluates for that same
+        # combination — the two entry points never disagree.
+        if n_repeats < 1:
+            _fatal("n_repeats must be >= 1.")
+        _base_seed = seed if seed is not None else 44
+        _seed_seq  = np.random.SeedSequence(_base_seed)
+        rep_seeds  = [int(cs.generate_state(1)[0])
+                      for cs in _seed_seq.spawn(n_repeats)]
+
         # Resolve n_jobs and decide whether to parallelise.
-        # Parallelism applies *only* across distinct algorithms; the
-        # per-algorithm restart loop is ILS-based and intentionally
-        # serial (each restart kicks from the previous best — see
-        # Lourenco, Martin & Stutzle (2003) Handbook of Metaheuristics).
+        # Parallelism applies across independent (algorithm, repeat)
+        # jobs; the per-algorithm restart loop inside one job is
+        # ILS-based and intentionally serial (each restart kicks from the
+        # previous best — Lourenco, Martin & Stutzle (2003)).
         n_jobs_resolved = _resolve_n_jobs(n_jobs)
         n_algos         = len(algorithm_names)
-        effective_n_jobs = min(n_jobs_resolved, n_algos)
-        run_in_parallel = effective_n_jobs > 1 and n_algos > 1
+        n_units         = n_algos * n_repeats
+        effective_n_jobs = min(n_jobs_resolved, n_units)
+        run_in_parallel = effective_n_jobs > 1 and n_units > 1
 
         # Validate all algorithm names up front (better error than
         # discovering a typo three workers in).
@@ -1456,7 +1476,8 @@ class Sampler:
         # the sequential and parallel paths so they share a single code
         # path for the heavy lifting.
         budget   = n_optimised_slots - (1 if _corner_used else 0)
-        eff_seed = seed if seed is not None else 44
+        # One task per (algorithm, repeat). Each repeat uses its own
+        # spawned seed; the best repeat per algorithm is selected below.
         tasks_args = [
             dict(
                 alg_name                    = alg_name,
@@ -1473,13 +1494,20 @@ class Sampler:
                 n_dims                      = n_dims,
                 n_frozen                    = n_frozen,
                 crit_start                  = crit_start,
-                seed                        = eff_seed,
+                seed                        = rep_seed,
                 # In parallel mode, suppress per-task verbose output so
                 # worker streams do not interleave.
-                verbose                     = (verbose and not run_in_parallel),
+                verbose                     = (verbose and not run_in_parallel
+                                               and n_repeats == 1),
             )
             for alg_name in algorithm_names
+            for rep_seed in rep_seeds
         ]
+        # Parallel index bookkeeping: task i belongs to algorithm
+        # i // n_repeats and repeat i % n_repeats.
+        task_alg = [alg_name
+                    for alg_name in algorithm_names
+                    for _ in rep_seeds]
 
         if run_in_parallel:
             from joblib import Parallel, delayed
@@ -1507,18 +1535,32 @@ class Sampler:
                     os.environ.pop('MERGEN_SILENT', None)
                 else:
                     os.environ['MERGEN_SILENT'] = _prev_silent
-            for alg_name, result in zip(algorithm_names, results_list):
-                algorithm_results[alg_name] = result
-                if verbose:
-                    _ok(f"{alg_name:<6} done -- score={result.score:.4g}  "
-                        f"(elapsed {self._fmt_time(result.elapsed)})")
         else:
-            for ta, alg_name in zip(tasks_args, algorithm_names):
-                result = _run_one_algorithm_task(**ta)
-                algorithm_results[alg_name] = result
-                if verbose:
-                    _ok(f"{alg_name:<6} done -- score={result.score:.4g}  "
-                        f"(elapsed {self._fmt_time(result.elapsed)})")
+            results_list = [_run_one_algorithm_task(**ta)
+                            for ta in tasks_args]
+
+        # Keep, for each algorithm, the best (lowest-score) repeat and
+        # also the full list of repeat results (in spawn order) so that
+        # compare() can reuse the very same optimisations rather than
+        # re-deriving them. With n_repeats == 1 the best is that single
+        # run. Ties break on the first-seen repeat (spawn order) so the
+        # choice is deterministic.
+        _repeats_by_alg: Dict[str, list] = {}
+        for alg_name, result in zip(task_alg, results_list):
+            _repeats_by_alg.setdefault(alg_name, []).append(result)
+        for alg_name, reps in _repeats_by_alg.items():
+            best = reps[0]
+            for result in reps[1:]:
+                if result.score < best.score:
+                    best = result
+            algorithm_results[alg_name] = best
+        if verbose:
+            for alg_name in algorithm_names:
+                result = algorithm_results[alg_name]
+                suffix = (f"  (best of {n_repeats})"
+                          if n_repeats > 1 else "")
+                _ok(f"{alg_name:<6} done -- score={result.score:.4g}  "
+                    f"(elapsed {self._fmt_time(result.elapsed)}){suffix}")
 
         t_elapsed = time.perf_counter() - t_run_start
 
@@ -1654,6 +1696,9 @@ class Sampler:
         result.designs            = {crit_name: df_samples}
         result.algorithm_results  = algorithm_results
         result.best_algorithm     = best_algorithm
+        # All repeat results per algorithm (spawn order), so compare()
+        # can reuse the exact same optimisations it would trigger anyway.
+        result._repeats_by_alg    = _repeats_by_alg
         result._meta              = {
             'criteria'        : crit_name,
             'seed'            : seed,
@@ -1923,54 +1968,33 @@ class Sampler:
         if n_repeats < 1:
             _fatal(f"n_repeats must be >= 1; got {n_repeats}")
 
-        # Independent, reproducible seeds for the repeats. NumPy's
-        # SeedSequence.spawn derives child seeds that are effectively
-        # independent (unlike consecutive integers, which can be
-        # correlated) yet fully determined by the base ``seed``, so the
-        # whole comparison reproduces exactly from that one number.
-        seed_seq = np.random.SeedSequence(seed)
-        rep_seeds = [int(cs.generate_state(1)[0])
-                     for cs in seed_seq.spawn(n_repeats)]
-
-        # ── Run every (combination, repeat) job ────────────────────────
-        # Each job is one independent optimisation; they share nothing,
-        # so the whole grid of combinations x repeats parallelises
-        # cleanly. n_jobs follows the joblib convention (None -> 1,
-        # -1 -> all cores).
+        # One job per (criterion, algorithm) combination. Each job calls
+        # Sampler.run(seed, n_repeats), which owns the single seed
+        # derivation (SeedSequence(seed).spawn) and returns every repeat.
+        # compare() therefore triggers exactly the optimisations a
+        # follow-up run() would, so their designs always agree.
         gs      = self.space.grid_sampler()
         gmins   = self.space.gmins
         granges = self.space.granges
 
-        jobs = [(cr, alg, ri, rs)
-                for cr in crit_list
-                for alg in alg_list
-                for ri, rs in enumerate(rep_seeds)]
-
-        def _announce(cr, alg):
-            print(f"  [COMPARE]  {cr} + {alg} "
-                  f"({n_repeats} repeat"
-                  f"{'s' if n_repeats > 1 else ''}) ...",
-                  flush=True)
+        combos = [(cr, alg) for cr in crit_list for alg in alg_list]
 
         effective_n_jobs = _resolve_n_jobs(n_jobs)
-        if effective_n_jobs > 1 and len(jobs) > 1:
+        # job_results: list of ((cr, alg), [repeat SamplingResults])
+        job_results = []
+        if effective_n_jobs > 1 and len(combos) > 1:
             from joblib import Parallel, delayed
             _prev_silent = os.environ.get('MERGEN_SILENT')
             os.environ['MERGEN_SILENT'] = '1'
-            from collections import Counter
-            remaining = Counter((cr, alg) for cr, alg, _ri, _rs in jobs)
-            n_combos = len(remaining)
-            # Each optimisation is a short, Python-object-bound job, so a
-            # thread backend would be serialised by the GIL and give no
-            # speed-up. Process parallelism is needed. The default 'loky'
-            # backend pays a large per-task serialisation/spawn overhead
-            # that can make many short jobs slower than serial
-            # (joblib #1443), so where the OS provides the 'fork' start
-            # method (Linux, WSL, macOS) the cheaper 'multiprocessing'
-            # backend is used; elsewhere (Windows) we fall back to loky.
-            # The fork backend cannot stream results, so per-combination
-            # progress is only shown once the whole pool finishes; the
-            # notice below makes clear the run is working in the meantime.
+            n_combos = len(combos)
+            # The default 'loky' backend pays a large per-task
+            # serialisation/spawn overhead that can make many short jobs
+            # slower than serial (joblib #1443), so where the OS provides
+            # the 'fork' start method (Linux, WSL, macOS) the cheaper
+            # 'multiprocessing' backend is used; elsewhere (Windows) we
+            # fall back to loky. The fork backend cannot stream results,
+            # so progress is shown once the pool finishes; the notice
+            # makes clear the run is working in the meantime.
             import multiprocessing as _mp
             _use_fork = 'fork' in _mp.get_all_start_methods()
             if verbose:
@@ -1982,42 +2006,33 @@ class Sampler:
                 if _use_fork:
                     print("  [COMPARE]  progress is reported once the "
                           "workers finish; please wait ...", flush=True)
-            done = 0
-            job_results = []
             try:
-                # Each result carries its own (criterion, algorithm,
-                # repeat) identity, so regrouping is robust regardless of
-                # completion order. The context manager guarantees the
-                # worker pool is shut down on normal exit, exceptions and
-                # Ctrl-C, so no worker processes are left running.
                 if _use_fork:
                     with Parallel(n_jobs=effective_n_jobs,
                                   backend='multiprocessing') as parallel:
                         job_results = parallel(
-                            delayed(_compare_one_job)(self, cr, alg, ri, rs)
-                            for cr, alg, ri, rs in jobs)
+                            delayed(_compare_one_job)(self, cr, alg,
+                                                      seed, n_repeats)
+                            for cr, alg in combos)
                     if verbose:
-                        for (cr, alg, _ri), _res in job_results:
-                            remaining[(cr, alg)] -= 1
-                            if remaining[(cr, alg)] == 0:
-                                done += 1
-                                print(f"  [COMPARE]  [{done}/{n_combos}]"
-                                      f"  {cr} + {alg}  done", flush=True)
+                        for done, ((cr, alg), _reps) in enumerate(
+                                job_results, 1):
+                            print(f"  [COMPARE]  [{done}/{n_combos}]"
+                                  f"  {cr} + {alg}  done", flush=True)
                 else:
                     # Windows: loky supports streaming, so each
                     # combination is reported as it completes.
+                    done = 0
                     with Parallel(n_jobs=effective_n_jobs,
                                   return_as='generator') as parallel:
                         stream = parallel(
-                            delayed(_compare_one_job)(self, cr, alg, ri, rs)
-                            for cr, alg, ri, rs in jobs)
-                        for (cr, alg, _ri), res in stream:
-                            job_results.append(((cr, alg, _ri), res))
-                            remaining[(cr, alg)] -= 1
-                            if verbose and remaining[(cr, alg)] == 0:
-                                done += 1
-                                print(f"  [COMPARE]  [{done}/{n_combos}]"
-                                      f"  {cr} + {alg}  done", flush=True)
+                            delayed(_compare_one_job)(self, cr, alg,
+                                                      seed, n_repeats)
+                            for cr, alg in combos)
+                        for (cr, alg), reps in stream:
+                            job_results.append(((cr, alg), reps))
+                            done += 1
+                            if verbose:
                                 print(f"  [COMPARE]  [{done}/{n_combos}]"
                                       f"  {cr} + {alg}  done", flush=True)
             finally:
@@ -2026,28 +2041,30 @@ class Sampler:
                 else:
                     os.environ['MERGEN_SILENT'] = _prev_silent
         else:
-            job_results = []
-            announced = set()
-            for cr, alg, ri, rs in jobs:
-                if verbose and (cr, alg) not in announced:
-                    _announce(cr, alg)
-                    announced.add((cr, alg))
-                job_results.append(_compare_one_job(self, cr, alg, ri, rs))
+            for cr, alg in combos:
+                if verbose:
+                    print(f"  [COMPARE]  {cr} + {alg} "
+                          f"({n_repeats} repeat"
+                          f"{'s' if n_repeats > 1 else ''}) ...",
+                          flush=True)
+                job_results.append(
+                    _compare_one_job(self, cr, alg, seed, n_repeats))
 
-        # Regroup by combination, preserving repeat order. Each entry is
-        # ((criterion, algorithm, repeat_index), result); using the
-        # explicit identity keeps regrouping correct even when parallel
-        # results arrived out of order.
+        # For each combination keep the best (lowest-score) repeat as its
+        # representative design — identical to what run(seed, n_repeats)
+        # returns for that combination.
         results: Dict[Tuple[str, str], SamplingResult] = {}
         per_combo_designs: Dict[Tuple[str, str], list] = {}
-        for (cr, alg, ri), res in job_results:
-            per_combo_designs.setdefault((cr, alg), [None] * n_repeats)
-            per_combo_designs[(cr, alg)][ri] = res
-        for key, designs in per_combo_designs.items():
-            results[key] = designs[0]
+        for (cr, alg), reps in job_results:
+            per_combo_designs[(cr, alg)] = reps
+            best = reps[0]
+            for res in reps[1:]:
+                if res.score < best.score:
+                    best = res
+            results[(cr, alg)] = best
 
         # ── Shared Monte Carlo baseline ────────────────────────────────
-        n_ref   = len(next(iter(results.values())).best_design)
+        n_ref   = len(np.asarray(next(iter(results.values())).design))
         if verbose:
             print(f"  [COMPARE]  Monte Carlo baseline "
                   f"({mc_samples} random designs, n={n_ref}) ...",
@@ -2065,7 +2082,10 @@ class Sampler:
             for m in metric_names:
                 pcts = []
                 for res in designs:
-                    X = res.best_design[self.space.names].to_numpy(dtype=float)
+                    # res is an OptimisationResult; res.design is the
+                    # optimised design as an (n, d) array in the original
+                    # parameter space.
+                    X = np.asarray(res.design, dtype=float)
                     X_norm = (X - gmins) / np.where(granges > 1e-12,
                                                     granges, 1.0)
                     val = _m._compute_metric(m, X_norm, space=self.space)
@@ -2127,6 +2147,14 @@ class Sampler:
 
         cmp = ComparisonResult(table=table, results=results,
                                best=best_key, priority=tuple(priority))
+        # best_result must be a full SamplingResult, and it must match a
+        # standalone run() exactly. Produce it by calling run() once for
+        # the winning combination with the same seed and n_repeats — the
+        # single seed derivation guarantees identical output.
+        _bc, _ba = best_key
+        cmp._best_result = self.run(criteria=_bc, algorithm=_ba,
+                                    seed=seed, n_repeats=n_repeats,
+                                    n_jobs=1, verbose=False)
         if verbose:
             cmp.summary()
         return cmp
