@@ -1236,6 +1236,19 @@ class Sampler:
         if not algorithm_names:
             _fatal("'algorithm' cannot be empty.")
 
+        # ESE is structurally unable to optimise one-dimensional
+        # designs: its within-column swap moves (Jin, Chen & Sudjianto
+        # 2005) permute rows without changing the design as a point
+        # set when d = 1, so it would silently return the initial
+        # design. Fail early with an actionable message instead.
+        if self.space.n_parameters == 1 and 'ese' in algorithm_names:
+            _fatal(
+                "Algorithm 'ese' cannot optimise a 1-parameter design: "
+                "its column-swap moves leave a 1D point set unchanged "
+                "(Jin, Chen & Sudjianto 2005).\n"
+                "  Use algorithm='sa' or algorithm='sce' instead."
+            )
+
         # Resolve criterion(ia)
         if isinstance(criteria, str):
             crit_list  = [get_criterion(criteria)]

@@ -618,12 +618,25 @@ class SAOptimizer(BaseOptimizer):
             # No positive transitions found — fall back on |Δ| average
             T_start = (np.mean(all_deltas) / -np.log(target)
                        if all_deltas else 1.0)
+            T_start = float(max(T_start, 1e-12))
         else:
             E_min_arr = np.array(E_min)
             E_max_arr = np.array(E_max)
             # Johnson (1989) initial estimate
             deltas = np.log(E_max_arr) - np.log(np.maximum(E_min_arr, 1e-300))
             T_start = -np.mean(deltas) / np.log(target)
+
+            # Numerical guard: on a near-flat probe landscape the mean
+            # log-delta underflows towards a denormal, and the
+            # multiplicative Ben-Ameur update can shrink T_start
+            # towards zero, overflowing -E/T (float64 exp range is
+            # ~709). A floor with max(E)/T <= 700 keeps every exp()
+            # argument representable; in the normal regime T_start is
+            # orders of magnitude above the floor, so behaviour is
+            # unchanged. Applied to the initial estimate and to every
+            # in-loop update.
+            T_floor = float(np.max(E_max_arr)) / 700.0
+            T_start = float(max(T_start, T_floor))
 
             # Ben-Ameur (2004) iterative refinement, Eq. (6) with p=1
             eps = 1e-3
@@ -645,7 +658,7 @@ class SAOptimizer(BaseOptimizer):
                 if T_new < 0 or np.isnan(T_new) or np.isinf(T_new):
                     p *= 2
                     continue
-                T_start = float(T_new)
+                T_start = float(max(T_new, T_floor))
 
         max_iter = max(2000, 100 * n)
         return float(T_start), int(max_iter)

@@ -59,3 +59,31 @@ class TestSeedDeterminism:
         par = s.run(criteria='cd2', algorithm=['sa', 'sce'],
                     seed=7, verbose=False, n_jobs=2)
         assert np.isclose(seq.best_score, par.best_score)
+
+
+class TestESE1DGuard:
+    """ESE must reject one-dimensional spaces with an actionable error.
+
+    ESE's within-column swap (Jin, Chen & Sudjianto 2005) permutes
+    rows without changing a 1D design as a point set, so running it
+    would silently return the initial design. Sampler.run therefore
+    raises immediately and points the user to 'sa' or 'sce'.
+    """
+
+    def test_ese_rejects_1d_space(self):
+        space = mergen.ParameterSpace(
+            {'x': np.arange(0.0, 1.01, 0.1).tolist()})
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=3)
+        with pytest.raises(ValueError, match="1-parameter"):
+            s.run(criteria='phi_p', algorithm='ese', verbose=False)
+
+    def test_sa_and_sce_still_accept_1d(self):
+        space = mergen.ParameterSpace(
+            {'x': np.arange(0.0, 1.01, 0.1).tolist()})
+        for alg in ('sa', 'sce'):
+            s = mergen.Sampler(space)
+            s.set_design(n_samples=3)
+            res = s.run(criteria='phi_p', algorithm=alg,
+                        seed=44, verbose=False)
+            assert len(res.samples) == 3
