@@ -8,6 +8,7 @@ validate Mergen's implementations against *external* authorities:
   pure-Python re-implementations written from the source formulas),
 - analytically derived closed-form values,
 - published numerical examples from the literature,
+- exhaustive enumeration of small design spaces,
 - defining mathematical properties (invariances) of each criterion.
 
 A passing unit suite shows the code does what it was written to do;
@@ -15,12 +16,14 @@ a passing validation suite shows what it was written to do is correct.
 """
 from __future__ import annotations
 
+import itertools
 import math
 
 import numpy as np
 import pytest
 from scipy.stats import qmc
 
+import mergen
 from mergen.criteria import CD2, MaxPro, PhiP, StratifiedL2, UMaxPro
 
 
@@ -403,3 +406,79 @@ class TestCriterionInvariances:
         X = np.random.default_rng(44).random((10, 3))
         assert np.isclose(crit.evaluate(X, space=None),
                           crit.evaluate(1.0 - X, space=None), rtol=1e-10)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Optimiser validation — exhaustive and statistical baselines
+# ─────────────────────────────────────────────────────────────────────
+_LEVELS = np.round(np.arange(0.0, 1.01, 0.1), 10)
+
+
+class TestOptimizerValidation:
+    """Validate the optimisers against external baselines.
+
+    Two kinds of evidence, both independent of the optimiser code:
+
+    1. *Exhaustive global optimum.* In one dimension the design space
+       is small enough to enumerate every possible design
+       (C(11, 3) = 165, C(11, 5) = 462 candidate sets). The optimiser
+       must attain the brute-force global optimum of phi_p exactly.
+       For n = 3 the optimum is the equispaced set {0, 1/2, 1}, the
+       classical maximin solution (Johnson, Moore & Ylvisaker 1990).
+    2. *Statistical baseline.* In two dimensions the optimised design
+       must score better (lower CD2) than the median of 200 random
+       Latin hypercube designs drawn on the same grid.
+
+    ESE is excluded from the 1D exhaustive test by construction: its
+    perturbation operator is a within-column swap (Jin, Chen &
+    Sudjianto 2005), which permutes rows without changing the design
+    as a point set when d = 1. It is covered by the 2D baseline test.
+
+    Adds roughly 8-10 s to the suite (five full optimiser runs).
+
+    References
+    ----------
+    Johnson, M. E., Moore, L. M. & Ylvisaker, D. (1990). Minimax and
+        maximin distance designs. *Journal of Statistical Planning
+        and Inference*, 26(2), 131-148.
+    Jin, R., Chen, W. & Sudjianto, A. (2005). An efficient algorithm
+        for constructing optimal design of computer experiments.
+        *Journal of Statistical Planning and Inference*, 134(1),
+        268-287.
+    Kirkpatrick, S., Gelatt, C. D. & Vecchi, M. P. (1983).
+        Optimization by simulated annealing. *Science*, 220(4598),
+        671-680.
+    """
+
+    @pytest.mark.parametrize("algorithm", ['sa', 'sce'])
+    @pytest.mark.parametrize("n", [3, 5])
+    def test_global_optimum_1d_exhaustive(self, algorithm, n):
+        """SA and SCE attain the brute-force phi_p optimum in 1D."""
+        best = min(_phi_p_naive(np.array(c).reshape(-1, 1), 15)
+                   for c in itertools.combinations(_LEVELS, n))
+        space = mergen.ParameterSpace({'x': _LEVELS.tolist()})
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=n)
+        res = s.run(criteria='phi_p', algorithm=algorithm,
+                    seed=44, verbose=False)
+        found = _phi_p_naive(res.samples[['x']].to_numpy(), 15)
+        assert np.isclose(found, best, rtol=1e-9)
+
+    @pytest.mark.parametrize("algorithm", ['sa', 'sce', 'ese'])
+    def test_optimised_beats_random_lhs(self, algorithm):
+        """Each optimiser beats the median of 200 random LHS designs."""
+        space = mergen.ParameterSpace({'x': _LEVELS.tolist(),
+                                       'y': _LEVELS.tolist()})
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=10)
+        res = s.run(criteria='cd2', algorithm=algorithm,
+                    seed=44, verbose=False)
+        opt = CD2().evaluate(res.samples[['x', 'y']].to_numpy(), space=None)
+
+        rng      = np.random.default_rng(44)
+        crit     = CD2()
+        baseline = np.array([
+            crit.evaluate(np.column_stack(
+                [rng.permutation(_LEVELS)[:10] for _ in range(2)]), None)
+            for _ in range(200)])
+        assert opt < np.median(baseline)
