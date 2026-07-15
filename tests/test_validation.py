@@ -7,6 +7,7 @@ validate Mergen's implementations against *external* authorities:
 - independent reference implementations (``scipy.stats.qmc``, naive
   pure-Python re-implementations written from the source formulas),
 - analytically derived closed-form values,
+- published numerical examples from the literature,
 - defining mathematical properties (invariances) of each criterion.
 
 A passing unit suite shows the code does what it was written to do;
@@ -20,7 +21,7 @@ import numpy as np
 import pytest
 from scipy.stats import qmc
 
-from mergen.criteria import CD2, MaxPro, PhiP, UMaxPro
+from mergen.criteria import CD2, MaxPro, PhiP, StratifiedL2, UMaxPro
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -77,6 +78,34 @@ def _umaxpro_naive(X: np.ndarray) -> float:
                 prod *= min(delta, 1.0 - delta) ** 2
             total += 1.0 / prod
     return total
+
+
+def _stratified_l2_naive(X: np.ndarray, s: int, p: int, w: list) -> float:
+    """Tian & Xu (2025), Theorem 1 Eq. 13, as plain loops.
+
+    delta_i(t, z) = 1{floor(s^i t) = floor(s^i z)}, bins clamped at
+    s^i - 1 so that a coordinate of exactly 1 stays in the last bin.
+    """
+    n, m  = X.shape
+    term1 = -(sum(w[i] * s ** (-2 * i) for i in range(p + 1)) ** m)
+    total = 0.0
+    for a in range(n):
+        for b in range(n):
+            prod = 1.0
+            for j in range(m):
+                inner = 0.0
+                for i in range(p + 1):
+                    if i == 0:
+                        eq = 1.0
+                    else:
+                        N  = s ** i
+                        ba = min(int(N * X[a, j]), N - 1)
+                        bb = min(int(N * X[b, j]), N - 1)
+                        eq = 1.0 if ba == bb else 0.0
+                    inner += w[i] * s ** (-i) * eq
+                prod *= inner
+            total += prod
+    return math.sqrt(max(term1 + total / n ** 2, 0.0))
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -244,6 +273,92 @@ class TestUMaxProIndependent:
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Stratified L2 — Tian & Xu (2025), published values
+# ─────────────────────────────────────────────────────────────────────
+class TestStratifiedL2AgainstPaper:
+    """Validate StratifiedL2 against values published in Tian & Xu (2025).
+
+    References
+    ----------
+    Tian, Y. & Xu, H. (2025). A stratified L2-discrepancy with
+        application to space-filling designs. *Journal of the Royal
+        Statistical Society, Series B*. doi:10.1093/jrsssb/qkaf055
+    """
+
+    # Example 2 designs (m = 2, n = 8), coordinates k/8 as printed.
+    _P1 = np.array([[0, 0], [1, 1], [2, 4], [3, 5],
+                    [4, 2], [5, 3], [6, 6], [7, 7]]) / 8.0
+    _P2 = np.array([[0, 0], [2, 3], [3, 6], [1, 5],
+                    [6, 2], [4, 1], [5, 4], [7, 7]]) / 8.0
+
+    # Example 5: optimal GSOA(9, 8, 3^2, 1), levels in Z_9 (Table 3).
+    _GSOA = np.array([
+        [0, 0, 0, 0, 0, 0, 0, 0],
+        [1, 2, 3, 4, 5, 6, 7, 8],
+        [2, 1, 6, 8, 7, 3, 5, 4],
+        [3, 6, 7, 1, 4, 5, 8, 2],
+        [4, 8, 1, 5, 6, 2, 3, 7],
+        [5, 7, 4, 6, 2, 8, 1, 3],
+        [6, 3, 5, 2, 8, 7, 4, 1],
+        [7, 5, 8, 3, 1, 4, 2, 6],
+        [8, 4, 2, 7, 3, 1, 6, 5],
+    ], dtype=float)
+
+    def test_example2_P1(self):
+        """SD(P1) = 0.2416 with s=2, p=3, constant weights (Example 2)."""
+        crit = StratifiedL2(s=2, p=3, weights='constant')
+        assert abs(crit.evaluate(self._P1, space=None) - 0.2416) < 5e-5
+
+    def test_example2_P2(self):
+        """SD(P2) = 0.1389 (Examples 2 and 4); P2 ranks better than P1."""
+        crit = StratifiedL2(s=2, p=3, weights='constant')
+        sd1  = crit.evaluate(self._P1, space=None)
+        sd2  = crit.evaluate(self._P2, space=None)
+        assert abs(sd2 - 0.1389) < 5e-5
+        assert sd2 < sd1
+
+    def test_example5_optimal_gsoa(self):
+        """SD^2 = 1.148028 for the lower-bound GSOA(9, 8, 3^2, 1).
+
+        Levels are transformed by P = (D + 0.5)/9 as prescribed for
+        fixed-level designs; s=3, p=2, constant weights (Example 5).
+        """
+        P    = (self._GSOA + 0.5) / 9.0
+        crit = StratifiedL2(s=3, p=2, weights='constant')
+        assert abs(crit.evaluate(P, space=None) ** 2 - 1.148028) < 1e-5
+
+    def test_example5_half_column_subarray(self):
+        """SD^2 = 0.07583258 for the {1,3,4,5}-column GSOA(9, 4, 3^2, 2)."""
+        P    = (self._GSOA[:, [0, 2, 3, 4]] + 0.5) / 9.0
+        crit = StratifiedL2(s=3, p=2, weights='constant')
+        assert abs(crit.evaluate(P, space=None) ** 2 - 0.07583258) < 1e-7
+
+    @pytest.mark.parametrize("n,d", [(5, 2), (10, 3), (16, 4)])
+    def test_matches_naive_random_designs(self, n, d):
+        """Vectorised evaluate agrees with the naive Eq. 13 reference."""
+        X    = np.random.default_rng(44).random((n, d))
+        crit = StratifiedL2(s=2, p=3, weights='constant')
+        ref  = _stratified_l2_naive(X, s=2, p=3, w=[1.0] * 4)
+        assert np.isclose(crit.evaluate(X, space=None), ref,
+                          rtol=1e-10, atol=1e-12)
+
+    def test_perfectly_stratified_pair_is_zero(self):
+        """d=1, X={0.25, 0.75}, s=2, p=1: one point per stratum -> SD = 0.
+
+        Closed form: term1 = -(1 + 1/4), term2 = (2*1.5 + 2*1)/4 = 1.25,
+        so SD^2 = 0 exactly. The defining property of the criterion.
+        """
+        crit = StratifiedL2(s=2, p=1, weights='constant')
+        assert crit.evaluate(np.array([[0.25], [0.75]]), space=None) < 1e-6
+
+    def test_unstratified_pair_closed_form(self):
+        """d=1, X={0.1, 0.2} (same stratum): SD^2 = 1/4, SD = 0.5."""
+        crit = StratifiedL2(s=2, p=1, weights='constant')
+        assert np.isclose(crit.evaluate(np.array([[0.1], [0.2]]), space=None),
+                          0.5, rtol=1e-12)
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Invariance battery — properties every numeric criterion must satisfy
 # ─────────────────────────────────────────────────────────────────────
 _NUMERIC_CRITERIA = [
@@ -251,18 +366,22 @@ _NUMERIC_CRITERIA = [
     pytest.param(PhiP(),    id='phi_p'),
     pytest.param(MaxPro(),  id='maxpro'),
     pytest.param(UMaxPro(), id='umaxpro'),
+    pytest.param(StratifiedL2(s=2, p=3, weights='constant'),
+                 id='stratified'),
 ]
 
 
 class TestCriterionInvariances:
-    """Symmetries that follow directly from each criterion's formula.
+    """Symmetries that every numeric criterion must satisfy.
 
-    All four numeric criteria are built from pairwise, per-axis terms
-    that are (a) symmetric in the two points, (b) symmetric across
-    axes, and (c) functions of |x - y| and |x - 0.5| only. Hence every
-    criterion must be invariant under row permutation, column
-    permutation, and the reflection x -> 1 - x. A violation would
-    indicate an indexing or normalisation bug invisible to unit tests.
+    The distance-based criteria (phi_p, MaxPro, uMaxPro, CD2) are
+    built from pairwise, per-axis terms symmetric in the two points
+    and across axes; StratifiedL2's symmetry follows from the
+    reflection/permutation invariance of its dyadic strata (Tian & Xu
+    2025, Section 3, properties i-ii). Hence all five criteria must
+    be invariant under row permutation, column permutation, and the
+    reflection x -> 1 - x. A violation would indicate an indexing or
+    normalisation bug invisible to unit tests.
     """
 
     @pytest.mark.parametrize("crit", _NUMERIC_CRITERIA)
