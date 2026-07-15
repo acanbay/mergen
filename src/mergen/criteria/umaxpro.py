@@ -5,7 +5,7 @@ Uniform Maximum Projection (UMaxPro) criterion.
 
 Reference
 ---------
-Vorechovsky, M. & Elias, J. (2026). Uniform Maximum Projection
+Vorechovsky, M. & Masek, J. (2026). Uniform Maximum Projection
     Designs for Computer Experiments. *Computers & Structures*.
 """
 
@@ -36,7 +36,7 @@ class UMaxPro(BaseCriterion):
 
     References
     ----------
-    Vorechovsky, M. & Elias, J. (2026).
+    Vorechovsky, M. & Masek, J. (2026).
         *Computers & Structures*.  [uMaxPro]
     Joseph, V. R., Gul, E. & Ba, S. (2015).
         *Biometrika*, 102(2), 371–380.  [original MaxPro]

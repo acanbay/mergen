@@ -25,7 +25,7 @@ All criteria operate on **normalised** coordinates in [0, 1]^d.
 
 Available criteria
 ------------------
-    'umaxpro'     UMaxPro       — Vorechovsky & Elias (2026)  (default)
+    'umaxpro'     UMaxPro       — Vorechovsky & Masek (2026)  (default)
     'maxpro'      MaxPro        — Joseph, Gul & Ba (2015)
     'phi_p'       PhiP (p=15)   — Morris & Mitchell (1995)
     'cd2'         CD2           — Hickernell (1998)

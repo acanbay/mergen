@@ -104,7 +104,7 @@ _HIGHER_BETTER = {'min_distance', 'mean_distance'}
 # References:
 #   phi_p      : Morris & Mitchell (1995), Johnson et al. (1990)
 #   MaxPro     : Joseph, Gul & Ba (2015), Biometrika 102(2)
-#   uMaxPro    : Vorechovsky & Elias (2026), arxiv 2603.19778
+#   uMaxPro    : Vorechovsky & Masek (2026), arxiv 2603.19778
 #   cd2        : Hickernell (1998)
 #   stratified : Tian & Xu (2025), JRSS-B
 _CRIT_OPTIMISES = {

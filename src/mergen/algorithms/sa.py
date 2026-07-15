@@ -33,9 +33,8 @@ Lourenço, H. R., Martin, O. C. & Stützle, T. (2003). Iterated local
     search. In *Handbook of Metaheuristics*, Springer, 320–353.
 Joseph, V. R., Gul, E. & Ba, S. (2015). Maximum projection designs for
     computer experiments. *Biometrika*, 102(2), 371–380.
-Vorechovsky, M. & Elias, J. (2026). uMaxPro: A coordinate-exchange
-    algorithm for uniform space-filling designs on discrete grids.
-    *Computers & Structures*.
+Vorechovsky, M. & Masek, J. (2026). Uniform maximum projection
+    designs for computer experiments. *Computers & Structures*.
 """
 
 from __future__ import annotations

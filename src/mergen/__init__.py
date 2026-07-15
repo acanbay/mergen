@@ -24,7 +24,7 @@ Quick start (preview — Sampler arrives in Phase 3)
 
 References
 ----------
-Vorechovsky & Elias (2026), Computers & Structures.       [uMaxPro]
+Vorechovsky & Masek (2026), Computers & Structures.       [uMaxPro]
 Joseph, Gul & Ba (2015), Biometrika 102(2).               [MaxPro]
 Morris & Mitchell (1995), J. Statist. Plan. Infer. 43.    [phi_p]
 Hickernell (1998), Math. Comp. 67.                        [CD2]

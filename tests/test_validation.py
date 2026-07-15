@@ -66,7 +66,7 @@ def _maxpro_naive(X: np.ndarray) -> float:
 
 
 def _umaxpro_naive(X: np.ndarray) -> float:
-    """Vorechovsky & Elias (2026): MaxPro sum with periodic distance.
+    """Vorechovsky & Masek (2026): MaxPro sum with periodic distance.
 
     Per-axis squared toroidal distance min(|dx|, 1-|dx|)^2 replaces
     the Euclidean (dx)^2 of plain MaxPro.
@@ -211,7 +211,7 @@ class TestMaxProIndependent:
 
 
 # ─────────────────────────────────────────────────────────────────────
-# uMaxPro — Vorechovsky & Elias (2026)
+# uMaxPro — Vorechovsky & Masek (2026)
 # ─────────────────────────────────────────────────────────────────────
 class TestUMaxProIndependent:
     """Validate UMaxPro's periodic-distance construction.
@@ -224,7 +224,7 @@ class TestUMaxProIndependent:
 
     References
     ----------
-    Vorechovsky, M. & Elias, J. (2026). Uniform maximum projection
+    Vorechovsky, M. & Masek, J. (2026). Uniform maximum projection
         designs for computer experiments. *Computers & Structures*.
     """
 
