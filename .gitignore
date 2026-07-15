@@ -50,6 +50,11 @@ ENV/
 .DS_Store
 Thumbs.db
 
+# Sphinx documentation build artefacts
+docs/_build/
+docs/jupyter_execute/
+docs/api/generated/
+
 # Mergen output artefacts
 *.csv
 *.xlsx

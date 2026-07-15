@@ -63,8 +63,13 @@ dev = [
     "ruff",
 ]
 docs = [
-    "mkdocs-material",
-    "mkdocstrings[python]",
+    # Lower bounds only — pip resolves the right release per Python
+    # version (e.g. Sphinx 7.4.x on 3.9, 8.x on 3.10+). No upper pins.
+    "sphinx>=7.3",
+    "pydata-sphinx-theme>=0.15",
+    "myst-nb>=1.1",             # brings myst-parser; executes example notebooks
+    "sphinx-copybutton>=0.5",
+    "sphinx-design>=0.5",
 ]
 
 [project.urls]
