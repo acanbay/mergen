@@ -52,21 +52,33 @@ existing designs.
 :gutter: 3
 
 :::{grid-item-card} Tutorials
+:link: tutorials/index
+:link-type: doc
+
 Learning-oriented. Start here if you are new to Mergen or to design of
 experiments: build your first design and learn to read its output.
 :::
 
 :::{grid-item-card} How-to guides
+:link: how-to/index
+:link-type: doc
+
 Task-oriented. Recipes for concrete goals: parameter types,
 constraints, comparing designs, sequential workflows, exports.
 :::
 
 :::{grid-item-card} Explanation
+:link: explanation/index
+:link-type: doc
+
 Understanding-oriented. Which criterion for which problem, which
 optimiser, what the quality metrics mean, how large a design to build.
 :::
 
 :::{grid-item-card} API reference
+:link: api/index
+:link-type: doc
+
 Information-oriented. Every public class and function, generated from
 the numpy-style docstrings.
 :::
@@ -85,4 +97,9 @@ for computer experiments. *Computers & Structures*.
 ```{toctree}
 :hidden:
 :maxdepth: 2
+
+tutorials/index
+how-to/index
+explanation/index
+api/index
 ```
