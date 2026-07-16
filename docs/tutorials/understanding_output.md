@@ -48,7 +48,7 @@ Before printing, Mergen generates 300 random designs of the same size
 from the same feasible space and computes every metric for each of
 them. This baseline is what turns raw numbers into evidence. A minimum
 distance of 0.0857 means nothing in isolation; knowing that 300 random
-attempts averaged 0.0505 tells you the optimiser earned its keep.
+attempts averaged 0.0505 quantifies what the optimisation gained.
 
 ### Reading a row
 

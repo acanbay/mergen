@@ -81,7 +81,7 @@ long gaps.
 
 ## Mean distance ($\bar{d}$)
 
-The average of all pairwise distances (higher is better). A blunt but
+The average of all pairwise distances (higher is better). A coarse but
 useful summary of overall spread. It should be read together with the
 other metrics: a design can inflate mean distance by pushing points
 into corners while leaving the interior empty.

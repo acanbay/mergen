@@ -76,11 +76,27 @@ intersphinx_mapping = {
 # ── HTML output ─────────────────────────────────────────────────────
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
+html_css_files = ["custom.css"]          # ← yeni satır
 html_title = f"Mergen {release}"
+html_favicon = "_static/favicon.png"
+# The landing page belongs to no section, so its section navigation is
+# empty; hide the primary sidebar there explicitly for a clean,
+# full-width landing (the pandas convention) instead of an empty gutter.
+html_sidebars = {"index": []}
+
 html_theme_options = {
+    # Brand logo: the theme swaps the image automatically when the
+    # user toggles between light and dark mode. When a logo is set,
+    # the theme hides the "Mergen <release>" navbar text in its place.
+    "logo": {
+        "image_light": "_static/logo-light.png",
+        "image_dark": "_static/logo-dark.png",
+        "alt_text": "Mergen documentation - Home",
+    },
     "github_url": "https://github.com/acanbay/mergen",
     "navbar_align": "content",
     "show_toc_level": 2,
     "footer_start": ["copyright"],
     "footer_end": ["sphinx-version"],
+
 }

@@ -3,9 +3,10 @@
 **M**ulti-dimensional **E**xperimental **R**un **GEN**erator: a Python
 module for space-filling Design of Experiments.
 
-You own the parameter space: its ranges, its constraints, its critical
-regions. Mergen finds the *n* experiment coordinates that represent that
-space best, and proves the quality of the result.
+You have a system with adjustable settings and a budget of *n*
+experiments. Mergen chooses which *n* combinations of settings to run,
+spreads them so the whole range of possibilities is represented, and
+proves the quality of the result.
 
 ```python
 import mergen
@@ -24,26 +25,43 @@ result.plot('pairplot')      # visual check of the design
 result.to_csv()              # coordinates, ready to run
 ```
 
-Every design ships with a quality report benchmarked against a runtime
-Monte-Carlo baseline, so the Methods section of your paper can state,
-with numbers, how good the design is.
-
 ## Why Mergen
 
-In practice the hard part of a designed experiment is not producing
-coordinates; it is defending them. Real studies come with feasibility
-constraints, regions that must be avoided or emphasised, runs that
-already exist, and factors that are categorical rather than numeric,
-and the design that ignores any of these is quietly wrong. Mergen is
-built around that reality: the mechanisms for constraints, exclusions,
-focus regions, prescribed points, and mixed factor types are first
-class citizens of the optimisation, not preprocessing tricks, and
-every design leaves the package together with the statistical evidence
-of its quality. The design and its justification ship as one object.
+Suppose you study a system with several adjustable settings: a reactor
+with a temperature, a pressure, and a choice of catalyst, or a machine
+learning model with a learning rate and a batch size. Every
+combination of settings is one possible experiment, and together the
+combinations form the *parameter space* of the study. Trying them all
+is impossible; a realistic budget is a few dozen runs against millions
+of combinations.
 
-Mergen is currently installed from source
-(`git clone` the repository, then `pip install -e .`); PyPI and
-conda-forge releases will follow the first public version.
+A few dozen can nevertheless be enough, because the goal is not to
+test every combination but to learn how the system behaves. From the
+results of well-placed runs one fits a model of the response, whether
+a simple fit, a Gaussian process, or a machine learning regressor, and
+that model then predicts the outcome at all the combinations that were
+never run. How trustworthy those predictions are is decided largely
+before any experiment happens: by where the runs were placed. Runs
+that cluster teach the model the same thing twice; regions with no
+runs are regions where the model has no information.
+
+Which runs, then? The intuitive answers all waste budget. Varying
+one setting at a time never reveals how settings interact. A regular
+grid spends most of its runs repeating the same few values of each
+setting. Random picking clusters some runs together and leaves other
+regions untouched. The established remedy is a *space-filling design*:
+choose the runs so that they spread evenly through the parameter
+space, every region is represented, and no two runs duplicate each
+other's information.
+
+Mergen builds such designs, and it builds them for the spaces real
+studies actually have: with combinations that are infeasible or
+forbidden, with runs that were already performed and must be kept,
+with critical regions that deserve extra attention, and with settings
+that are categories rather than numbers. And because a design you
+cannot defend is not finished, every design leaves the package with a
+statistical quality report: your experiment plan, and the evidence
+that it was well chosen, as one object.
 
 ## What Mergen offers
 
@@ -98,6 +116,11 @@ the numpy-style docstrings.
 
 ::::
 
+## Installation
+
+Installation options and requirements are described on the
+{doc}`installation` page.
+
 ## References
 
 Tian, Y., & Xu, H. (2025). A stratified L2-discrepancy with application
@@ -111,6 +134,7 @@ for computer experiments. *Computers & Structures*.
 :hidden:
 :maxdepth: 2
 
+installation
 tutorials/index
 how-to/index
 explanation/index

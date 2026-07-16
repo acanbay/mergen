@@ -65,9 +65,9 @@ spaces and suggests `sa` or `sce` instead.
 
 ## Practical guidance
 
-Default to `sa`. Reach for `sce` when you want an answer in seconds
-rather than minutes, or as the workhorse inside large `compare()`
-sweeps. Reach for `ese` when marginal level balance must be preserved
+Default to `sa`. Use `sce` when an answer is needed in seconds rather
+than minutes, or as the default optimiser inside large `compare()`
+sweeps. Use `ese` when marginal level balance must be preserved
 exactly and the space has at least two parameters.
 
 ```{figure} ../_static/img/algorithm_comparison.png

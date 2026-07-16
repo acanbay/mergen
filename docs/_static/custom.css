@@ -1,0 +1,4 @@
+/* Reserve the scrollbar gutter so short pages do not shift the layout */
+html {
+    scrollbar-gutter: stable;
+}

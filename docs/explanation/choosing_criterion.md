@@ -100,7 +100,7 @@ monotone transform of the published $\big(\psi / \binom{n}{2}
 
 Use it when a surrogate model will be fitted and you do not know in
 advance which inputs matter: projection quality is then the property
-that pays. Its known artefact is a mild repulsion of points from the
+that matters most. Its known artefact is a mild repulsion of points from the
 region near the boundary.
 
 ## uMaxPro
