@@ -139,4 +139,6 @@ tutorials/index
 how-to/index
 explanation/index
 api/index
+changelog
+citing
 ```
