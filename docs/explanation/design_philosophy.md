@@ -45,7 +45,9 @@ single evaluation interface (with an incremental fast path for
 single-point updates), and optimisers are written against that
 interface, never against a specific criterion. This is what makes
 `compare()` possible: the criterion by algorithm sweep is a genuine
-Cartesian product, not a set of special cases.
+Cartesian product, not a set of special cases. The repeated
+optimisations inside a sweep are independent, so they parallelise
+across cores (`n_jobs`) without changing the result.
 
 ## Design time only, surrogate free
 

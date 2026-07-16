@@ -45,6 +45,24 @@ best.to_csv('winner_design.csv')
 `comparison.best_result` is an ordinary result object, so the full
 reporting and export interface is available on the winner.
 
+The comparison itself has a plot: a heat map of the percentile-rank
+table, with one row per criterion and algorithm combination, one
+column per quality metric, and the winning row starred.
+
+```python
+comparison.plot(save=True)
+```
+
+```{figure} ../_static/img/comparison_matrix.png
+:width: 95%
+:alt: Heat map of percentile ranks for criterion and algorithm combinations.
+
+A small sweep (three criteria, two optimisers, two repeats each) on a
+two-parameter space. Each cell is the mean percentile rank of that
+combination on that metric; the starred row won under the requested
+priority.
+```
+
 ## Comparing algorithms
 
 To hold the criterion fixed and compare optimisers instead, pass a

@@ -33,7 +33,7 @@ def _grab(result, kind: str, dest: str) -> None:
 
 def tutorial_design():
     """The design of the two tutorials (seed 44): pairplot, quality, 1d."""
-    print("[1/3] tutorial design (umaxpro, sa, seed 44)")
+    print("[1/4] tutorial design (umaxpro, sa, seed 44)")
     space = mergen.ParameterSpace({
         'temperature': ('continuous', 300, 500),
         'pressure':    ('continuous', 1.0, 5.0),
@@ -50,7 +50,7 @@ def tutorial_design():
 
 def criterion_contrast():
     """Same space, two criteria: phi_p vs umaxpro pairplots."""
-    print("[2/3] criterion contrast (phi_p vs umaxpro)")
+    print("[2/4] criterion contrast (phi_p vs umaxpro)")
     for crit in ('phi_p', 'umaxpro'):
         space = mergen.ParameterSpace({
             'x1': ('continuous', 0.0, 1.0, {'resolution': 21, 'round': 3}),
@@ -66,7 +66,7 @@ def criterion_contrast():
 
 def algorithm_comparison():
     """One criterion, three optimisers: the comparison bar chart."""
-    print("[3/3] algorithm comparison (phi_p; sa, sce, ese)")
+    print("[3/4] algorithm comparison (phi_p; sa, sce, ese)")
     space = mergen.ParameterSpace({
         'x1': ('continuous', 0.0, 1.0, {'resolution': 21, 'round': 3}),
         'x2': ('continuous', 0.0, 1.0, {'resolution': 21, 'round': 3}),
@@ -78,8 +78,29 @@ def algorithm_comparison():
     _grab(result, 'comparison', 'algorithm_comparison.png')
 
 
+def comparison_matrix():
+    """A small compare() sweep and its percentile heat map."""
+    print("[4/4] comparison matrix (3 criteria x 2 optimisers)")
+    space = mergen.ParameterSpace({
+        'x1': ('continuous', 0.0, 1.0, {'resolution': 21, 'round': 3}),
+        'x2': ('continuous', 0.0, 1.0, {'resolution': 21, 'round': 3}),
+    })
+    sampler = mergen.Sampler(space)
+    sampler.set_design(n_samples=15)
+    comp = sampler.compare(criteria=['phi_p', 'cd2', 'umaxpro'],
+                           algorithms=['sa', 'sce'],
+                           n_repeats=2, mc_samples=150,
+                           seed=44, verbose=False)
+    comp.plot(save=True, show=False)
+    outdir = Path(comp.best_result.output_dir)
+    newest = max(outdir.glob("*.png"), key=lambda p: p.stat().st_mtime)
+    shutil.copy(newest, IMG / 'comparison_matrix.png')
+    print(f"  wrote {IMG / 'comparison_matrix.png'}")
+
+
 if __name__ == "__main__":
     tutorial_design()
     criterion_contrast()
     algorithm_comparison()
-    print("done: 8 figures in", IMG)
+    comparison_matrix()
+    print("done: 9 figures in", IMG)

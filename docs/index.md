@@ -28,6 +28,19 @@ Every design ships with a quality report benchmarked against a runtime
 Monte-Carlo baseline, so the Methods section of your paper can state,
 with numbers, how good the design is.
 
+## Why Mergen
+
+In practice the hard part of a designed experiment is not producing
+coordinates; it is defending them. Real studies come with feasibility
+constraints, regions that must be avoided or emphasised, runs that
+already exist, and factors that are categorical rather than numeric,
+and the design that ignores any of these is quietly wrong. Mergen is
+built around that reality: the mechanisms for constraints, exclusions,
+focus regions, prescribed points, and mixed factor types are first
+class citizens of the optimisation, not preprocessing tricks, and
+every design leaves the package together with the statistical evidence
+of its quality. The design and its justification ship as one object.
+
 Mergen is currently installed from source
 (`git clone` the repository, then `pip install -e .`); PyPI and
 conda-forge releases will follow the first public version.
