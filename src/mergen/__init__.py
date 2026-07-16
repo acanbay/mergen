@@ -12,15 +12,19 @@ assessment via standard space-filling metrics.
 This is the algorithm-independent core. Optimisation algorithms (SA,
 SCE, ESE) live in the ``mergen.algorithms`` subpackage (added later).
 
-Quick start (preview — Sampler arrives in Phase 3)
---------------------------------------------------
-    import numpy as np
-    from mergen import ParameterSpace
+Quick start
+-----------
+::
+
+    from mergen import ParameterSpace, Sampler
 
     space = ParameterSpace({
         'temperature': range(100, 400, 10),
         'pressure':    ('continuous', 0.5, 5.0),
     })
+    sampler = Sampler(space)
+    sampler.set_design(n_samples=30)
+    result = sampler.run()
 
 References
 ----------

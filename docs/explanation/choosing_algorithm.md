@@ -70,6 +70,16 @@ rather than minutes, or as the workhorse inside large `compare()`
 sweeps. Reach for `ese` when marginal level balance must be preserved
 exactly and the space has at least two parameters.
 
+```{figure} ../_static/img/algorithm_comparison.png
+:width: 85%
+:alt: Bar chart comparing the three optimisers on one problem.
+
+One criterion, three optimisers, one seeded problem: score (lower is
+better) with wall time annotated. Produced by
+`sampler.run(criteria='phi_p', algorithm=['sa', 'sce', 'ese'])` and
+`result.plot('comparison')`.
+```
+
 Budget is controlled per algorithm through `algorithm_params` (for
 example the number of restarts or iterations); the defaults are sized
 so that a typical design of a few dozen points finishes in about a

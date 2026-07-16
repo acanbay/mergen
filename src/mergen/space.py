@@ -293,7 +293,6 @@ class ParameterSpace:
 
     Examples
     --------
-    >>> import numpy as np
     >>> from mergen.space import ParameterSpace
     >>> space = ParameterSpace({
     ...     'voltage':  [100, 200, 300, 400],

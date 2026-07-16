@@ -99,6 +99,16 @@ from the design points. If you later fit a surrogate model to your
 results, these are honest test locations; if you do not need them,
 set `n_validation=0` in `set_design`.
 
+A quick visual check of what those 30 rows look like:
+
+```{figure} ../_static/img/tutorial_pairplot.png
+:width: 90%
+:alt: Pairwise scatter plots of the 30-run tutorial design.
+
+The tutorial design (seed 44) in all pairwise projections. Points
+spread evenly, and the four catalyst levels form fully used bands.
+```
+
 ## Step 5: export and run your experiments
 
 ```python

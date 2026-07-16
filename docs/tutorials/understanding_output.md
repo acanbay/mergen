@@ -89,6 +89,16 @@ design came anywhere near it. Note the scale: criterion values such as
 these are only meaningful relative to the baseline, never in absolute
 terms, which is why the report always prints both.
 
+```{figure} ../_static/img/tutorial_quality.png
+:width: 95%
+:alt: Quality metrics bar chart with Monte Carlo baseline markers.
+
+The same report as a chart: bar length is the metric value, the dashed
+line the Monte Carlo baseline, and colour encodes the percentile band.
+The mixed colours are the honest signature of a single-criterion
+optimisation, exactly as discussed above.
+```
+
 ## The diagnostic plots
 
 ```python
@@ -102,13 +112,37 @@ holes (an empty region no run will ever probe). A healthy
 space-filling design looks evenly sprinkled in every panel, with the
 discrete catalyst values forming clean, fully used bands.
 
+```{figure} ../_static/img/tutorial_pairplot.png
+:width: 90%
+:alt: Pairwise scatter plots of the tutorial design.
+
+Every pairwise projection of the tutorial design. Validation points
+(reserved hold-out locations) are drawn in their own colour.
+```
+
+A complementary check is the one-dimensional view:
+
+```python
+result.plot('1d')
+```
+
+```{figure} ../_static/img/tutorial_1d.png
+:width: 95%
+:alt: Per-parameter marginal distributions of the design.
+
+Marginal coverage per parameter: the strip shows the actual design
+values, the curve their smoothed density. Flat, band-free coverage in
+every panel is the Latin hypercube backbone doing its job.
+```
+
 ```python
 result.plot('quality')
 ```
 
-The quality plot renders the report graphically: each metric's value
-against the spread of the Monte Carlo baseline, so a reviewer can see
-at a glance where the design sits inside or outside the random cloud.
+The quality plot, shown at the top of this page, renders the report
+graphically: each metric's value against the Monte Carlo baseline, so
+a reviewer can see at a glance where the design sits relative to the
+random cloud.
 
 ## Writing it up
 

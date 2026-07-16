@@ -183,6 +183,61 @@ Use it for mixed spaces when the goal is uniformity rather than
 projections, for example when categorical treatment combinations must
 be represented evenly.
 
+## Two criteria, two signatures
+
+The same space (two continuous parameters, 15 runs, identical seed)
+optimised under two different criteria makes the family differences
+concrete:
+
+::::{grid} 2
+:gutter: 2
+
+:::{grid-item}
+```{figure} ../_static/img/contrast_phi_p.png
+:alt: Design optimised under phi_p.
+
+$\phi_p$: points pushed apart, near-perfect spacing.
+```
+:::
+
+:::{grid-item}
+```{figure} ../_static/img/contrast_umaxpro.png
+:alt: Design optimised under uMaxPro.
+
+uMaxPro: spacing traded for projection structure.
+```
+:::
+
+::::
+
+The quality reports carry the same signatures: each design ranks high
+on the metrics its criterion serves and lower elsewhere.
+
+::::{grid} 2
+:gutter: 2
+
+:::{grid-item}
+```{figure} ../_static/img/contrast_phi_p_quality.png
+:alt: Quality chart of the phi_p design.
+
+$\phi_p$: distance metrics ($d_{\min}$, $\mathrm{CV}_d$, $\bar d$)
+dominate.
+```
+:::
+
+:::{grid-item}
+```{figure} ../_static/img/contrast_umaxpro_quality.png
+:alt: Quality chart of the uMaxPro design.
+
+uMaxPro: a different profile from the same space and budget.
+```
+:::
+
+::::
+
+Neither picture is "better"; they answer different questions. That is
+the reason the criterion is a user decision rather than a constant.
+
 ## Practical guidance
 
 Start from the structure of your space. If it contains nominal or
