@@ -77,11 +77,10 @@ the numpy-style docstrings.
 
 Tian, Y., & Xu, H. (2025). A stratified L2-discrepancy with application
 to space-filling designs. *Journal of the Royal Statistical Society,
-Series B*. https://doi.org/10.1093/jrsssb/qkaf055
+Series B*.
 
 Vorechovsky, M., & Masek, J. (2026). Uniform maximum projection designs
 for computer experiments. *Computers & Structures*.
-https://arxiv.org/abs/2603.19778
 
 ```{toctree}
 :hidden:

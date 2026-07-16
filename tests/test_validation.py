@@ -285,7 +285,7 @@ class TestStratifiedL2AgainstPaper:
     ----------
     Tian, Y. & Xu, H. (2025). A stratified L2-discrepancy with
         application to space-filling designs. *Journal of the Royal
-        Statistical Society, Series B*. doi:10.1093/jrsssb/qkaf055
+        Statistical Society, Series B*.
     """
 
     # Example 2 designs (m = 2, n = 8), coordinates k/8 as printed.
