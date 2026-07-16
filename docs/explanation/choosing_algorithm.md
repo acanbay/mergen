@@ -7,7 +7,7 @@ arrangement with the best score. They share the move vocabulary
 grid), respect all constraints and prescribed points, and are
 deterministic for a fixed `seed`. They differ in how they explore.
 
-## sa: simulated annealing
+## Simulated annealing (`'sa'`)
 
 Simulated annealing (Kirkpatrick, Gelatt & Vecchi, 1983) accepts
 improving moves always and worsening moves with probability
@@ -27,7 +27,7 @@ Use it as the default. It is the slowest of the three but the most
 robust across problem types, and its restart structure gives it the
 best chance on rugged landscapes such as heavily constrained spaces.
 
-## sce: stochastic coordinate exchange
+## Stochastic coordinate exchange (`'sce'`)
 
 Stochastic coordinate exchange (Kang, 2019) iterates a simple, fast
 local search: pick a design point and a coordinate, try exchanging its
@@ -41,7 +41,7 @@ problems its greediness costs little: in Mergen's validation suite,
 `sce` attains the exhaustively verified global optimum on the
 one-dimensional test problems, as does `sa`.
 
-## ese: enhanced stochastic evolutionary
+## Enhanced stochastic evolutionary (`'ese'`)
 
 The enhanced stochastic evolutionary algorithm (Jin, Chen & Sudjianto,
 2005) also accepts some worsening moves, but controls acceptance with

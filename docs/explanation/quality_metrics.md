@@ -22,7 +22,7 @@ Because the baseline is generated at runtime from your actual space,
 the comparison remains honest under constraints: a heavily constrained
 space is harder for the random designs too.
 
-## Min distance
+## Min distance ($d_{\min}$)
 
 $$
 \min_{i<j} d_{ij} \qquad \text{(higher is better)}
@@ -33,7 +33,7 @@ between the two closest runs. It answers "am I wasting budget on
 near-duplicate experiments?" and is the metric most directly targeted
 by `phi_p`.
 
-## Minimax distance
+## Minimax distance ($d_{\mathrm{mM}}$)
 
 $$
 \max_{x \in \mathcal{X}} \min_{i} \lVert x - x_i \rVert_2
@@ -46,7 +46,7 @@ point, estimated over a dense reference set. It answers "how far can
 the truth hide from my nearest run?" Low minimax means no region is
 left unwatched.
 
-## Max |correlation|
+## Max correlation ($|\rho|_{\max}$)
 
 $$
 \max_{k \neq l} \; \bigl| \operatorname{corr}(X_{\cdot k},
@@ -58,7 +58,7 @@ columns. Correlated columns make the effects of two inputs partially
 indistinguishable in any subsequent model fit; near-zero correlation
 keeps them separable.
 
-## 2D projection CD2
+## 2D projection discrepancy ($\mathrm{CD}_2^{\mathrm{proj}}$)
 
 The centred $L_2$-discrepancy (Hickernell, 1998) averaged over all
 $\binom{d}{2}$ two-dimensional projections of the design (lower is
@@ -66,7 +66,7 @@ better). Full-dimensional uniformity does not guarantee that pairs of
 inputs look uniform together; this metric checks exactly that, and it
 is the geometric face of what the projection-based criteria optimise.
 
-## CV distances
+## CV of distances ($\mathrm{CV}_d$)
 
 $$
 \operatorname{CV} = \frac{\operatorname{sd}(\{d_{ij}\})}
@@ -79,7 +79,7 @@ means the distance spectrum is narrow, the signature of a regular,
 mesh-like arrangement; a high value indicates a mix of tight pairs and
 long gaps.
 
-## Mean distance
+## Mean distance ($\bar{d}$)
 
 The average of all pairwise distances (higher is better). A blunt but
 useful summary of overall spread. It should be read together with the

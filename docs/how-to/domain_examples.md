@@ -10,7 +10,7 @@ problem close to your own.
 
 An enzyme-assay design over pH, incubation temperature, buffer type,
 and substrate concentration. Buffer type is a nominal factor, so the
-design is scored with `maxproqq`; a held-out validation set is
+design is scored with $\mathrm{MaxPro_{QQ}}$; a held-out validation set is
 reserved for checking the fitted response on unseen conditions. See
 `examples/11_wetlab_biology.py`.
 

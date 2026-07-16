@@ -28,24 +28,24 @@ design that is excellent in $d$ dimensions can collapse onto few
 distinct values when projected onto the two inputs that drive the
 response.
 
-| Criterion | Family | Qualitative factors | Reference |
-|---|---|---|---|
-| `phi_p` | distance | no | Morris & Mitchell (1995) |
-| `cd2` | uniformity | no | Hickernell (1998) |
-| `maxpro` | projection | no | Joseph, Gul & Ba (2015) |
-| `umaxpro` | projection | no | Vorechovsky & Masek (2026) |
-| `stratified` | uniformity | no | Tian & Xu (2025) |
-| `maxproqq` | projection | yes | Joseph, Gul & Ba (2020) |
-| `qqd` | uniformity | yes | Zhang, Yang & Zhou (2021) |
+| Criterion | `criteria=` | Family | Qualitative factors | Reference |
+|---|---|---|---|---|
+| $\phi_p$ | `'phi_p'` | distance | no | Morris & Mitchell (1995) |
+| $\mathrm{CD}_2$ | `'cd2'` | uniformity | no | Hickernell (1998) |
+| MaxPro | `'maxpro'` | projection | no | Joseph, Gul & Ba (2015) |
+| uMaxPro | `'umaxpro'` | projection | no | Vorechovsky & Masek (2026) |
+| $\mathrm{SL}_2$ | `'stratified'` | uniformity | no | Tian & Xu (2025) |
+| $\mathrm{MaxPro_{QQ}}$ | `'maxproqq'` | projection | yes | Joseph, Gul & Ba (2020) |
+| QQD | `'qqd'` | uniformity | yes | Zhang, Yang & Zhou (2021) |
 
-## phi_p
+## $\phi_p$
 
 $$
 \phi_p(D) = \Big( \sum_{i<j} d_{ij}^{-p} \Big)^{1/p},
 \qquad d_{ij} = \lVert x_i - x_j \rVert_2,
 $$
 
-with $p = 15$ by default. As $p \to \infty$, minimising $\phi_p$
+with $p = 15$ by default (selected with `criteria='phi_p'`). As $p \to \infty$, minimising $\phi_p$
 becomes equivalent to maximising the minimum inter-point distance, the
 classical maximin objective; finite $p$ keeps the objective smooth
 enough to optimise while concentrating almost all weight on the
@@ -57,7 +57,7 @@ no two runs are near-duplicates. Its known weakness is projections: a
 maximin-optimal design can still project poorly onto subsets of the
 inputs.
 
-## cd2
+## $\mathrm{CD}_2$
 
 The centred $L_2$-discrepancy (Hickernell, 1998) measures the
 worst-case mismatch, in an $L_2$ sense over all corner-anchored boxes,
@@ -73,7 +73,8 @@ $$
        - \tfrac12 |x_{ik}-x_{jk}|\Big),
 $$
 
-and Mergen reports $\mathrm{CD} = \sqrt{\mathrm{CD}^2}$.
+and Mergen reports $\mathrm{CD} = \sqrt{\mathrm{CD}^2}$
+(selected with `criteria='cd2'`).
 
 Use it when overall uniformity is the goal, when results must be
 comparable with the uniform-design literature, or when integration-type
@@ -81,13 +82,14 @@ quantities will be estimated from the runs. It is also the criterion
 whose implementation can be cross-checked against an independent one
 in SciPy, which Mergen's validation suite does.
 
-## maxpro
+## MaxPro
 
 $$
 \psi(D) = \sum_{i<j} \prod_{l=1}^{d} (x_{il} - x_{jl})^{-2}.
 $$
 
-Because the product runs over every coordinate, a single pair of
+MaxPro (`criteria='maxpro'`): because the product runs over every
+coordinate, a single pair of
 points sharing a value in any one coordinate makes that pair's term
 explode. The criterion therefore forces all $n$ points to remain
 distinct in every one-dimensional projection and, as Joseph, Gul & Ba
@@ -101,9 +103,10 @@ advance which inputs matter: projection quality is then the property
 that pays. Its known artefact is a mild repulsion of points from the
 region near the boundary.
 
-## umaxpro
+## uMaxPro
 
-uMaxPro (Vorechovsky & Masek, 2026) keeps the MaxPro construction but
+uMaxPro (`criteria='umaxpro'`; Vorechovsky & Masek, 2026) keeps
+the MaxPro construction but
 replaces every squared coordinate difference by its periodic
 counterpart,
 
@@ -121,9 +124,10 @@ checks explicitly. It is the default criterion in `Sampler.run`.
 Use it in the same situations as MaxPro; prefer it when uniform
 treatment of the boundary matters, which is most of the time.
 
-## stratified
+## $\mathrm{SL}_2$ (stratified)
 
-The stratified $L_2$-discrepancy (Tian & Xu, 2025) evaluates
+The stratified $L_2$-discrepancy $\mathrm{SL}_2$
+(`criteria='stratified'`; Tian & Xu, 2025) evaluates
 uniformity across a nested hierarchy of grids: at depth $i$ each axis
 is cut into $s^i$ equal strata, and the criterion aggregates, over
 depths $i = 0, \dots, p$ and all axes, how evenly the points occupy
@@ -146,9 +150,10 @@ Use it when multi-resolution balance is the goal: designs that must
 look balanced both coarsely and finely, comparisons with stratified or
 orthogonal-array based constructions, or grid-refinement studies.
 
-## maxproqq
+## $\mathrm{MaxPro_{QQ}}$
 
-MaxProQQ (Joseph, Gul & Ba, 2020) extends MaxPro to designs that mix
+$\mathrm{MaxPro_{QQ}}$ (`criteria='maxproqq'`; Joseph, Gul & Ba,
+2020) extends MaxPro to designs that mix
 continuous, discrete numeric, integer, ordinal, and nominal factors.
 Continuous coordinates contribute $(x_{il} - x_{jl})^2$ as before;
 a discrete numeric or ordinal factor with $m_k$ levels contributes
@@ -162,9 +167,10 @@ Use it whenever the space contains nominal or ordinal parameters and
 projection quality is the priority. It is one of the two criteria that
 accept qualitative factors.
 
-## qqd
+## QQD
 
-The qualitative-quantitative discrepancy (Zhang, Yang & Zhou, 2021) is
+The qualitative-quantitative discrepancy QQD (`criteria='qqd'`;
+Zhang, Yang & Zhou, 2021) is
 the uniformity counterpart for mixed spaces: quantitative columns are
 scored with the wrap-around $L_2$ kernel and nominal columns with a
 discrete kernel, calibrated so that neither factor type dominates.
@@ -180,17 +186,17 @@ be represented evenly.
 ## Practical guidance
 
 Start from the structure of your space. If it contains nominal or
-ordinal parameters, the choice is between `maxproqq` (projection
-quality, the usual choice for surrogate modelling) and `qqd`
-(uniformity of coverage).
+ordinal parameters, the choice is between $\mathrm{MaxPro_{QQ}}$
+(projection quality, the usual choice for surrogate modelling) and
+QQD (uniformity of coverage).
 
 For purely numeric spaces: if you will fit a surrogate and do not know
-which inputs matter, use `umaxpro`, the default, or `maxpro` if you
+which inputs matter, use uMaxPro, the default, or MaxPro if you
 specifically want the published non-periodic form. If the requirement
-is physical spacing or a worst-case distance guarantee, use `phi_p`.
+is physical spacing or a worst-case distance guarantee, use $\phi_p$.
 If the requirement is distributional uniformity or comparability with
-the uniform-design literature, use `cd2`; if it is balance across a
-hierarchy of resolutions, use `stratified`.
+the uniform-design literature, use $\mathrm{CD}_2$; if it is balance
+across a hierarchy of resolutions, use $\mathrm{SL}_2$.
 
 When requirements conflict or you are unsure, do not guess:
 `mergen.compare()` runs the candidate criteria (and optimisers) on

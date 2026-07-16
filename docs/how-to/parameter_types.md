@@ -40,7 +40,8 @@ distances.
 Nominal and ordinal factors change how the design must be scored,
 because distance between unordered labels is not Euclidean. If your
 space contains any nominal factor, use a criterion that supports
-qualitative factors, `maxproqq` or `qqd`; the other five criteria are
+qualitative factors, $\mathrm{MaxPro_{QQ}}$ (`'maxproqq'`) or QQD
+(`'qqd'`); the other five criteria are
 for purely numeric spaces. `mergen.nominal_supporting_criteria()`
 lists the compatible ones, and `Sampler.run` raises an informative
 error if the criterion and the space are incompatible.

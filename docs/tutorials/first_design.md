@@ -61,7 +61,7 @@ result = sampler.run(criteria='umaxpro', algorithm='sa', seed=44)
 ```
 
 Mergen starts from a Latin hypercube arrangement and iteratively
-improves it: the `umaxpro` criterion scores how well the points fill
+improves it: the uMaxPro criterion scores how well the points fill
 the space, and the `sa` (simulated annealing) optimiser searches for
 the arrangement with the best score. Progress is printed as it runs;
 expect on the order of a minute for a design of this size.
