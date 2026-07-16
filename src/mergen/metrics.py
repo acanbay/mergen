@@ -31,8 +31,9 @@ MC baseline (optional, mc_samples > 0)
 ---------------------------------------
     Draws mc_samples random designs from the feasible space.
     For each metric and criteria_metric, computes:
-      - baseline median
-      - percentile rank of the design value among random designs
+
+    - baseline median
+    - percentile rank of the design value among random designs
 
 References
 ----------

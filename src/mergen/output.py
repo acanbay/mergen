@@ -1032,15 +1032,17 @@ def plot(result, kind: str = 'pairplot', **kwargs) -> None:
     Parameters
     ----------
     kind : str
-        'pairplot'    — scatter matrix, all parameter pairs
-        '1d'          — marginal KDE + strip per parameter
-        '2d'          — scatter for selected pair(s)
-        'distances'   — pairwise distance distribution
-        'correlation' — parameter correlation heatmap
-        'quality'     — quality metrics bar chart
-        'comparison'  — bar chart of per-algorithm scores
-                        (only when multiple algorithms were run)
-        'all'         — all of the above
+        Plot type. One of:
+
+        - ``'pairplot'``: scatter matrix, all parameter pairs
+        - ``'1d'``: marginal KDE + strip per parameter
+        - ``'2d'``: scatter for selected pair(s)
+        - ``'distances'``: pairwise distance distribution
+        - ``'correlation'``: parameter correlation heatmap
+        - ``'quality'``: quality metrics bar chart
+        - ``'comparison'``: bar chart of per-algorithm scores
+          (only when multiple algorithms were run)
+        - ``'all'``: all of the above
     **kwargs
         show_pool, title, log, params, show, save, filename, fmt, dpi
     """

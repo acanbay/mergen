@@ -12,16 +12,20 @@ Discrete (explicit values):
     np.arange(0.1, 1.1, 0.1)               numpy array
     np.linspace(0, 1, 10)                   any 1-D iterable
 
-Continuous (Mergen builds the grid):
+Continuous (Mergen builds the grid)::
+
     ('continuous', 0.5, 5.0)                linear grid
     ('continuous', 1e-4, 1e-1, 'log')       log-spaced grid
 
-Integer (Mergen builds the grid):
+Integer (Mergen builds the grid)::
+
     ('integer', 2, 10)                       all integers in [min, max]
     ('integer', 8, 256, 'log')              log-spaced integers (rounded, unique)
 
 Usage
 -----
+::
+
     # Dict — all at once
     space = ParameterSpace({
         'voltage':  [100, 200, 300, 400],

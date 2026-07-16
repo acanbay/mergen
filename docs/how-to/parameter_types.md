@@ -47,12 +47,18 @@ lists the compatible ones, and `Sampler.run` raises an informative
 error if the criterion and the space are incompatible.
 
 For a logarithmically spaced parameter, such as a learning rate or a
-concentration spanning orders of magnitude, list the levels directly
-on the ladder you want:
+concentration spanning orders of magnitude, append the `'log'` flag to
+a continuous or integer specification and Mergen builds the grid on a
+logarithmic ladder:
+
+```python
+'learning_rate': ('continuous', 1e-4, 1e-1, 'log'),
+'batch_size':    ('integer', 8, 256, 'log'),
+```
+
+Alternatively, list explicit levels when you want exact control over
+the sampled decades:
 
 ```python
 'learning_rate': [1e-4, 3e-4, 1e-3, 3e-3, 1e-2],
 ```
-
-This gives exact control over the sampled decades without a separate
-parameter type.

@@ -4,7 +4,7 @@ mergen.criteria.maxproqq
 Maximum Projection criterion for mixed quantitative and qualitative
 factors (MaxProQQ).
 
-Joseph, Gul & Ba (2019) extend the MaxPro criterion of Joseph, Gul &
+Joseph, Gul & Ba (2020) extend the MaxPro criterion of Joseph, Gul &
 Ba (2015) so that a single space-filling objective covers four
 factor types:
 
@@ -182,8 +182,8 @@ class MaxProQQ(BaseCriterion):
 
     References
     ----------
-    Joseph, V. R., Gul, E. & Ba, S. (2019). *Journal of Quality
-        Technology*, 52(4), 343-354.
+    Joseph, V. R., Gul, E. & Ba, S. (2020).
+        *Journal of Quality Technology*, 52(4), 343-354.
     """
 
     supports_nominal: bool = True

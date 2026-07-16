@@ -12,6 +12,8 @@ This module exposes four objects:
 
 Quick start
 -----------
+::
+
     from mergen.space   import ParameterSpace
     from mergen.sampler import Sampler
 
