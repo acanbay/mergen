@@ -12,6 +12,8 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
+from sphinx_gallery.sorting import FileNameSortKey
+
 # ── Project information ─────────────────────────────────────────────
 project = "Mergen"
 author = "Ali Can Canbay"
@@ -20,12 +22,12 @@ copyright = "2026, Ali Can Canbay"  # noqa: A001 (Sphinx convention)
 try:
     release = _pkg_version("mergen-doe")
 except PackageNotFoundError:  # e.g. docs linting without the package
-    release = "0.0.0"
+    release = "0.1.0"
 version = ".".join(release.split(".")[:2])
 
 # ── General configuration ───────────────────────────────────────────
 extensions = [
-    "myst_nb",                     # Markdown + executable notebooks (jupytext)
+    "myst_nb",                     # Markdown pages (MyST) via myst-nb
     "sphinx.ext.autodoc",          # API reference from docstrings
     "sphinx.ext.autosummary",      # summary tables for the API pages
     "sphinx.ext.napoleon",         # numpy-style docstrings
@@ -33,6 +35,7 @@ extensions = [
     "sphinx.ext.viewcode",         # [source] links
     "sphinx_copybutton",           # copy button on code blocks
     "sphinx_design",               # grids/cards for the landing page
+    "sphinx_gallery.gen_gallery",  # executed example gallery
 ]
 
 templates_path = ["_templates"]
@@ -44,11 +47,22 @@ myst_enable_extensions = [
     "dollarmath",    # $...$ and $$...$$
     "deflist",
 ]
-# Notebook execution is disabled while the skeleton is being built.
-# It will be switched to "cache" when the example pages are wired in,
-# so ReadTheDocs re-executes only changed notebooks and stays within
-# its build time limits.
+# Handwritten pages contain no executable notebooks; all example
+# execution is handled by sphinx-gallery below, so myst-nb stays off.
 nb_execution_mode = "off"
+
+# ── sphinx-gallery ──────────────────────────────────────────────────
+sphinx_gallery_conf = {
+    "examples_dirs": "../examples",
+    "gallery_dirs": "auto_examples",
+    # Execute only the light examples on documentation builds (their
+    # measured total stays within the ReadTheDocs build limit); the
+    # heavy studies (04, 05, 12, 14) are rendered without execution
+    # and the full set is exercised weekly in CI.
+    "filename_pattern": r"/(0[1236789]|1[0135])_",
+    "within_subsection_order": FileNameSortKey,
+    "download_all_examples": False,
+}
 
 # ── autodoc / autosummary / napoleon ────────────────────────────────
 autosummary_generate = True
@@ -76,7 +90,7 @@ intersphinx_mapping = {
 # ── HTML output ─────────────────────────────────────────────────────
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
-html_css_files = ["custom.css"]          # ← yeni satır
+html_css_files = ["custom.css"]
 html_title = f"Mergen {release}"
 html_favicon = "_static/favicon.png"
 # The landing page belongs to no section, so its section navigation is
@@ -98,5 +112,4 @@ html_theme_options = {
     "show_toc_level": 2,
     "footer_start": ["copyright"],
     "footer_end": ["sphinx-version"],
-
 }

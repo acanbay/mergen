@@ -1,0 +1,35 @@
+# Executes all fifteen examples end to end. The documentation build
+# only executes the light subset (see docs/conf.py), so this workflow
+# is the scientific guarantee that every example runs against the
+# current code. Scheduled weekly and available on demand; it does not
+# run per push, in line with the project's Actions budget.
+name: examples
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 1"   # Mondays 05:00 UTC
+
+jobs:
+  run-examples:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: pip install .
+
+      - name: Run all examples
+        run: |
+          set -e
+          cd examples
+          for f in [0-9][0-9]_*.py; do
+            echo "::group::$f"
+            python "$f"
+            echo "::endgroup::"
+          done

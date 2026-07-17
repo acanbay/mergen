@@ -116,6 +116,10 @@ the numpy-style docstrings.
 
 ::::
 
+The {doc}`example gallery <auto_examples/index>` complements these
+sections with fifteen complete studies from different domains, each
+downloadable as a script or a Jupyter notebook.
+
 ## Installation
 
 Installation options and requirements are described on the
@@ -138,6 +142,7 @@ installation
 tutorials/index
 how-to/index
 explanation/index
+auto_examples/index
 api/index
 changelog
 citing

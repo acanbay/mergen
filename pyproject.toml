@@ -3,7 +3,7 @@ requires      = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name            = "mergen"
+name            = "mergen-doe"
 dynamic         = ["version"]
 description     = "Space-filling Design of Experiments for Python"
 readme          = "README.md"
@@ -52,7 +52,6 @@ dependencies = [
     "joblib>=1.2",
     "tabulate>=0.9",
     "jinja2>=3.0",
-    "openpyxl>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -70,9 +69,10 @@ docs = [
     # version (e.g. Sphinx 7.4.x on 3.9, 8.x on 3.10+). No upper pins.
     "sphinx>=7.3",
     "pydata-sphinx-theme>=0.15",
-    "myst-nb>=1.1",             # brings myst-parser; executes example notebooks
+    "myst-nb>=1.1",             # brings myst-parser for Markdown pages
     "sphinx-copybutton>=0.5",
     "sphinx-design>=0.5",
+    "sphinx-gallery>=0.15",     # executed example gallery
 ]
 
 [project.urls]
@@ -92,6 +92,5 @@ exclude = [
     "docs/",
     "examples/",
     "paper/",
-    ".binder/",
     ".github/",
 ]
