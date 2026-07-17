@@ -6,7 +6,7 @@ If you use Mergen in academic work, please cite the software.
 
 > Canbay, A. C. (2026). *Mergen: Multi-dimensional Experimental Run
 > GENerator* (Version 0.1.0) [Computer software].
-> https://github.com/acanbay/mergen
+> https://doi.org/10.5281/zenodo.21420075
 
 ## BibTeX
 
@@ -16,6 +16,7 @@ If you use Mergen in academic work, please cite the software.
   title   = {Mergen: Multi-dimensional Experimental Run GENerator},
   year    = {2026},
   version = {0.1.0},
+  doi     = {10.5281/zenodo.21420075},
   url     = {https://github.com/acanbay/mergen}
 }
 ```
@@ -27,6 +28,11 @@ The repository root contains a
 file with the same information in the Citation File Format. GitHub
 renders it under the "Cite this repository" button, and reference
 managers can import it directly.
+
+The version DOI above always points to release 0.1.0. To cite Mergen
+as a whole, independent of version, use the concept DOI
+[10.5281/zenodo.21420074](https://doi.org/10.5281/zenodo.21420074),
+which always resolves to the latest release.
 
 When citing a specific analysis, please also record the Mergen version
 and the random seed used, so the design can be reproduced exactly.

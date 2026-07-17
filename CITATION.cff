@@ -21,11 +21,11 @@ authors:
     orcid: "https://orcid.org/0000-0003-4602-473X"
 
 version: "0.1.0"
-# date-released: ""       # İlk release tarihini ekle
+date-released: "2026-07-18"
 license: MIT
 repository-code: "https://github.com/acanbay/mergen"
-# url: "https://mergen.readthedocs.io"   # ReadTheDocs hazır olunca aç
-# doi: ""                 # Zenodo DOI — ilk release'den sonra ekle
+url: "https://mergen.readthedocs.io"
+doi: "10.5281/zenodo.21420074"
 
 keywords:
   - design of experiments
