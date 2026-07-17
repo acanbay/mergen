@@ -146,6 +146,10 @@ sphinx_gallery_conf = {
     # "matplotlib"/"seaborn" keep sphinx-gallery's default per-example
     # cleanup; _mergen_reset primes the PNG scraper (see above).
     "reset_modules": ("matplotlib", "seaborn", _mergen_reset),
+    # Fail the build on the first example that errors. Set here as a
+    # real boolean; passing it via sphinx-build -D would make it a
+    # string and trigger a type warning under Sphinx 9.
+    "abort_on_example_error": True,
 }
 
 # ── autodoc / autosummary / napoleon ────────────────────────────────
@@ -175,7 +179,6 @@ intersphinx_mapping = {
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
-html_js_files = ["medium-zoom.min.js", "custom.js"]
 html_title = f"Mergen {release}"
 html_favicon = "_static/favicon.png"
 # The landing page belongs to no section, so its section navigation is
@@ -244,4 +247,3 @@ try:
     _sg_gen_rst._get_code_output = _stdout_before_images
 except (AttributeError, TypeError):  # pragma: no cover
     pass  # future sphinx-gallery: keep its default layout
-

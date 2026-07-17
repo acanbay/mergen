@@ -44,7 +44,7 @@ jobs:
         run: pip install .[docs]
 
       - name: Build documentation, executing all examples
-        run: sphinx-build -D abort_on_example_error=True -b html docs docs/_build/html
+        run: sphinx-build -b html docs docs/_build/html
 
       - name: Pack the generated gallery
         run: tar czf gallery.tar.gz -C docs auto_examples
