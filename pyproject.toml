@@ -74,6 +74,8 @@ docs = [
     "sphinx-design>=0.5",
     "sphinx-gallery>=0.15,<0.22",   # executed example gallery; upper
     # pin because conf.py overrides two of its internal layout choices
+    "openpyxl>=3.1",            # example 10 demonstrates Excel export,
+    # and the docs build executes every example
 ]
 
 [project.urls]
