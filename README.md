@@ -11,6 +11,7 @@ space-filling Design of Experiments for Python.</p>
 <p align="center">
   <a href="https://github.com/acanbay/mergen/actions/workflows/tests.yaml"><img src="https://github.com/acanbay/mergen/actions/workflows/tests.yaml/badge.svg" alt="Tests"></a>
   <a href="https://www.python.org"><img src="https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-blue" alt="Python"></a>
+  <a href="https://mergen.readthedocs.io"><img src="https://readthedocs.org/projects/mergen/badge/?version=latest" alt="Documentation"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"></a>
 </p>
 
@@ -82,9 +83,13 @@ result.to_csv()
 
 ## Documentation
 
-The documentation covers tutorials, task guides, the reasoning
-behind every choice Mergen asks you to make, an executed example
-gallery, and the full API reference. To build and read it locally:
+The full documentation lives at
+**[mergen.readthedocs.io](https://mergen.readthedocs.io)**. It covers
+tutorials, task guides, the reasoning behind every choice Mergen asks
+you to make, an executed gallery of fifteen example studies with
+their complete output and figures, and the full API reference.
+
+To build the documentation locally (for instance when contributing):
 
 ```bash
 pip install -e ".[docs]"
