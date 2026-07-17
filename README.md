@@ -51,9 +51,25 @@ that already exist, and zones that deserve extra attention.
 ## Installation
 
 ```bash
+pip install mergen-doe
+```
+
+Optional Excel export support:
+
+```bash
+pip install "mergen-doe[excel]"
+```
+
+To work on Mergen itself, install from source in editable mode and
+add the extras you need:
+
+```bash
 git clone https://github.com/acanbay/mergen.git
 cd mergen
-pip install .
+pip install -e .            # the package itself
+pip install -e ".[excel]"   # openpyxl, for result.to_excel()
+pip install -e ".[dev]"     # pytest, coverage, ruff, black
+pip install -e ".[docs]"    # Sphinx toolchain
 ```
 
 The distribution name is `mergen-doe`; the import name is `mergen`.
@@ -89,14 +105,9 @@ tutorials, task guides, the reasoning behind every choice Mergen asks
 you to make, an executed gallery of fifteen example studies with
 their complete output and figures, and the full API reference.
 
-To build the documentation locally (for instance when contributing):
-
-```bash
-pip install -e ".[docs]"
-sphinx-build -b html docs docs/_build/html
-```
-
-then open `docs/_build/html/index.html`.
+To build it locally, install the `docs` extra (see Installation) and
+run `sphinx-build -b html docs docs/_build/html`, then open
+`docs/_build/html/index.html`.
 
 ## Examples
 

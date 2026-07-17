@@ -1,25 +1,47 @@
 # Installation
 
-Mergen is installed from its source repository:
+::::{tab-set}
+
+:::{tab-item} pip
+
+```bash
+pip install mergen-doe
+```
+
+Optional Excel export support:
+
+```bash
+pip install "mergen-doe[excel]"
+```
+
+:::
+
+:::{tab-item} source
+
+For the latest development state, or to contribute:
 
 ```bash
 git clone https://github.com/acanbay/mergen.git
 cd mergen
-pip install .
+pip install -e .
 ```
 
-For development, install in editable mode with the extras you need:
+Development and documentation extras:
 
 ```bash
-pip install -e .            # the package itself
 pip install -e ".[excel]"   # openpyxl, for result.to_excel()
 pip install -e ".[dev]"     # pytest, coverage, ruff, black
 pip install -e ".[docs]"    # Sphinx toolchain
 ```
 
+:::
+
+::::
+
 ## Package name and import name
 
-The distribution name is `mergen-doe`; the import name is `mergen`:
+The distribution name is `mergen-doe`; the import name is `mergen`,
+regardless of the installation method:
 
 ```python
 import mergen
