@@ -3,15 +3,19 @@
 **M**ulti-dimensional **E**xperimental **R**un **GEN**erator: a Python
 module for space-filling Design of Experiments.
 
-You have a system with adjustable settings and a budget of *n*
-experiments: a reactor, a simulation, a machine-learning model.
-Trying every combination of settings is impossible, so the question
-becomes which *n* runs to perform. Mergen answers it by spreading the
-runs evenly through the space of possibilities, honouring the
-constraints real studies have (forbidden regions, runs that already
-exist, critical zones, categorical settings), and attaching
-statistical evidence that the plan is a good one. The full reasoning
-lives in {doc}`Why space-filling designs?
+Every experimental study works under a fixed budget: only a limited
+number of runs can be afforded, and each one should be as informative
+as possible. Mergen selects those runs. Given a parameter space (its
+bounds, resolution, constraints and critical regions), it computes
+the coordinates of *n* points that spread evenly through the space,
+so that no region is left unexplored and no run is wasted.
+
+The result is not a random sample but a mathematically optimised
+design, delivered together with a statistical quality report suitable
+for the methods section of a paper. Mergen handles the spaces real
+studies actually have: mixed factor types, forbidden regions, runs
+that already exist, and zones that deserve extra attention. The full
+reasoning lives in {doc}`Why space-filling designs?
 <user_guide/explanation/why_space_filling>`.
 
 {doc}`Installation <getting_started/installation>` ·
