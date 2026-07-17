@@ -34,7 +34,7 @@ response.
 | $\mathrm{CD}_2$ | `'cd2'` | uniformity | no | Hickernell (1998) |
 | MaxPro | `'maxpro'` | projection | no | Joseph, Gul & Ba (2015) |
 | uMaxPro | `'umaxpro'` | projection | no | Vorechovsky & Masek (2026) |
-| $\mathrm{SL}_2$ | `'stratified'` | uniformity | no | Tian & Xu (2025) |
+| $\mathrm{SL}_2$ | `'stratified'` | uniformity | no | Tian & Xu (2026) |
 | $\mathrm{MaxPro_{QQ}}$ | `'maxproqq'` | projection | yes | Joseph, Gul & Ba (2020) |
 | QQD | `'qqd'` | uniformity | yes | Zhang, Yang & Zhou (2021) |
 
@@ -127,7 +127,7 @@ treatment of the boundary matters, which is most of the time.
 ## $\mathrm{SL}_2$ (stratified)
 
 The stratified $L_2$-discrepancy $\mathrm{SL}_2$
-(`criteria='stratified'`; Tian & Xu, 2025) evaluates
+(`criteria='stratified'`; Tian & Xu, 2026) evaluates
 uniformity across a nested hierarchy of grids: at depth $i$ each axis
 is cut into $s^i$ equal strata, and the criterion aggregates, over
 depths $i = 0, \dots, p$ and all axes, how evenly the points occupy
@@ -274,9 +274,10 @@ Morris, M. D., & Mitchell, T. J. (1995). Exploratory designs for
 computational experiments. *Journal of Statistical Planning and
 Inference*, 43(3), 381-402.
 
-Tian, Y., & Xu, H. (2025). A stratified L2-discrepancy with
+Tian, Y., & Xu, H. (2026). A stratified L2-discrepancy with
 application to space-filling designs. *Journal of the Royal
-Statistical Society, Series B*.
+Statistical Society Series B: Statistical Methodology*, 88(2),
+464-490.
 
 Vorechovsky, M., & Masek, J. (2026). Uniform maximum projection
 designs for computer experiments. *Computers & Structures*.
