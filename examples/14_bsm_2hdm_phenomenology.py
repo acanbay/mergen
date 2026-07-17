@@ -1,6 +1,9 @@
 """
-14_bsm_2hdm_phenomenology.py
-============================
+Particle physics: 2HDM benchmarks
+=================================
+
+Cover a five-parameter 2HDM space with a few dozen well-separated benchmark points.
+
 A Type-II Two-Higgs-Doublet-Model (2HDM) phenomenology study needs a
 set of benchmark points spread across the five free parameters of the
 model. Each benchmark will later be handed to downstream tools (for
@@ -24,31 +27,31 @@ Stepped grids, as real scans are stepped rather than continuous, with
 LaTeX names so the physics notation appears on the axes and in the
 exported header.
 
-- tan(beta): a log-like ladder [1, 2, 5, 10, 15, 20].
-- cos(beta - alpha): the alignment region, in steps around zero.
+- ``tan(beta)``: a log-like ladder [1, 2, 5, 10, 15, 20].
+- ``cos(beta - alpha)``: the alignment region, in steps around zero.
 - m_H (heavy CP-even scalar): 300-1500 GeV in 200 GeV steps.
 - m_A (CP-odd scalar): 300-1500 GeV in 200 GeV steps.
 - m_H+- (charged scalar): 300-1500 GeV in 200 GeV steps.
 
 What to look at
 ---------------
-- comparison_table.md (saved): all numeric criteria ranked by
+- ``comparison_table.md`` (saved): all numeric criteria ranked by
   percentile against a shared Monte Carlo baseline. The question "did
   we cover the 5D space well?" maps directly to the min_distance and
   max_abs_correlation percentiles.
-- best_result.quality_report() (printed): the winning design's coverage
+- ``best_result.quality_report()`` (printed): the winning design's coverage
   quality in five dimensions.
 - The saved 5x5 pairplot: even coverage across every pair of parameters
   is the visual sign that the benchmarks span the space rather than
   clustering.
-- benchmarks.csv: one row per benchmark point, with the LaTeX parameter
+- ``benchmarks.csv``: one row per benchmark point, with the LaTeX parameter
   names as headers, ready to feed the downstream chain.
 
 Mergen features used
 --------------------
 - LaTeX parameter names used directly as space keys, so they appear on
   plot axes and in the CSV header.
-- Sampler.compare(): all factors are numeric, so criteria=None sweeps
+- ``Sampler.compare()``: all factors are numeric, so criteria=None sweeps
   the numeric criteria and ranks them on coverage percentiles. Each
   combination is optimised n_repeats times (default 5) from
   reproducible seeds and ranked on the mean metric percentile via a
@@ -58,7 +61,7 @@ Mergen features used
 
 Estimated runtime: several minutes on one core (several criteria in
 five dimensions, each repeated). On a multi-core machine pass
-n_jobs=-1 to compare() to parallelise the repeats (identical result,
+n_jobs=-1 to ``compare()`` to parallelise the repeats (identical result,
 faster); leave it at the default to stay single-core.
 """
 from mergen import ParameterSpace, Sampler
