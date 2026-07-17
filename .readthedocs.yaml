@@ -3,22 +3,14 @@
 # RTD builds in its own isolated Linux environment; local builds on any
 # OS use the same entry point:  sphinx-build -b html docs docs/_build/html
 #
-# RTD itself executes no example: the pre_build step below downloads
-# the gallery pre-built by the docs-gallery workflow, and the
-# sphinx-gallery MD5 cache recognises the pages as current. If an
-# example changes without the gallery being regenerated, the MD5 no
-# longer matches, RTD tries to execute it and the build fails loudly
-# instead of publishing a stale page.
+# RTD executes the fifteen examples itself as part of the build. The
+# documentation builds warning-free and must stay that way.
 version: 2
 
 build:
   os: ubuntu-24.04
   tools:
     python: "3.12"
-  jobs:
-    pre_build:
-      - curl -fL -o gallery.tar.gz https://github.com/acanbay/mergen/releases/download/docs-gallery/gallery.tar.gz
-      - tar xzf gallery.tar.gz -C docs
 
 python:
   install:
@@ -29,5 +21,4 @@ python:
 
 sphinx:
   configuration: docs/conf.py
-  # The documentation builds warning-free; keep it that way.
   fail_on_warning: true
