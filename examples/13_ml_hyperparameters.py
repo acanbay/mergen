@@ -38,7 +38,7 @@ What to look at
 Mergen features used
 --------------------
 - Log-like discrete numeric factors alongside a nominal factor.
-- criteria='``maxproqq``' as the correct choice for the nominal optimiser.
+- ``criteria='maxproqq'`` as the correct choice for the nominal optimiser.
 - ``Sampler.add_set()``: pin a fixed baseline configuration that must
   always be part of the design.
 - to_json export for configurations consumed by code.

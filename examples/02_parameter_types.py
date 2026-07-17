@@ -49,7 +49,7 @@ Mergen features used
   the specification tuple.
 - add_constraint to filter the candidate pool by a feasibility
   predicate.
-- criteria='``maxproqq``', the default-safe choice when the space
+- ``criteria='maxproqq'``, the default-safe choice when the space
   contains any nominal factor.
 
 Estimated runtime: a few seconds.

@@ -41,7 +41,7 @@ Mergen features used
 --------------------
 - A nominal factor alongside continuous / discrete / integer factors.
 - Per-parameter rounding on the continuous pH axis.
-- criteria='``maxproqq``' as the correct choice for a space containing a
+- ``criteria='maxproqq'`` as the correct choice for a space containing a
   nominal factor.
 - A validation hold-out via ``set_design(n_validation=...)``.
 

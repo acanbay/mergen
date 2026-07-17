@@ -35,7 +35,7 @@ What to look at
 Mergen features used
 --------------------
 - Five stepped numeric factors in engineering units.
-- criteria='``phi_p``' as the maximin choice for maximally separated,
+- ``criteria='phi_p'`` as the maximin choice for maximally separated,
   expensive configurations.
 - A validation hold-out via ``set_design(n_validation=...)``.
 - ``Sampler.set_optimizer()``: a modest compute budget for a quick demo.

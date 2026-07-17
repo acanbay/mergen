@@ -33,7 +33,7 @@ What to look at
 
 Mergen features used
 --------------------
-- criteria='``phi_p``': a maximin criterion chosen here because it gives
+- ``criteria='phi_p'``: a maximin criterion chosen here because it gives
   strong, balanced percentiles across all six quality metrics, so the
   quality plot reads well as a showcase.
 - ``result.plot('all', save=True)``: render every plot type at once.
@@ -44,7 +44,6 @@ Mergen features used
 Estimated runtime: a few seconds to a minute.
 """
 # sphinx_gallery_thumbnail_number = 5
-
 from mergen import ParameterSpace, Sampler
 
 # 1. Define a three-factor space and build one design.
