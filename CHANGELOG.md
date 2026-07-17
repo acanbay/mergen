@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.1.0] - Unreleased
+## [Unreleased]
+
+## [0.1.0] - 2026-07-18
 
 Initial release.
 
@@ -53,3 +55,6 @@ Initial release.
   pages, an executed example gallery of fifteen studies, and the full
   API reference.
 - Continuous integration via GitHub Actions (Python 3.9-3.12).
+
+[unreleased]: https://github.com/acanbay/mergen/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/acanbay/mergen/releases/tag/v0.1.0
