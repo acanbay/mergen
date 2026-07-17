@@ -70,7 +70,7 @@ than minutes, or as the default optimiser inside large `compare()`
 sweeps. Use `ese` when marginal level balance must be preserved
 exactly and the space has at least two parameters.
 
-```{figure} ../_static/img/algorithm_comparison.png
+```{figure} ../../_static/img/algorithm_comparison.png
 :width: 85%
 :alt: Bar chart comparing the three optimisers on one problem.
 

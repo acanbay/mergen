@@ -1,58 +1,25 @@
 # Installation
 
-::::{tab-set}
-
-:::{tab-item} pip
-```bash
-pip install mergen-doe
-```
-
-Optional Excel export support:
-
-```bash
-pip install "mergen-doe[excel]"
-```
-:::
-
-:::{tab-item} conda
-A conda-forge package is planned. Until it is published, pip can be
-used inside conda environments:
-
-```bash
-pip install mergen-doe
-```
-
-Optional Excel export support:
-
-```bash
-pip install "mergen-doe[excel]"
-```
-:::
-
-:::{tab-item} source
-For the latest development state, or to contribute:
+Mergen is installed from its source repository:
 
 ```bash
 git clone https://github.com/acanbay/mergen.git
 cd mergen
-pip install -e .
+pip install .
 ```
 
-Development and documentation extras:
+For development, install in editable mode with the extras you need:
 
 ```bash
-pip install -e ".[excel]"  # openpyxl, for result.to_excel()
-pip install -e ".[dev]"    # pytest, coverage, ruff, black
-pip install -e ".[docs]"   # Sphinx toolchain
+pip install -e .            # the package itself
+pip install -e ".[excel]"   # openpyxl, for result.to_excel()
+pip install -e ".[dev]"     # pytest, coverage, ruff, black
+pip install -e ".[docs]"    # Sphinx toolchain
 ```
-:::
-
-::::
 
 ## Package name and import name
 
-The distribution name is `mergen-doe` on both PyPI and conda-forge.
-The import name is `mergen`, regardless of the installation method:
+The distribution name is `mergen-doe`; the import name is `mergen`:
 
 ```python
 import mergen
@@ -65,7 +32,7 @@ example, is imported as `sklearn`.
 ## Requirements
 
 Python 3.9 or newer. The core dependencies (NumPy, SciPy, pandas,
-matplotlib, Jinja2) are installed automatically.
+matplotlib, joblib, tabulate, Jinja2) are installed automatically.
 
 ## Verify the installation
 

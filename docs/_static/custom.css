@@ -2,3 +2,39 @@
 html {
     scrollbar-gutter: stable;
 }
+
+/* Sphinx-gallery download buttons: replace the default yellow note
+   style with theme-aware surfaces that work in light and dark mode. */
+div.sphx-glr-download a.download,
+div.sphx-glr-download a.download:visited {
+    background-color: var(--pst-color-surface);
+    background-image: none;
+    border: 1px solid var(--pst-color-border);
+    border-radius: 0.4rem;
+    color: var(--pst-color-text-base);
+}
+
+div.sphx-glr-download a.download:hover {
+    background-color: var(--pst-color-shadow);
+    border-color: var(--pst-color-primary);
+    color: var(--pst-color-primary);
+}
+
+div.sphx-glr-download code.download {
+    background-color: transparent;
+    color: inherit;
+}
+
+/* Example figures are zoomable (see custom.js); hint it. */
+img.sphx-glr-single-img {
+    cursor: zoom-in;
+}
+
+/* Backdrop of the zoomed image follows the active theme. */
+.medium-zoom-overlay {
+    background: var(--pst-color-background) !important;
+}
+
+.medium-zoom-image--opened {
+    z-index: 1050;
+}

@@ -193,7 +193,7 @@ concrete:
 :gutter: 2
 
 :::{grid-item}
-```{figure} ../_static/img/contrast_phi_p.png
+```{figure} ../../_static/img/contrast_phi_p.png
 :alt: Design optimised under phi_p.
 
 $\phi_p$: points pushed apart, near-perfect spacing.
@@ -201,7 +201,7 @@ $\phi_p$: points pushed apart, near-perfect spacing.
 :::
 
 :::{grid-item}
-```{figure} ../_static/img/contrast_umaxpro.png
+```{figure} ../../_static/img/contrast_umaxpro.png
 :alt: Design optimised under uMaxPro.
 
 uMaxPro: spacing traded for projection structure.
@@ -217,7 +217,7 @@ on the metrics its criterion serves and lower elsewhere.
 :gutter: 2
 
 :::{grid-item}
-```{figure} ../_static/img/contrast_phi_p_quality.png
+```{figure} ../../_static/img/contrast_phi_p_quality.png
 :alt: Quality chart of the phi_p design.
 
 $\phi_p$: distance metrics ($d_{\min}$, $\mathrm{CV}_d$, $\bar d$)
@@ -226,7 +226,7 @@ dominate.
 :::
 
 :::{grid-item}
-```{figure} ../_static/img/contrast_umaxpro_quality.png
+```{figure} ../../_static/img/contrast_umaxpro_quality.png
 :alt: Quality chart of the uMaxPro design.
 
 uMaxPro: a different profile from the same space and budget.

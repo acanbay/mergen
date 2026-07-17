@@ -175,6 +175,7 @@ intersphinx_mapping = {
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
+html_js_files = ["medium-zoom.min.js", "custom.js"]
 html_title = f"Mergen {release}"
 html_favicon = "_static/favicon.png"
 # The landing page belongs to no section, so its section navigation is
@@ -243,3 +244,4 @@ try:
     _sg_gen_rst._get_code_output = _stdout_before_images
 except (AttributeError, TypeError):  # pragma: no cover
     pass  # future sphinx-gallery: keep its default layout
+

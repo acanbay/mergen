@@ -53,7 +53,7 @@ column per quality metric, and the winning row starred.
 comparison.plot(save=True)
 ```
 
-```{figure} ../_static/img/comparison_matrix.png
+```{figure} ../../_static/img/comparison_matrix.png
 :width: 95%
 :alt: Heat map of percentile ranks for criterion and algorithm combinations.
 

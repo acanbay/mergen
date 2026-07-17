@@ -1,7 +1,7 @@
 .. _examples_gallery:
 
-Example gallery
-===============
+Examples
+========
 
 Fifteen complete, runnable studies, each built around a realistic
 scenario from a different domain: materials processing, CFD, wet-lab
