@@ -90,10 +90,11 @@ path = "src/mergen/__init__.py"
 packages = ["src/mergen"]
 
 [tool.hatch.build.targets.sdist]
-exclude = [
-    "tests/",
-    "docs/",
-    "examples/",
-    "paper/",
-    ".github/",
+# Whitelist instead of blacklist: nothing outside these paths can leak
+# into the source distribution. pyproject.toml, README.md and LICENSE
+# are added automatically from the project metadata.
+only-include = [
+    "src/mergen",
+    "CHANGELOG.md",
+    "CITATION.cff",
 ]
