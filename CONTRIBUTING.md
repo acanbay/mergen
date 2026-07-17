@@ -70,6 +70,14 @@ mergen aims to be publication-quality software. For any new algorithm or metric:
 
 ---
 
+## AI assistance
+
+AI assistants were used during development for debugging, code
+simplification, test design and documentation drafting. All
+AI-assisted output was reviewed, tested and validated by the author.
+
+---
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.
