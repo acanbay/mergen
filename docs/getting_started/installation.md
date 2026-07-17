@@ -14,6 +14,11 @@ Optional Excel export support:
 pip install "mergen-doe[excel]"
 ```
 
+`excel` is the only extra meant for installed packages; the `dev`
+and `docs` extras belong to a source checkout (next tab), since the
+tests and the documentation sources ship with the repository rather
+than the package.
+
 :::
 
 :::{tab-item} source

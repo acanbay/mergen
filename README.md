@@ -60,8 +60,11 @@ Optional Excel export support:
 pip install "mergen-doe[excel]"
 ```
 
-To work on Mergen itself, install from source in editable mode and
-add the extras you need:
+`excel` is the only extra meant for installed packages; the `dev` and
+`docs` extras support working on Mergen itself, since the tests and
+the documentation sources ship with the repository rather than the
+package. For that, install from source in editable mode and add the
+extras you need:
 
 ```bash
 git clone https://github.com/acanbay/mergen.git
