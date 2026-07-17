@@ -9,6 +9,8 @@
 #   nothing here relies on version-specific Sphinx behaviour.
 from __future__ import annotations
 
+import os
+
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
@@ -151,6 +153,15 @@ sphinx_gallery_conf = {
     # string and trigger a type warning under Sphinx 9.
     "abort_on_example_error": True,
 }
+
+# On ReadTheDocs the examples are NOT executed: RTD downloads the
+# gallery pre-built by the docs-gallery workflow (see .readthedocs.yaml)
+# and only assembles the pages, staying within the build time limit.
+# Everywhere else (local builds, the gallery workflow) the examples run
+# normally. sphinx-gallery reads plot_gallery as a string when it may be
+# overridden, so a string is used here as well.
+if os.environ.get("READTHEDOCS") == "True":
+    sphinx_gallery_conf["plot_gallery"] = "False"
 
 # ── autodoc / autosummary / napoleon ────────────────────────────────
 autosummary_generate = True

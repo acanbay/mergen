@@ -1,14 +1,28 @@
-# Executes all fifteen examples end to end and builds the docs, as a
-# scientific check that every example runs against the current code.
-# Manual-only for now: ReadTheDocs builds the gallery itself, so this
-# workflow no longer feeds it. Kept available on demand.
+# Builds the executed example gallery in CI and publishes it as a
+# release asset. ReadTheDocs downloads this asset and builds the site
+# WITHOUT executing any example (plot_gallery=False), which keeps the
+# RTD build within its time limit. This mirrors how large scientific
+# projects (e.g. MNE-Python) build their gallery on CI rather than on
+# ReadTheDocs.
+#
+# The asset lives on a prerelease tagged "docs-gallery" so it never
+# appears as the project's latest release. Triggers: manual, weekly,
+# and any push touching the examples or the package source.
 name: docs-gallery
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 1"   # Mondays 05:00 UTC
+  push:
+    branches: [main]
+    paths:
+      - "examples/**"
+      - "src/mergen/**"
+      - "pyproject.toml"
 
 permissions:
-  contents: read
+  contents: write   # needed to upload the release asset
 
 jobs:
   build-gallery:
@@ -26,3 +40,17 @@ jobs:
 
       - name: Build documentation, executing all examples
         run: sphinx-build -b html docs docs/_build/html
+
+      - name: Pack the generated gallery
+        run: tar czf gallery.tar.gz -C docs auto_examples
+
+      - name: Publish as the docs-gallery release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view docs-gallery >/dev/null 2>&1 || \
+            gh release create docs-gallery \
+              --title "Docs gallery artifacts (internal, not a release)" \
+              --notes "Pre-built example gallery consumed by ReadTheDocs. This is a build artifact, not a software release." \
+              --prerelease
+          gh release upload docs-gallery gallery.tar.gz --clobber
