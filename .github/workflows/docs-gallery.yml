@@ -1,13 +1,12 @@
-# Builds the executed example gallery in CI and publishes it as a
-# release asset. ReadTheDocs downloads this asset and builds the site
-# WITHOUT executing any example (plot_gallery=False), which keeps the
-# RTD build within its time limit. This mirrors how large scientific
-# projects (e.g. MNE-Python) build their gallery on CI rather than on
-# ReadTheDocs.
-#
-# The asset lives on a prerelease tagged "docs-gallery" so it never
-# appears as the project's latest release. Triggers: manual, weekly,
-# and any push touching the examples or the package source.
+# Builds the executed example gallery in CI and publishes it to the
+# dedicated docs-gallery branch (an orphan branch that only ever
+# holds the generated gallery, in the same way large projects keep
+# CI-built documentation in a separate git area, e.g. scikit-learn's
+# scikit-learn.github.io). ReadTheDocs downloads that branch as a
+# tarball in pre_build and, thanks to the sphinx-gallery MD5 cache,
+# assembles the pages without executing any example, staying inside
+# its build time limit. The main branch never contains generated
+# files, and no GitHub release is involved.
 name: docs-gallery
 
 on:
@@ -22,7 +21,7 @@ on:
       - "pyproject.toml"
 
 permissions:
-  contents: write   # needed to upload the release asset
+  contents: write   # needed to push the docs-gallery branch
 
 jobs:
   build-gallery:
@@ -41,16 +40,14 @@ jobs:
       - name: Build documentation, executing all examples
         run: sphinx-build -b html docs docs/_build/html
 
-      - name: Pack the generated gallery
-        run: tar czf gallery.tar.gz -C docs auto_examples
-
-      - name: Publish as the docs-gallery release asset
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Publish the gallery to the docs-gallery branch
         run: |
-          gh release view docs-gallery >/dev/null 2>&1 || \
-            gh release create docs-gallery \
-              --title "Docs gallery artifacts (internal, not a release)" \
-              --notes "Pre-built example gallery consumed by ReadTheDocs. This is a build artifact, not a software release." \
-              --prerelease
-          gh release upload docs-gallery gallery.tar.gz --clobber
+          cd docs/auto_examples
+          git init -b docs-gallery
+          git add -A
+          git -c user.name=github-actions \
+              -c user.email=github-actions@users.noreply.github.com \
+              commit -m "Gallery build for ${GITHUB_SHA}"
+          git push --force \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" \
+            docs-gallery

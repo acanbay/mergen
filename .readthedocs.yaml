@@ -1,12 +1,13 @@
 # ReadTheDocs configuration — https://docs.readthedocs.io/en/stable/config-file/v2.html
 #
-# ReadTheDocs does NOT execute the examples: the pre_build job downloads
-# the gallery already built by the docs-gallery workflow, and the build
-# runs with plot_gallery=False so sphinx-gallery assembles the pages
-# from the downloaded output instead of running the scripts. This keeps
-# the RTD build within its time limit; the examples are still executed
-# on every gallery workflow run, which is the scientific guarantee that
-# they work against the current code.
+# ReadTheDocs does not execute the examples. The pre_build job
+# downloads the gallery already built by the docs-gallery workflow
+# (stored on the dedicated docs-gallery branch), and the
+# sphinx-gallery MD5 cache recognises the pages as current, so the
+# build assembles the site without running any script and stays
+# inside the time limit. If an example changes without the gallery
+# being regenerated, the MD5 no longer matches and the build fails
+# loudly instead of publishing a stale page.
 version: 2
 
 build:
@@ -15,8 +16,9 @@ build:
     python: "3.12"
   jobs:
     pre_build:
-      - curl -fL -o gallery.tar.gz https://github.com/acanbay/mergen/releases/download/docs-gallery/gallery.tar.gz
-      - tar xzf gallery.tar.gz -C docs
+      - mkdir -p docs/auto_examples
+      - curl -fL -o gallery.tar.gz https://github.com/acanbay/mergen/archive/refs/heads/docs-gallery.tar.gz
+      - tar xzf gallery.tar.gz -C docs/auto_examples --strip-components=1
 
 python:
   install:
