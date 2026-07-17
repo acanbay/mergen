@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/_static/logo-dark.png">
-    <img src="docs/_static/logo-light.png" alt="Mergen" width="420">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/acanbay/mergen/main/docs/_static/logo-dark.png">
+    <img src="https://raw.githubusercontent.com/acanbay/mergen/main/docs/_static/logo-light.png" alt="Mergen" width="420">
   </picture>
 </p>
 
@@ -9,9 +9,8 @@
 space-filling Design of Experiments for Python.</p>
 
 <p align="center">
-  <a href="https://pypi.org/project/mergen-doe/"><img src="https://img.shields.io/pypi/v/mergen-doe.svg" alt="PyPI"></a>
-  <a href="https://www.python.org"><img src="https://img.shields.io/pypi/pyversions/mergen-doe.svg" alt="Python"></a>
   <a href="https://github.com/acanbay/mergen/actions/workflows/tests.yaml"><img src="https://github.com/acanbay/mergen/actions/workflows/tests.yaml/badge.svg" alt="Tests"></a>
+  <a href="https://www.python.org"><img src="https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-blue" alt="Python"></a>
   <a href="https://mergen.readthedocs.io"><img src="https://readthedocs.org/projects/mergen/badge/?version=latest" alt="Documentation"></a>
   <a href="https://doi.org/10.5281/zenodo.21420074"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.21420074.svg" alt="DOI"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"></a>
