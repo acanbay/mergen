@@ -1,6 +1,9 @@
 """
-03_advanced_design.py
-=====================
+Prescribed points, focus and exclusion
+======================================
+
+Compose a reactor design from prescribed runs, a focus region and an exclusion zone.
+
 A pilot-scale continuous reactor is being mapped in temperature and
 pressure. Two runs from an earlier campaign are already available and
 must be reused as-is. The team also wants extra coverage around a
@@ -18,13 +21,13 @@ Parameters
 
 What to look at
 ---------------
-- summary(): the "Prescribed", "Focus" and "Optimised" rows show how
+- ``summary()``: the "Prescribed", "Focus" and "Optimised" rows show how
   the design is composed; two prescribed and four focus points
   should be present alongside the optimised runs.
-- quality_report(): scores are computed on the union of all included
+- ``quality_report()``: scores are computed on the union of all included
   points, so the min_distance percentile still reflects overall
   separation despite the placement constraints.
-- plot('pairplot'): the two prescribed runs should appear at the
+- ``plot('pairplot')``: the two prescribed runs should appear at the
   requested coordinates, the neighbourhood of (300, 2.0) should be
   visibly denser than elsewhere, and the corner around (500, 5.0)
   should be empty.

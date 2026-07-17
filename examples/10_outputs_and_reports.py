@@ -1,6 +1,9 @@
 """
-10_outputs_and_reports.py
-=========================
+Outputs and reports in one place
+================================
+
+Produce every plot type, every export and the quality report from a single finished design.
+
 One finished design usually has to be communicated to several
 audiences at once: slides want images, a lab notebook wants a readable
 table, a paper wants LaTeX, and a downstream script wants raw data.
@@ -23,23 +26,25 @@ What to look at
   per-factor spread, 2d for a single pair, distances for the pairwise
   profile, correlation for pairwise independence, and quality for the
   metric percentiles. Any of these can go straight onto a slide.
-- quality_report() (printed): the numeric quality summary.
+- ``quality_report()`` (printed): the numeric quality summary.
 - The six export files, each for a different consumer: PNG for slides,
   Markdown and HTML for a lab notebook, LaTeX for a paper, CSV and JSON
   for downstream code.
 
 Mergen features used
 --------------------
-- criteria='phi_p': a maximin criterion chosen here because it gives
+- criteria='``phi_p``': a maximin criterion chosen here because it gives
   strong, balanced percentiles across all six quality metrics, so the
   quality plot reads well as a showcase.
-- result.plot('all', save=True): render every plot type at once.
+- ``result.plot('all', save=True)``: render every plot type at once.
 - Every export format: to_csv, to_json, to_markdown, to_latex,
   to_html, to_excel.
-- result.quality_report() for the printed numeric summary.
+- ``result.quality_report()`` for the printed numeric summary.
 
 Estimated runtime: a few seconds to a minute.
 """
+# sphinx_gallery_thumbnail_number = 5
+
 from mergen import ParameterSpace, Sampler
 
 # 1. Define a three-factor space and build one design.

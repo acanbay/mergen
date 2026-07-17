@@ -1,6 +1,9 @@
 """
-08_resume_existing.py
-=====================
+Resuming from an existing design
+================================
+
+Load points from a previous campaign and let ``run()`` build only the validation set around them.
+
 A design from a previous campaign already exists and must be reused
 exactly as it was run, with Mergen adding only a fresh validation set
 around it. No point of the original design is moved or re-optimised;
@@ -16,7 +19,7 @@ Parameters
 
 What to look at
 ---------------
-- summary(): the loaded points appear as their own group ('Existing'
+- ``summary()``: the loaded points appear as their own group ('Existing'
   by default, or the custom label in the second variant) alongside the
   automatically generated 'Validation' set; no optimisation step runs.
 - The saved pairplot: the loaded design is shown in its group colour,
@@ -28,9 +31,9 @@ What to look at
 
 Mergen features used
 --------------------
-- Sampler.load_design(points): reuse an existing design; run() then
+- ``Sampler.load_design(points)``: reuse an existing design; ``run()`` then
   skips optimisation and only builds the validation set.
-- load_design(points, name=..., color=...): a second variant with a
+- ``load_design(points, name=..., color=...)``: a second variant with a
   custom label and colour instead of the default 'Existing' / blue.
 
 Estimated runtime: a few seconds.

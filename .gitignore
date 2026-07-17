@@ -1,50 +1,35 @@
-# Byte-compiled / optimised / DLL files
+# Byte-compiled files
 __pycache__/
 *.py[cod]
-*$py.class
 
 # Distribution / packaging
 build/
 dist/
 *.egg-info/
-*.egg
-.eggs/
-pip-wheel-metadata/
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
 
 # Testing / coverage
 .pytest_cache/
 .coverage
 .coverage.*
 htmlcov/
-.tox/
-.nox/
 coverage.xml
-*.cover
 
 # Local test file (root directory only)
 /test.py
 
-# Ruff / mypy caches
+# Ruff cache
 .ruff_cache/
-.mypy_cache/
 
 # Jupyter
 .ipynb_checkpoints/
+*.ipynb
 
 # Virtual environments
 .venv/
 venv/
-env/
-ENV/
 
-# VS Code — keep shared settings, exclude personal state
-.vscode/*
-!.vscode/settings.json
-!.vscode/extensions.json
+# VS Code (editor-specific; project configuration lives in pyproject.toml)
+.vscode/
 
 # OS files
 .DS_Store
@@ -54,14 +39,17 @@ Thumbs.db
 docs/_build/
 docs/jupyter_execute/
 docs/api/generated/
+docs/auto_examples/
+docs/sg_execution_times.rst
 
-# Mergen output artefacts
+# Mergen output artefacts. Runtime files always land in outputs/
+# (ignored below); the loose patterns are a second line of defence
+# for manually exported files.
 *.csv
 *.xlsx
 *.pdf
 *.png
 !docs/**/*.png
-!examples/**/*.png
 
-# Mergen runtime output directory
+# Mergen runtime output directory (repo root and examples/outputs alike)
 outputs/

@@ -1,6 +1,9 @@
 """
-02_parameter_types.py
-=====================
+Mixed parameter types and a constraint
+======================================
+
+Mix discrete, continuous, integer, nominal and ordinal factors under one constraint.
+
 A catalysis group is scoping a new packed-column reaction and needs
 a first screening design. The chemistry involves a continuous flow
 rate, a discrete temperature ladder set by the heater controller, an
@@ -29,24 +32,24 @@ Parameters
 
 What to look at
 ---------------
-- summary(): the "Candidates" count reflects the constraint (fewer
+- ``summary()``: the "Candidates" count reflects the constraint (fewer
   than the unconstrained Cartesian product); the design size and any
   automatic validation split are also reported here.
-- quality_report(): min_distance and max_absolute_correlation
+- ``quality_report()``: min_distance and max_absolute_correlation
   percentiles against the Monte Carlo baseline show that the mixed
   factor space is well covered despite the categorical columns.
-- plot('pairplot'): panels involving the nominal catalyst factor
+- ``plot('pairplot')``: panels involving the nominal catalyst factor
   should show all three levels visited; panels between numeric
   factors should look evenly spread.
 
 Mergen features used
 --------------------
-- ParameterSpace accepting all five factor types simultaneously.
+- ``ParameterSpace`` accepting all five factor types simultaneously.
 - Per-parameter resolution override via the options dictionary on
   the specification tuple.
 - add_constraint to filter the candidate pool by a feasibility
   predicate.
-- criteria='maxproqq', the default-safe choice when the space
+- criteria='``maxproqq``', the default-safe choice when the space
   contains any nominal factor.
 
 Estimated runtime: a few seconds.

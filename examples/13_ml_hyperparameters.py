@@ -1,6 +1,9 @@
 """
-13_ml_hyperparameters.py
-========================
+Machine-learning hyperparameters
+================================
+
+Cover a hyperparameter space with far fewer runs than the full grid would need.
+
 A hyperparameter design is built for training a model over four knobs:
 learning rate, batch size, optimiser, and weight decay. Instead of a
 full grid (which explodes combinatorially) or random search (which
@@ -23,20 +26,20 @@ Parameters
 
 What to look at
 ---------------
-- summary(): the space-filling configurations plus the always-included
+- ``summary()``: the space-filling configurations plus the always-included
   baseline set; note how few runs cover the space compared with a full
   grid (5 x 5 x 3 x 4 = 300 combinations).
 - The saved pairplot: even coverage across the numeric knobs, with all
   three optimisers visited; the baseline configuration appears in its
   own colour.
-- configs.json: the design as JSON, the natural format when each row is
+- ``configs.json``: the design as JSON, the natural format when each row is
   a configuration consumed directly by a training script.
 
 Mergen features used
 --------------------
 - Log-like discrete numeric factors alongside a nominal factor.
-- criteria='maxproqq' as the correct choice for the nominal optimiser.
-- Sampler.add_set(): pin a fixed baseline configuration that must
+- criteria='``maxproqq``' as the correct choice for the nominal optimiser.
+- ``Sampler.add_set()``: pin a fixed baseline configuration that must
   always be part of the design.
 - to_json export for configurations consumed by code.
 

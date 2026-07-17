@@ -1,7 +1,10 @@
 """
-05_choosing_algorithm.py
-========================
-A team has already settled on phi_p (maximin separation) as the right
+Choosing an optimisation algorithm
+==================================
+
+Run SA, SCE and ESE under a shared budget and weigh final score against elapsed time.
+
+A team has already settled on ``phi_p`` (maximin separation) as the right
 criterion for a mid-sized numeric design, but wants to know which of
 Mergen's three optimisers gets there fastest and best under a limited
 compute budget. Running the same criterion with multiple algorithms
@@ -16,27 +19,27 @@ Parameters
 
 What to look at
 ---------------
-- comparison_1.png (saved plot): a bar chart with one bar per
-  algorithm, the phi_p score on the y-axis (lower is better) and the
+- ``comparison_1.png`` (saved plot): a bar chart with one bar per
+  algorithm, the ``phi_p`` score on the y-axis (lower is better) and the
   elapsed time annotated above each bar; the best algorithm is
   highlighted. This is the direct answer to "which optimiser wins",
   unlike a pairplot, which only shows point coverage, not the
   optimisation outcome.
-- The printed summary(): confirms all three runs share the same
+- The printed ``summary()``: confirms all three runs share the same
   criterion, so their scores are directly comparable (unlike
   comparing different criteria, which requires percentile ranking).
-- distances_1.png (saved plot): for a maximin-style criterion, the
+- ``distances_1.png`` (saved plot): for a maximin-style criterion, the
   pairwise-distance distribution of the winning design, pushed away
   from zero, is the natural coverage check.
 
 Mergen features used
 --------------------
-- Sampler.run(algorithm=[...]): the same criterion optimised by every
+- ``Sampler.run(algorithm=[...])``: the same criterion optimised by every
   named algorithm in one call; the result carries algorithm_results
   and best_algorithm.
-- result.plot('comparison'): the dedicated bar chart for this
+- ``result.plot('comparison')``: the dedicated bar chart for this
   same-criterion, multi-algorithm case.
-- Sampler.set_optimizer(): called once per algorithm to fix a shared,
+- ``Sampler.set_optimizer()``: called once per algorithm to fix a shared,
   modest compute budget, so the comparison reflects a fixed cost
   rather than each optimiser's own (much heavier) defaults.
 

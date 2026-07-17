@@ -1,6 +1,9 @@
 """
-01_quickstart.py
-================
+Quickstart: a first design
+==========================
+
+Build a 30-run design for a thermal deposition study and read its quality evidence.
+
 A materials-science lab is preparing a thermal deposition study on a
 multilayer coating. Reactor time is limited, so the goal is to pick a
 small set of runs that jointly cover the operating envelope as evenly
@@ -18,20 +21,20 @@ Parameters
 
 What to look at
 ---------------
-- summary(): the "Optimised" and "Validation" counts confirm the
+- ``summary()``: the "Optimised" and "Validation" counts confirm the
   design was built and that a hold-out set was reserved automatically.
-- quality_report(): percentiles against the Monte Carlo baseline
+- ``quality_report()``: percentiles against the Monte Carlo baseline
   should be well above 90 for min_distance and near 0 for
   max_absolute_correlation; that pair is the primary evidence of a
   good space-filling design.
-- plot('pairplot'): every 2D projection should look evenly
+- ``plot('pairplot')``: every 2D projection should look evenly
   populated, with no clustered corners or empty bands.
 
 Mergen features used
 --------------------
-- ParameterSpace with three factor types (discrete, continuous,
+- ``ParameterSpace`` with three factor types (discrete, continuous,
   integer).
-- Sampler.set_design() and Sampler.run() at their defaults, so the
+- ``Sampler.set_design()`` and ``Sampler.run()`` at their defaults, so the
   example stays minimal and shows the shape of the workflow with no
   configuration to reason about.
 

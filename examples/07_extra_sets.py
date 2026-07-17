@@ -1,6 +1,9 @@
 """
-07_extra_sets.py
-================
+Extra sets: adding a test set
+=============================
+
+Add a hand-picked test set alongside the optimised design and the automatic validation split.
+
 A machine-learning surrogate workflow needs three disjoint sets of
 points drawn from one input space: a space-filling training design, an
 automatic validation set, and an external held-out test set whose
@@ -15,23 +18,23 @@ Parameters
 
 What to look at
 ---------------
-- summary(): three distinct groups are reported, 'Optimised' (the
+- ``summary()``: three distinct groups are reported, 'Optimised' (the
   training design), 'Validation' (the automatic hold-out) and 'test'
   (the user set); their counts should not overlap.
 - The saved pairplot: the training points, validation points and the
   user 'test' points appear in three different colours, with the test
   points sitting exactly where they were prescribed and never reused by
   the training design.
-- design.csv: all three groups in one file, distinguished by the
+- ``design.csv``: all three groups in one file, distinguished by the
   point_type column, ready to feed a training / validation / test split
   downstream.
 
 Mergen features used
 --------------------
-- Sampler.add_set('test', [...], color=...): attach an external,
+- ``Sampler.add_set('test', [...], color=...)``: attach an external,
   user-chosen point set with its own colour; its nodes are reserved so
   the optimiser cannot select them.
-- Sampler.set_design(n_validation=...): request the automatic
+- ``Sampler.set_design(n_validation=...)``: request the automatic
   validation hold-out alongside the training design.
 
 Estimated runtime: a few seconds to a minute.

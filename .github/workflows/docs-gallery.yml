@@ -1,0 +1,60 @@
+# Builds the executed example gallery and publishes it as a release
+# asset that ReadTheDocs downloads at the start of every docs build.
+# RTD then assembles the site without executing any example (the
+# sphinx-gallery MD5 cache recognises the pre-built pages), which
+# keeps its build well inside the Community time limit while every
+# page still shows the full output of its own code.
+#
+# This workflow is also the scientific guarantee that every example
+# runs against the current code (it replaces the earlier standalone
+# examples workflow): it executes all fifteen examples end to end and
+# aborts on the first failure. Triggers: manual, weekly, or any push
+# that touches the examples or the package source. Ordinary commits
+# (docs text, tests, metadata) never start it. On public
+# repositories, GitHub Actions minutes are free and unlimited for
+# standard runners.
+name: docs-gallery
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 1"   # Mondays 05:00 UTC
+  push:
+    branches: [main]
+    paths:
+      - "examples/**"
+      - "src/mergen/**"
+      - "pyproject.toml"
+
+permissions:
+  contents: write   # needed to upload the release asset
+
+jobs:
+  build-gallery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package with docs extras
+        run: pip install .[docs]
+
+      - name: Build documentation, executing all examples
+        run: sphinx-build -D abort_on_example_error=1 -b html docs docs/_build/html
+
+      - name: Pack the generated gallery
+        run: tar czf gallery.tar.gz -C docs auto_examples
+
+      - name: Publish as the docs-gallery release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view docs-gallery >/dev/null 2>&1 || \
+            gh release create docs-gallery --title "Docs gallery artifacts" \
+              --notes "Pre-built example gallery consumed by ReadTheDocs. Regenerated automatically when the examples or the package change." \
+              --latest=false
+          gh release upload docs-gallery gallery.tar.gz --clobber

@@ -1,6 +1,9 @@
 """
-06_sample_size.py
-=================
+How large should a design be?
+=============================
+
+Contrast a default-size and a doubled design of the same study to see what extra runs buy.
+
 The same four-factor study is planned two ways: once under a hard
 experimental budget that fixes the number of runs, and once at the
 default size Mergen recommends. Placing the two designs side by side
@@ -27,7 +30,7 @@ What to look at
   40-run design places points into those gaps. This difference in
   coverage, not a difference in percentile score, is what a larger
   budget buys.
-- quality_report() for both runs (printed): note that both designs
+- ``quality_report()`` for both runs (printed): note that both designs
   score well for their size. A high percentile confirms each design is
   well-spread relative to random designs of the same count; it does
   not mean 15 runs cover the space as fully as 40. Coverage and
@@ -36,12 +39,12 @@ What to look at
 
 Mergen features used
 --------------------
-- Sampler.set_design(n_samples=...): an explicit fixed budget in the
+- ``Sampler.set_design(n_samples=...)``: an explicit fixed budget in the
   first run, versus omitting n_samples in the second so the 10*d
   default applies.
 - Two independent designs from the same parameter space, compared on
   coverage (pairplots) and per-size quality (quality_report).
-- Sampler.set_optimizer(): a modest, shared compute budget so the two
+- ``Sampler.set_optimizer()``: a modest, shared compute budget so the two
   runs finish quickly for a demonstration.
 
 Estimated runtime: a minute or two (two designs).

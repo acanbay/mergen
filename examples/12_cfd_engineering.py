@@ -1,6 +1,9 @@
 """
-12_cfd_engineering.py
-=====================
+CFD: a sweep with a turbulence model
+====================================
+
+Design an aerofoil CFD campaign where ``compare()`` restricts itself to nominal-capable criteria.
+
 A CFD study sweeps an aerofoil across four control factors: angle of
 attack, inlet velocity, a geometry ratio, and the turbulence model
 (a nominal switch). Each CFD run is expensive, so a tight space-filling
@@ -9,7 +12,7 @@ flow observables (lift, drag, separation point) are computed downstream
 by the CFD solver, not by Mergen.
 
 Because the space contains a nominal factor (the turbulence model),
-compare() automatically restricts itself to the criteria that support
+``compare()`` automatically restricts itself to the criteria that support
 nominal factors, so the comparison stays valid.
 
 Parameters
@@ -25,18 +28,22 @@ Parameters
 
 What to look at
 ---------------
-- comparison_table.md (saved): the criteria compatible with this mixed
+- ``comparison.plot()`` (saved as ``comparison_matrix_1.png``): the
+  percentile-rank heat map of the sweep, restricted to the criteria
+  that support the nominal turbulence factor; the winning row is
+  starred.
+- ``comparison_table.md`` (saved): the criteria compatible with this mixed
   space, ranked by percentile against a shared Monte Carlo baseline;
   the winning row is flagged.
-- best_result.quality_report() (printed): the winning design's quality.
+- ``best_result.quality_report()`` (printed): the winning design's quality.
 - The saved pairplot: even coverage across the numeric factors, with
   all three turbulence-model levels visited.
-- cfd_runs.csv: the run list handed to the CFD solver.
+- ``cfd_runs.csv``: the run list handed to the CFD solver.
 
 Mergen features used
 --------------------
 - A nominal factor in a mostly numeric space.
-- Sampler.compare(): on a mixed space, criteria=None auto-selects the
+- ``Sampler.compare()``: on a mixed space, criteria=None auto-selects the
   nominal-supporting criteria, so the comparison is valid. Each
   combination is optimised n_repeats times (default 5) from
   reproducible seeds and ranked on the mean metric percentile via a
@@ -44,7 +51,7 @@ Mergen features used
 - ComparisonResult.best_result and its saved table.
 
 Estimated runtime: a few minutes on one core. On a multi-core machine
-pass n_jobs=-1 to compare() to run the repeats in parallel (same
+pass n_jobs=-1 to ``compare()`` to run the repeats in parallel (same
 result, faster); leave it at the default to stay single-core.
 """
 from mergen import ParameterSpace, Sampler
@@ -68,6 +75,7 @@ comparison = sampler.compare(
 
 # 3. Save the ranking table.
 comparison.to_markdown('comparison_table.md')
+comparison.plot(save=True)
 
 # 4. Inspect and save the winning design.
 best = comparison.best_result

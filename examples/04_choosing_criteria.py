@@ -1,6 +1,9 @@
 """
-04_choosing_criteria.py
-=======================
+Comparing optimisation criteria
+===============================
+
+Sweep five criteria against a shared Monte Carlo baseline and rank them by percentile.
+
 A modelling team is designing a purely numeric 3-factor computer
 experiment whose output will feed a Gaussian-process surrogate. Rather
 than picking a space-filling criterion by habit, they let Mergen
@@ -19,7 +22,11 @@ Parameters
 
 What to look at
 ---------------
-- comparison_table.md (saved to disk): columns are percentile ranks
+- ``comparison.plot()`` (saved as ``comparison_matrix_1.png``): the
+  percentile-rank heat map itself, one row per criterion and
+  algorithm combination with the winning row starred; this is the
+  comparison at a glance.
+- ``comparison_table.md`` (saved to disk): columns are percentile ranks
   against a single shared Monte Carlo baseline, not raw criterion
   scores. Raw scores from different criteria are not comparable on
   their own scale, so ranking by percentile is the only sound way to
@@ -38,12 +45,12 @@ What to look at
 - The saved quality plot: each metric's percentile against the Monte
   Carlo baseline shown as a bar, so the winner's quality is legible at
   a glance rather than read off a table.
-- winner_design.csv: the winning benchmark rows, ready for the
+- ``winner_design.csv``: the winning benchmark rows, ready for the
   downstream modelling step.
 
 Mergen features used
 --------------------
-- Sampler.compare(criteria=None, ...): criteria=None resolves to
+- ``Sampler.compare(criteria=None, ...)``: criteria=None resolves to
   every criterion compatible with the space; since this space has no
   nominal factor, the QQ-family criteria are automatically excluded.
   Each combination is optimised n_repeats times (default 5) from
@@ -52,12 +59,12 @@ Mergen features used
   winner is chosen by a Pareto/Utopia rule over the priority metrics.
 - ComparisonResult: .table, .best, .best_result.
 - comparison.table saved to outputs/comparison_table.md; the winning
-  design saved as a pairplot (PNG) and a CSV. quality_report() stays
+  design saved as a pairplot (PNG) and a CSV. ``quality_report()`` stays
   in the terminal.
 
 Estimated runtime: a few minutes on one core (five criteria x five
 repeats). On a multi-core machine, pass n_jobs=-1 (or a small number
-like n_jobs=4) to compare() to run the repeats in parallel; the result
+like n_jobs=4) to ``compare()`` to run the repeats in parallel; the result
 is identical, only faster. Leave n_jobs at its default to stay on a
 single core.
 """
@@ -87,6 +94,7 @@ comparison = sampler.compare(
 #    how much on each quality metric. to_markdown() writes under the
 #    output directory, creating it if needed.
 comparison.to_markdown('comparison_table.md')
+comparison.plot(save=True)
 
 # 4. Inspect and save the winning design.
 best = comparison.best_result

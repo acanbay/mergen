@@ -1,6 +1,9 @@
 """
-11_wetlab_biology.py
-====================
+Wet-lab: an assay with a nominal factor
+=======================================
+
+Design an enzyme-activity assay whose buffer type is nominal, scored with the QQ-aware ``maxproqq``.
+
 An enzyme-activity assay is being optimised in a wet lab across four
 factors: pH, incubation temperature, buffer type, and substrate
 concentration. Buffer type is a nominal (unordered categorical) factor,
@@ -9,7 +12,7 @@ is reserved so the fitted response can be checked on unseen conditions.
 
 Because the space contains a nominal factor, the design is scored with
 maxproqq. A QQ-type criterion handles the mix of numeric and
-categorical factors correctly; a purely numeric criterion (phi_p,
+categorical factors correctly; a purely numeric criterion (``phi_p``,
 MaxPro, ...) would treat the buffer labels as if they had a numeric
 distance, which is meaningless for unordered categories and would
 distort the design.
@@ -27,20 +30,20 @@ Parameters
 
 What to look at
 ---------------
-- summary() and quality_report(): the design covers the mixed factor
-  space; the percentiles remain meaningful because maxproqq scores the
+- ``summary()`` and ``quality_report()``: the design covers the mixed factor
+  space; the percentiles remain meaningful because ``maxproqq`` scores the
   numeric and nominal factors appropriately.
 - The saved pairplot: the buffer panels should show all three levels
   visited, and the numeric factors should be evenly spread.
-- enzyme_design.csv: the run list for the bench.
+- ``enzyme_design.csv``: the run list for the bench.
 
 Mergen features used
 --------------------
 - A nominal factor alongside continuous / discrete / integer factors.
 - Per-parameter rounding on the continuous pH axis.
-- criteria='maxproqq' as the correct choice for a space containing a
+- criteria='``maxproqq``' as the correct choice for a space containing a
   nominal factor.
-- A validation hold-out via set_design(n_validation=...).
+- A validation hold-out via ``set_design(n_validation=...)``.
 
 Estimated runtime: a few seconds to a minute.
 """

@@ -1,6 +1,9 @@
 """
-09_sequential_workflow.py
-=========================
+A staged, sequential campaign
+=============================
+
+Extend, reorder and subsample a base design as an experimental campaign grows in stages.
+
 An experimental campaign that unfolds in stages: an initial design is
 run, results come back, and the design is then grown and reorganised
 for the next batch. This example walks through Mergen's sequential
@@ -20,7 +23,7 @@ What to look at
 - The two saved pairplots (base and extended): the extended design
   keeps the original points and fills the remaining gaps, rather than
   starting over.
-- ordered_design.csv: the final design with an added run_order column,
+- ``ordered_design.csv``: the final design with an added run_order column,
   ready as an execution list for the next batch.
 
 Mergen features used
