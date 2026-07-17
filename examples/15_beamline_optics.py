@@ -13,7 +13,7 @@ separation between configurations — the natural objective when each
 setting is costly and near-duplicate settings would waste beam time.
 
 Parameters (stepped grids, in engineering units)
-----------
+------------------------------------------------
 - quad1_current, quad2_current, quad3_current (50-150 A, 10 A steps):
   the focusing-magnet currents, at the resolution the supplies are set.
 - collimator1_aperture, collimator2_aperture (2-20 mm, 2 mm steps):

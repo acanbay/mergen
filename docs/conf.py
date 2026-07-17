@@ -12,8 +12,6 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
-from sphinx_gallery.sorting import FileNameSortKey
-
 # ── Project information ─────────────────────────────────────────────
 project = "Mergen"
 author = "Ali Can Canbay"
@@ -22,7 +20,7 @@ copyright = "2026, Ali Can Canbay"  # noqa: A001 (Sphinx convention)
 try:
     release = _pkg_version("mergen-doe")
 except PackageNotFoundError:  # e.g. docs linting without the package
-    release = "0.1.0"
+    release = "0.0.0"
 version = ".".join(release.split(".")[:2])
 
 # ── General configuration ───────────────────────────────────────────
@@ -39,7 +37,14 @@ extensions = [
 ]
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "jupyter_execute"]
+exclude_patterns = [
+    "_build", "Thumbs.db", ".DS_Store", "jupyter_execute",
+    # sphinx-gallery writes .rst pages next to generated .ipynb/.py
+    # download artefacts; only the .rst is a Sphinx source. Excluding
+    # the artefacts prevents "multiple files found" source clashes.
+    "auto_examples/*.ipynb",
+    "auto_examples/*.py",
+]
 
 # ── MyST / myst-nb ──────────────────────────────────────────────────
 myst_enable_extensions = [
@@ -60,7 +65,7 @@ sphinx_gallery_conf = {
     # heavy studies (04, 05, 12, 14) are rendered without execution
     # and the full set is exercised weekly in CI.
     "filename_pattern": r"/(0[1236789]|1[0135])_",
-    "within_subsection_order": FileNameSortKey,
+    "within_subsection_order": "FileNameSortKey",
     "download_all_examples": False,
 }
 
