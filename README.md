@@ -119,6 +119,12 @@ Fifteen complete, runnable studies from different domains live in
 [`examples/`](examples/), from a five-line quickstart to CFD,
 wet-lab and particle-physics campaigns.
 
+## Roadmap
+
+Planned work for the next releases is listed in
+[`ROADMAP.md`](ROADMAP.md); suggestions are welcome in the
+[issue tracker](https://github.com/acanbay/mergen/issues).
+
 ## Citing
 
 If you use Mergen in academic work, please cite it using the
