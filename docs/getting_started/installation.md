@@ -15,9 +15,29 @@ pip install "mergen-doe[excel]"
 ```
 
 `excel` is the only extra meant for installed packages; the `dev`
-and `docs` extras belong to a source checkout (next tab), since the
+and `docs` extras belong to a source checkout (source tab), since the
 tests and the documentation sources ship with the repository rather
 than the package.
+
+:::
+
+:::{tab-item} conda
+
+```bash
+conda install -c conda-forge mergen-doe
+```
+
+The conda-forge package installs the core dependencies automatically.
+Excel export support requires `openpyxl`, which can be installed from
+conda-forge as well:
+
+```bash
+conda install -c conda-forge mergen-doe openpyxl
+```
+
+The `dev` and `docs` extras are not part of the conda-forge package;
+they are only needed to work on Mergen itself, from a source checkout
+(source tab).
 
 :::
 
