@@ -81,7 +81,7 @@ docs = [
 [project.urls]
 Homepage      = "https://github.com/acanbay/mergen"
 Issues        = "https://github.com/acanbay/mergen/issues"
-# Documentation = "https://mergen.readthedocs.io"   # ReadTheDocs hazır olunca aç
+Documentation = "https://mergen.readthedocs.io"
 
 [tool.hatch.version]
 path = "src/mergen/__init__.py"
