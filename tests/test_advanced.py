@@ -103,25 +103,30 @@ class TestValidationSet:
 # Sequential nested
 # ─────────────────────────────────────────────────────────────────────
 class TestNested:
-    def test_nested_returns_two_frames(self, num_space):
+    @pytest.fixture
+    def sampler(self, num_space):
+        """Fresh Sampler for each test."""
         s = mergen.Sampler(num_space)
         s.set_design(n_samples=12, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=300)
-        outer, inner = mergen.sequential.nested(
-            s, n_outer=8, n_inner=4,
-            criteria='cd2', algorithm='sa', seed=1, verbose=False,
+        return s
+
+    @staticmethod
+    def _run(s, **kw):
+        kw.setdefault('n_outer', 8)
+        kw.setdefault('n_inner', 4)
+        kw.setdefault('seed', 1)
+        return mergen.sequential.nested(
+            s, criteria='cd2', algorithm='sa', verbose=False, **kw,
         )
+
+    def test_nested_returns_two_frames(self, sampler):
+        outer, inner = self._run(sampler)
         assert len(outer) == 8
         assert len(inner) == 4
 
-    def test_nested_inner_subset_of_outer(self, num_space):
-        s = mergen.Sampler(num_space)
-        s.set_design(n_samples=12, n_validation=0)
-        s.set_optimizer('sa', n_restarts=1, max_iter=300)
-        outer, inner = mergen.sequential.nested(
-            s, n_outer=8, n_inner=4,
-            criteria='cd2', algorithm='sa', seed=1, verbose=False,
-        )
+    def test_nested_inner_subset_of_outer(self, sampler):
+        outer, inner = self._run(sampler)
         # Every inner point must appear in outer (nested design property)
         outer_pts = outer[['x', 'y']].values
         inner_pts = inner[['x', 'y']].values
