@@ -133,6 +133,31 @@ class TestNested:
         for ip in inner_pts:
             assert np.min(np.linalg.norm(outer_pts - ip, axis=1)) < 1e-9
 
+    def test_in_inner_flag_is_consistent(self, sampler):
+        outer, inner = self._run(sampler)
+        assert 'in_inner' in outer.columns
+        assert outer['in_inner'].sum() == len(inner)
+        assert inner['in_inner'].all()
+
+    def test_sampler_state_is_restored(self, sampler):
+        """nested() must leave the design spec exactly as it found it."""
+        # Both values must differ from what nested() sets internally
+        # (n_samples=n_outer, n_validation=0), otherwise the assertion
+        # would hold even if restoration were removed.
+        sampler.set_design(n_samples=12, n_validation=3)
+        before = (sampler._n_samples, sampler._n_validation)
+        self._run(sampler, n_outer=10)
+        assert (sampler._n_samples, sampler._n_validation) == before
+
+    @pytest.mark.parametrize('n_outer, n_inner, msg', [
+        (10, 0,  'n_inner must be'),
+        (10, 10, 'must be strictly greater'),
+        (4,  6,  'must be strictly greater'),
+    ])
+    def test_rejects_invalid_sizes(self, sampler, n_outer, n_inner, msg):
+        with pytest.raises(ValueError, match=msg):
+            self._run(sampler, n_outer=n_outer, n_inner=n_inner)
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Edge cases
