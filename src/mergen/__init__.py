@@ -55,11 +55,11 @@ __authors__ = [
 
 # ── URLs ──────────────────────────────────────────────────────────────────
 __github__ = "https://github.com/acanbay/mergen"
-__docs__   = None   # ReadTheDocs URL — add when available
+__docs__   = "https://mergen.readthedocs.io"
 
 # ── DOI ───────────────────────────────────────────────────────────────────
 __doi__ = {
-    "software": None,    # Zenodo DOI — add after first release
+    "software": "10.5281/zenodo.21420074",
     "papers"  : [],      # JOSS and other publications
 }
 

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Documentation URL and Zenodo software DOI in the package metadata,
+  so `mergen.info()` prints both and `[project.urls]` carries a
+  documentation link for PyPI.
+
 ## [0.1.0] - 2026-07-18
 
 Initial release.
