@@ -103,30 +103,60 @@ class TestValidationSet:
 # Sequential nested
 # ─────────────────────────────────────────────────────────────────────
 class TestNested:
-    def test_nested_returns_two_frames(self, num_space):
+    @pytest.fixture
+    def sampler(self, num_space):
+        """Fresh Sampler for each test."""
         s = mergen.Sampler(num_space)
         s.set_design(n_samples=12, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=300)
-        outer, inner = mergen.sequential.nested(
-            s, n_outer=8, n_inner=4,
-            criteria='cd2', algorithm='sa', seed=1, verbose=False,
+        return s
+
+    @staticmethod
+    def _run(s, **kw):
+        kw.setdefault('n_outer', 8)
+        kw.setdefault('n_inner', 4)
+        kw.setdefault('seed', 1)
+        return mergen.sequential.nested(
+            s, criteria='cd2', algorithm='sa', verbose=False, **kw,
         )
+
+    def test_nested_returns_two_frames(self, sampler):
+        outer, inner = self._run(sampler)
         assert len(outer) == 8
         assert len(inner) == 4
 
-    def test_nested_inner_subset_of_outer(self, num_space):
-        s = mergen.Sampler(num_space)
-        s.set_design(n_samples=12, n_validation=0)
-        s.set_optimizer('sa', n_restarts=1, max_iter=300)
-        outer, inner = mergen.sequential.nested(
-            s, n_outer=8, n_inner=4,
-            criteria='cd2', algorithm='sa', seed=1, verbose=False,
-        )
+    def test_nested_inner_subset_of_outer(self, sampler):
+        outer, inner = self._run(sampler)
         # Every inner point must appear in outer (nested design property)
         outer_pts = outer[['x', 'y']].values
         inner_pts = inner[['x', 'y']].values
         for ip in inner_pts:
             assert np.min(np.linalg.norm(outer_pts - ip, axis=1)) < 1e-9
+
+    def test_in_inner_flag_is_consistent(self, sampler):
+        outer, inner = self._run(sampler)
+        assert 'in_inner' in outer.columns
+        assert outer['in_inner'].sum() == len(inner)
+        assert inner['in_inner'].all()
+
+    def test_sampler_state_is_restored(self, sampler):
+        """nested() must leave the design spec exactly as it found it."""
+        # Both values must differ from what nested() sets internally
+        # (n_samples=n_outer, n_validation=0), otherwise the assertion
+        # would hold even if restoration were removed.
+        sampler.set_design(n_samples=12, n_validation=3)
+        before = (sampler._n_samples, sampler._n_validation)
+        self._run(sampler, n_outer=10)
+        assert (sampler._n_samples, sampler._n_validation) == before
+
+    @pytest.mark.parametrize('n_outer, n_inner, msg', [
+        (10, 0,  'n_inner must be'),
+        (10, 10, 'must be strictly greater'),
+        (4,  6,  'must be strictly greater'),
+    ])
+    def test_rejects_invalid_sizes(self, sampler, n_outer, n_inner, msg):
+        with pytest.raises(ValueError, match=msg):
+            self._run(sampler, n_outer=n_outer, n_inner=n_inner)
 
 
 # ─────────────────────────────────────────────────────────────────────
