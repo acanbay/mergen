@@ -1,0 +1,413 @@
+{
+ "ParameterSpace": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "mergen.space",
+   "module_short": "mergen",
+   "name": "ParameterSpace"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "ParameterSpace"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "ParameterSpace"
+  }
+ ],
+ "Sampler": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "Sampler"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "Sampler"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "Sampler"
+  }
+ ],
+ "base": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "SamplingResult"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "SamplingResult"
+  }
+ ],
+ "base.best_design": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "SamplingResult.best_design"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "SamplingResult.best_design"
+  }
+ ],
+ "base.plot": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "SamplingResult.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "SamplingResult.plot"
+  }
+ ],
+ "extended": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "SamplingResult"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "SamplingResult"
+  }
+ ],
+ "extended.best_design": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "SamplingResult.best_design"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "SamplingResult.best_design"
+  }
+ ],
+ "extended.plot": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "SamplingResult.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "SamplingResult.plot"
+  }
+ ],
+ "folds": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "list"
+  }
+ ],
+ "ordered": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas",
+   "module_short": "pandas",
+   "name": "DataFrame"
+  }
+ ],
+ "ordered.to_csv": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas",
+   "module_short": "pandas",
+   "name": "DataFrame.to_csv"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas.core.generic",
+   "module_short": "pandas.core.generic",
+   "name": "NDFrame.to_csv"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas.core",
+   "module_short": "pandas.core",
+   "name": "NDFrame.to_csv"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas",
+   "module_short": "pandas",
+   "name": "NDFrame.to_csv"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas.core.arraylike",
+   "module_short": "pandas.core.arraylike",
+   "name": "OpsMixin.to_csv"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas.core",
+   "module_short": "pandas.core",
+   "name": "OpsMixin.to_csv"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas",
+   "module_short": "pandas",
+   "name": "OpsMixin.to_csv"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas.core.base",
+   "module_short": "pandas.core.base",
+   "name": "PandasObject.to_csv"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas.core",
+   "module_short": "pandas.core",
+   "name": "PandasObject.to_csv"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas",
+   "module_short": "pandas",
+   "name": "PandasObject.to_csv"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas.core.indexing",
+   "module_short": "pandas.core.indexing",
+   "name": "IndexingMixin.to_csv"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas.core",
+   "module_short": "pandas.core",
+   "name": "IndexingMixin.to_csv"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas",
+   "module_short": "pandas",
+   "name": "IndexingMixin.to_csv"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas.core.accessor",
+   "module_short": "pandas.core.accessor",
+   "name": "DirNamesMixin.to_csv"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas.core",
+   "module_short": "pandas.core",
+   "name": "DirNamesMixin.to_csv"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas",
+   "module_short": "pandas",
+   "name": "DirNamesMixin.to_csv"
+  }
+ ],
+ "pilot": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "pandas",
+   "module_short": "pandas",
+   "name": "DataFrame"
+  }
+ ],
+ "sampler": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "Sampler"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "Sampler"
+  }
+ ],
+ "sampler.run": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "Sampler.run"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "Sampler.run"
+  }
+ ],
+ "sampler.set_design": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "Sampler.set_design"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "Sampler.set_design"
+  }
+ ],
+ "sequential.extend": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sequential",
+   "module_short": "mergen.sequential",
+   "name": "extend"
+  }
+ ],
+ "sequential.k_fold_split": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sequential",
+   "module_short": "mergen.sequential",
+   "name": "k_fold_split"
+  }
+ ],
+ "sequential.run_order": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sequential",
+   "module_short": "mergen.sequential",
+   "name": "run_order"
+  }
+ ],
+ "sequential.subsample": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sequential",
+   "module_short": "mergen.sequential",
+   "name": "subsample"
+  }
+ ],
+ "space": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.space",
+   "module_short": "mergen",
+   "name": "ParameterSpace"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "ParameterSpace"
+  }
+ ]
+}
