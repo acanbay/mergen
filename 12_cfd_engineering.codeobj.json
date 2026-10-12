@@ -1,0 +1,256 @@
+{
+ "ParameterSpace": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "mergen.space",
+   "module_short": "mergen",
+   "name": "ParameterSpace"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "ParameterSpace"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "ParameterSpace"
+  }
+ ],
+ "Sampler": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "Sampler"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "Sampler"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "Sampler"
+  }
+ ],
+ "best": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "SamplingResult"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "SamplingResult"
+  }
+ ],
+ "best.plot": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "SamplingResult.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "SamplingResult.plot"
+  }
+ ],
+ "best.quality_report": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "SamplingResult.quality_report"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "SamplingResult.quality_report"
+  }
+ ],
+ "best.to_csv": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "SamplingResult.to_csv"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "SamplingResult.to_csv"
+  }
+ ],
+ "comparison": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "ComparisonResult"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "ComparisonResult"
+  }
+ ],
+ "comparison.best_result": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "ComparisonResult.best_result"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "ComparisonResult.best_result"
+  }
+ ],
+ "comparison.plot": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "ComparisonResult.plot"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "ComparisonResult.plot"
+  }
+ ],
+ "comparison.to_markdown": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "ComparisonResult.to_markdown"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "ComparisonResult.to_markdown"
+  }
+ ],
+ "sampler": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "Sampler"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "Sampler"
+  }
+ ],
+ "sampler.compare": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "Sampler.compare"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "Sampler.compare"
+  }
+ ],
+ "sampler.set_design": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "Sampler.set_design"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "Sampler.set_design"
+  }
+ ],
+ "sampler.set_optimizer": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.sampler",
+   "module_short": "mergen",
+   "name": "Sampler.set_optimizer"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "Sampler.set_optimizer"
+  }
+ ],
+ "space": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen.space",
+   "module_short": "mergen",
+   "name": "ParameterSpace"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "mergen",
+   "module_short": "mergen",
+   "name": "ParameterSpace"
+  }
+ ]
+}
