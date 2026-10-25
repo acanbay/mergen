@@ -663,12 +663,10 @@ class TestNominalStringEncoding:
 
 
 class TestParetoUtopiaRanking:
-    """compare() selects the best design by Pareto/Utopia, not by a
-    single dominant metric."""
+    """compare(selection='pareto') selects on raw metric values: the
+    winner is Pareto-optimal and closest to the Utopia point."""
 
     def test_balanced_beats_lopsided(self, capsys):
-        # Build a comparison, then verify the chosen 'best' is Pareto
-        # optimal and closest to the Utopia point on the priority axes.
         import numpy as np
         space = mergen.ParameterSpace({
             'x': list(range(1, 11)),
@@ -680,37 +678,32 @@ class TestParetoUtopiaRanking:
         s.set_optimizer('sce', n_restarts=2, max_iter=200)
         prio = ('min_distance', 'max_abs_correlation')
         cmp = s.compare(criteria=['cd2', 'maxpro', 'phi_p'],
-                        algorithms=['sa', 'sce'],
-                        priority=prio, mc_samples=60, verbose=False)
+                        algorithms=['sa', 'sce'], priority=prio,
+                        selection='pareto', mc_samples=60, verbose=False)
         capsys.readouterr()
 
-        t = cmp.table
-        pts = t[list(prio)].to_numpy(dtype=float)
-        best_row = t[t['best'].str.strip() == '*'].iloc[0]
-        best_vec = best_row[list(prio)].to_numpy(dtype=float)
+        # Oriented so that lower is better on both axes.
+        pts = cmp.metrics[list(prio)].to_numpy(dtype=float) * [-1.0, 1.0]
+        keys = list(zip(cmp.metrics.criterion, cmp.metrics.algorithm))
+
+        def dominated(i):
+            return any(np.all(pts[j] <= pts[i]) and np.any(pts[j] < pts[i])
+                       for j in range(len(pts)) if j != i)
 
         # 1. The winner must be Pareto-optimal (not dominated by anyone).
-        dominated = any(
-            np.all(p >= best_vec) and np.any(p > best_vec)
-            for p in pts if not np.array_equal(p, best_vec))
-        assert not dominated
+        assert not dominated(keys.index(cmp.best))
 
-        # 2. Among Pareto-optimal designs, the winner is closest to Utopia.
-        utopia = np.full(len(prio), 100.0)
-
-        def is_pareto(i):
-            return not any(
-                np.all(pts[j] >= pts[i]) and np.any(pts[j] > pts[i])
-                for j in range(len(pts)) if j != i)
-
-        pareto_d = [float(np.linalg.norm(utopia - pts[i]))
-                    for i in range(len(pts)) if is_pareto(i)]
-        best_d = float(np.linalg.norm(utopia - best_vec))
-        assert abs(best_d - min(pareto_d)) < 1e-9
+        # 2. Among Pareto-optimal designs, the winner is closest to
+        #    Utopia after min-max scaling over all designs.
+        lo, span = pts.min(axis=0), np.ptp(pts, axis=0)
+        span = np.where(span > 1e-9, span, np.inf)
+        dist = np.linalg.norm((pts - lo) / span, axis=1)
+        front_d = [dist[i] for i in range(len(pts)) if not dominated(i)]
+        assert abs(dist[keys.index(cmp.best)] - min(front_d)) < 1e-9
 
 
 class TestCompareRepeatsAndParallel:
-    """n_repeats averaging is reproducible and n_jobs does not change it."""
+    """n_repeats is reproducible and n_jobs does not change the result."""
 
     @pytest.fixture
     def sampler_numeric(self):

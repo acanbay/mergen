@@ -82,6 +82,7 @@ from .sampler    import (
 )
 from . import sequential
 from . import distances
+from . import selection
 
 __all__ = [
     "ParameterSpace",
@@ -99,6 +100,7 @@ __all__ = [
     "ExclusionPoint",
     "sequential",
     "distances",
+    "selection",
 ]
 
 

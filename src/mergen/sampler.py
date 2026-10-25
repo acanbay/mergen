@@ -80,6 +80,8 @@ Kennard, R. W. & Stone, L. A. (1969).
 
 from __future__ import annotations
 
+import numbers
+from collections.abc import Mapping
 import os
 import random
 import time
@@ -170,7 +172,74 @@ def _resolve_n_jobs(n_jobs: Optional[int]) -> int:
     return cpu + 1 + n_jobs
 
 
-def _select_repeat(reps, priority, space):
+def _normalised(design, space) -> np.ndarray:
+    """Design in the [0, 1] coordinates the quality metrics expect."""
+    granges = space.granges
+    return ((np.asarray(design, dtype=float) - space.gmins)
+            / np.where(granges > 1e-12, granges, 1.0))
+
+
+def _check_priority(priority, allow_none: bool):
+    """
+    Validate a ``priority`` argument and return it as a tuple of metric
+    names (or None when allowed). A single name may be given as a string.
+    """
+    from . import metrics as _m
+    if priority is None:
+        if allow_none:
+            return None
+        _fatal("priority must name at least one metric.")
+    if isinstance(priority, str):
+        priority = (priority,)
+    priority = tuple(priority)
+    if not priority:
+        _fatal("priority must name at least one metric; got an empty "
+               "tuple.")
+    for m in priority:
+        if m not in _m._METRIC_FN:
+            _fatal(f"Unknown priority metric {m!r}. "
+                   f"Available: {sorted(_m._METRIC_FN)}")
+    dupes = sorted({m for m in priority if priority.count(m) > 1})
+    if dupes:
+        _fatal(f"priority lists {dupes} more than once; each metric may "
+               f"appear only once.")
+    return priority
+
+
+def _check_selection(selection, priority, tol, rtol):
+    """Validate the selection rule and expand the tolerances."""
+    from .selection import SELECTION_RULES, resolve_tolerance
+    if selection not in SELECTION_RULES:
+        _fatal(f"Unknown selection rule {selection!r}. "
+               f"Available: {list(SELECTION_RULES)}")
+    if not priority:
+        def is_num(v):
+            return isinstance(v, numbers.Real) and not isinstance(
+                v, (bool, np.bool_))
+        default = (is_num(tol) and tol == 1e-9
+                   and is_num(rtol) and rtol == 0)
+        if selection != 'lexicographic' or not default:
+            _warn("selection, tol and rtol apply only when a priority is "
+                  "given; they are ignored here.")
+        return np.full(0, 1e-9), np.zeros(0)
+    names = priority
+    try:
+        return (resolve_tolerance(tol, names, 'tol'),
+                resolve_tolerance(rtol, names, 'rtol'))
+    except ValueError as exc:
+        _fatal(str(exc))
+
+
+def _priority_values(design, priority, space) -> np.ndarray:
+    """Raw values of the priority metrics for one design."""
+    from . import metrics as _m
+    Xn = _normalised(design, space)
+    return np.array([_m._compute_metric(m, Xn, space=space)
+                     for m in priority], dtype=float)
+
+
+def _select_repeat(reps, priority, space, selection='lexicographic',
+                   tol=None, rtol=None):
     """
     Pick the representative repeat from a list of OptimisationResults.
 
@@ -178,17 +247,15 @@ def _select_repeat(reps, priority, space):
     score wins (ties: first in spawn order) — the classic best-of-k
     restarts rule.
 
-    With a ``priority`` tuple of metric names, the repeat whose design
-    is closest to the Utopia point of those metrics wins (Lu,
-    Anderson-Cook & Robinson 2011). The optimiser minimises a smooth
-    proxy criterion, but near-optimal proxy scores can correspond to
-    designs with very different coverage properties; selecting the final
-    design by the *true* objectives (optimise-by-proxy,
-    select-by-objective) makes the delivered design stable under
-    incidental setting changes such as n_restarts. Raw metric values are
-    min-max normalised across the repeats (no Monte Carlo baseline
-    needed), each oriented so 1 is best; ties break on the lower
-    criterion score, then on spawn order. Deterministic throughout.
+    With a ``priority`` tuple of metric names, the repeat is chosen on
+    the raw values of those metrics by the ``selection`` rule (see
+    :mod:`mergen.selection`). The optimiser minimises a smooth proxy
+    criterion, but near-optimal proxy scores can correspond to designs
+    with very different coverage properties; selecting the final design
+    by the *true* objectives (optimise-by-proxy, select-by-objective)
+    makes the delivered design stable under incidental setting changes
+    such as n_restarts. Ties break on the lower criterion score, then on
+    spawn order. Deterministic throughout.
     """
     if len(reps) == 1:
         return reps[0]
@@ -199,22 +266,18 @@ def _select_repeat(reps, priority, space):
                 best = r
         return best
     from . import metrics as _m
-    import numpy as np
-    gmins, granges = space.gmins, space.granges
-    denom = np.where(granges > 1e-12, granges, 1.0)
-    vals = np.empty((len(reps), len(priority)), dtype=float)
-    for i, r in enumerate(reps):
-        Xn = (np.asarray(r.design, dtype=float) - gmins) / denom
-        for j, m in enumerate(priority):
-            v = float(_m._compute_metric(m, Xn, space=space))
-            vals[i, j] = v if m in _m._HIGHER_BETTER else -v
-    lo, hi = vals.min(axis=0), vals.max(axis=0)
-    span = np.where((hi - lo) > 1e-15, hi - lo, 1.0)
-    norm = (vals - lo) / span                     # 1 = best per metric
-    dist = np.linalg.norm(1.0 - norm, axis=1)     # Utopia distance
-    order = sorted(range(len(reps)),
-                   key=lambda i: (dist[i], reps[i].score, i))
-    return reps[order[0]]
+    from .selection import select
+    vals = np.array([_priority_values(r.design, priority, space)
+                     for r in reps])
+    sel = select(vals, [m in _m._HIGHER_BETTER for m in priority],
+                 rule=selection, tol=tol, rtol=rtol,
+                 tiebreak=[r.score for r in reps])
+    return reps[sel.winner]
+
+
+# Metrics tabulated by compare(), in table order.
+_COMPARE_METRICS = ('min_distance', 'minimax', 'max_abs_correlation',
+                    'projection_cd2', 'cv_distances', 'mean_distance')
 
 
 def _compare_one_job(sampler, cr, alg, seed, n_repeats):
@@ -223,8 +286,7 @@ def _compare_one_job(sampler, cr, alg, seed, n_repeats):
     the public :meth:`Sampler.run`, so the two entry points share a
     single optimisation path and a single seed derivation. Returns the
     combination identity together with the list of repeat results (in
-    spawn order), from which compare() averages the metrics and keeps the
-    best repeat as the representative design.
+    spawn order), from which compare() picks the representative repeat.
 
     Top-level (module-scope) function so joblib's pickling-based
     ``multiprocessing`` backend can serialise the task; the ``Sampler``
@@ -452,7 +514,8 @@ class SamplingResult:
         # Values: OptimisationResult instance (algorithms/base.py).
         self.algorithm_results: Dict[str, Any] = {}
         # The algorithm whose design is exposed as ``self.samples`` (the
-        # lowest-scoring one when multiple were run).
+        # lowest-scoring one when multiple were run, or the one chosen
+        # on the priority metrics when a priority was given).
         self.best_algorithm: Optional[str] = None
         self.output_dir     = "outputs"
         self._meta: dict    = {}
@@ -641,42 +704,146 @@ class ComparisonResult:
     Attributes
     ----------
     table : pandas.DataFrame
-        One row per (criterion, algorithm) combination, sorted by the
-        priority metrics; columns hold percentile ranks (0-100, higher
-        is better) against the shared Monte Carlo baseline. The winner
+        One row per (criterion, algorithm) combination, in the order the
+        criteria and algorithms were listed. The metric columns hold
+        percentile ranks (0-100, higher is better) against the shared
+        Monte Carlo baseline; they describe how each design compares
+        with random designs and are not used for selection. The winner
         is flagged in the ``best`` column.
+    metrics : pandas.DataFrame
+        The raw metric values of each combination's representative
+        design (normalised coordinates), on which the selection is made.
     results : dict
-        Maps ``(criterion, algorithm)`` to the full
-        :class:`SamplingResult`, so any candidate design can be
-        inspected or exported, not only the winner.
+        Maps ``(criterion, algorithm)`` to the representative
+        :class:`~mergen.algorithms.base.OptimisationResult` (design,
+        criterion score and optimiser metadata) of that combination.
     best : tuple of (str, str)
-        The winning (criterion, algorithm) pair.
+        The winning (criterion, algorithm) pair (read-only).
     priority : tuple of str
-        The metrics that defined the ranking, in order.
+        The metrics that decided the selection, in order.
+    selection : str
+        The rule that was applied, ``'lexicographic'`` or ``'pareto'``.
+    tol, rtol : dict
+        Absolute and relative tolerance per priority metric.
+    ties : tuple of (str, str)
+        Combinations the rule could not tell apart from the winner on the
+        metrics (the winner included).
+    decided_by : str
+        What settled the choice: ``'metrics'`` (no tie), ``'priority
+        order'`` (a Pareto tie broken by the order of the priority
+        metrics) or ``'tiebreak'`` (the listing order of criteria and
+        algorithms).
+    front : tuple of (str, str)
+        Combinations not dominated on the priority metrics, within the
+        tolerance. The ``'pareto'`` rule picks its winner from this
+        set. Under ``'lexicographic'`` it is informational: tolerant
+        equality is not transitive, so with a large ``tol`` the
+        lexicographic winner can lie outside it.
     """
 
-    def __init__(self, table, results, best, priority):
-        self.table    = table
-        self.results  = results
-        self.best     = best
-        self.priority = priority
-        self._best_result = None   # set by Sampler.compare after ranking
+    def __init__(self, table, metrics, results, best, priority,
+                 selection='lexicographic', tol=None, rtol=None,
+                 ties=(), front=(), decided_by='metrics'):
+        self.table     = table
+        self.metrics   = metrics
+        self.results   = results
+        self._best     = best
+        self.priority  = tuple(priority)
+        self.selection = selection
+        self.tol       = dict(tol or {})
+        self.rtol      = dict(rtol or {})
+        self.ties      = tuple(ties) if ties else (best,)
+        self.front     = tuple(front)
+        self.decided_by = decided_by
+        self._best_result = None   # set by Sampler.compare after selection
+        self._context     = None   # what reselect() needs; set by compare
+
+    @property
+    def best(self) -> Tuple[str, str]:
+        """The winning (criterion, algorithm) pair. To choose again with
+        a different rule, use :meth:`reselect`."""
+        return self._best
 
     @property
     def best_result(self) -> "SamplingResult":
         """The full SamplingResult of the winning combination, identical
-        to calling run() for that combination with the same seed and
-        n_repeats."""
+        to calling run() for that combination with the same seed,
+        n_repeats, priority, selection and tolerances."""
         return self._best_result
 
+    def selection_text(self) -> str:
+        """One line describing how the winner was chosen."""
+        from .metrics import _HIGHER_BETTER
+
+        def tol_text(m):
+            t, r = self.tol.get(m, 1e-9), self.rtol.get(m, 0.0)
+            return f"tol={t:g}" + (f", rtol={r:g}" if r else "")
+
+        parts = [f"{m} ({'higher' if m in _HIGHER_BETTER else 'lower'} "
+                 f"is better; {tol_text(m)})" for m in self.priority]
+        if self.selection == 'lexicographic':
+            return ("Selection: lexicographic on raw metric values, "
+                    "in order: " + " > ".join(parts))
+        return ("Selection: Pareto front + Utopia distance on raw metric "
+                "values, objectives unordered: " + ", ".join(parts))
+
+    def reselect(
+        self,
+        priority:  Optional[Tuple[str, ...]] = None,
+        selection: Optional[str] = None,
+        tol:       Optional[Union[float, Dict[str, float]]] = None,
+        rtol:      Optional[Union[float, Dict[str, float]]] = None,
+        verbose:   bool = True,
+    ) -> "ComparisonResult":
+        """
+        Choose the winner again with a different priority, rule or
+        tolerance, without re-running the sweep.
+
+        The stored repeats of every combination are reused; only the
+        representative repeats, the metrics and the winner are
+        recomputed. Arguments left as None keep their current value.
+        ``best_result`` is rebuilt by running the winning combination
+        through the sampler that produced this comparison, so the
+        sampler must not have been reconfigured in between.
+
+        Returns
+        -------
+        ComparisonResult
+            A new result; this one is left unchanged.
+        """
+        if self._context is None:
+            _fatal("This ComparisonResult was not produced by "
+                   "Sampler.compare(); it cannot be reselected.")
+        ctx = self._context
+        priority  = self.priority if priority is None else priority
+        priority  = (priority,) if isinstance(priority, str) else priority
+        selection = self.selection if selection is None else selection
+
+        if tol is not None or rtol is not None:
+            _check_selection(selection, _check_priority(priority, False),
+                             1e-9 if tol is None else tol,
+                             0.0 if rtol is None else rtol)
+        # Tolerances not given again keep the values passed to compare();
+        # per-metric entries for metrics outside the new priority are
+        # ignored rather than rejected.
+        tol  = ctx['tol']  if tol  is None else tol
+        rtol = ctx['rtol'] if rtol is None else rtol
+        return ctx['sampler']._finish_compare(
+            repeats=ctx['repeats'], crit_list=ctx['crit_list'],
+            alg_list=ctx['alg_list'], priority=priority,
+            selection=selection, tol=tol, rtol=rtol,
+            baseline=ctx['baseline'], seed=ctx['seed'],
+            n_repeats=ctx['n_repeats'], verbose=verbose)
+
     def summary(self) -> None:
-        """Print the ranked comparison table."""
+        """Print the comparison table and how the winner was chosen."""
         print()
         print("═" * 72)
         print("  MERGEN — Criterion / Algorithm Comparison")
         print("═" * 72)
-        print(f"  Priority: {' > '.join(self.priority)}   "
-              f"(percentile vs shared MC baseline, higher is better)")
+        print(f"  {self.selection_text()}")
+        print("  Table: percentile vs shared MC baseline (higher is "
+              "better; descriptive only)")
         print("─" * 72)
         with pd.option_context('display.width', 100,
                                'display.float_format',
@@ -685,7 +852,26 @@ class ComparisonResult:
         print("─" * 72)
         print(f"  Best: criteria='{self.best[0]}', "
               f"algorithm='{self.best[1]}'")
+        tie = self._tie_text()
+        if tie:
+            print(f"  Tie : {tie}")
         print("═" * 72)
+
+    def _tie_text(self) -> str:
+        """How a tie on the metrics was broken, or '' if there was none."""
+        if self.decided_by == 'metrics':
+            return ''
+        others = ", ".join(f"{c}/{a}" for c, a in self.ties
+                           if (c, a) != self.best)
+        if self.decided_by == 'priority order':
+            return (f"tied under the Pareto rule with {others}; broken by "
+                    f"the order of the priority metrics.")
+        if self.selection == 'pareto':
+            return (f"tied under the Pareto rule with {others}; the "
+                    f"priority order left more than one, decided by the "
+                    f"listing order.")
+        return (f"indistinguishable from {others} within the tolerance; "
+                f"decided by the listing order.")
 
     def plot(self, save: bool = False, filename: Optional[str] = None,
              show: bool = True, **kwargs) -> None:
@@ -703,8 +889,8 @@ class ComparisonResult:
 
     def to_markdown(self, filename: str) -> None:
         """
-        Save the ranked comparison table as a Markdown file under the
-        output directory.
+        Save the comparison table as a Markdown file under the output
+        directory.
 
         Unlike calling ``comparison.table.to_markdown(...)`` directly,
         this writes into ``outputs/`` (creating it if needed), matching
@@ -723,7 +909,7 @@ class ComparisonResult:
     def __repr__(self) -> str:
         return (f"ComparisonResult(best={self.best}, "
                 f"n_combinations={len(self.results)}, "
-                f"priority={self.priority})")
+                f"priority={self.priority}, selection={self.selection!r})")
 
 
 class Sampler:
@@ -1162,6 +1348,9 @@ class Sampler:
         priority:  Optional[Tuple[str, ...]]            = None,
         n_jobs:    Optional[int]                        = None,
         verbose:   bool                                  = True,
+        selection: str                                  = 'lexicographic',
+        tol:       Union[float, Dict[str, float]]       = 1e-9,
+        rtol:      Union[float, Dict[str, float]]       = 0.0,
     ) -> SamplingResult:
         """
         Generate the space-filling design.
@@ -1188,16 +1377,20 @@ class Sampler:
             representative repeat is returned (see ``priority``).
         priority : tuple of str, optional
             Quality-metric names used to pick the representative repeat
-            when ``n_repeats > 1``. ``None`` (default) keeps the repeat
+            when ``n_repeats > 1``, and the delivered algorithm when
+            several are run. ``None`` (default) keeps the repeat
             with the lowest criterion score (classic best-of-k
             restarts). When given — e.g.
-            ``('min_distance', 'max_abs_correlation')`` — the repeat
-            whose design lies closest to the Utopia point of these
-            metrics is returned instead (optimise-by-proxy,
+            ``('min_distance', 'max_abs_correlation')`` — the repeat is
+            chosen on the raw values of these metrics by the
+            ``selection`` rule instead (optimise-by-proxy,
             select-by-objective), which keeps the delivered design
             stable when near-optimal criterion scores correspond to
-            different coverage trade-offs. Pass the same tuple used in
-            :meth:`compare` to reproduce its ``best_result`` exactly.
+            different coverage trade-offs. Pass the same ``priority``,
+            ``selection``, ``tol`` and ``rtol`` used in :meth:`compare`
+            to reproduce its ``best_result`` exactly. When several
+            algorithms are run, the same rule also chooses which
+            algorithm's design is delivered.
         n_jobs : int or None, optional
             Number of parallel workers for the multi-algorithm
             dispatcher. ``None`` (default) and ``1`` run sequentially.
@@ -1211,6 +1404,18 @@ class Sampler:
             are unused.
         verbose : bool, optional
             Print progress information. Default ``True``.
+        selection : ``'lexicographic'`` or ``'pareto'``, optional
+            Rule for choosing among repeats (and algorithms) when
+            ``priority`` is given (see :mod:`mergen.selection`).
+            ``'lexicographic'`` (default) applies the metrics in the
+            order listed; ``'pareto'`` treats them as unordered
+            competing objectives.
+        tol, rtol : float or dict, optional
+            Absolute and relative tolerance under which two metric
+            values count as equal: ``|a - b| <= tol + rtol * max(|a|,
+            |b|)``. Either a number for every metric or a dict
+            ``{metric: value}``. The defaults (``1e-9``, ``0``) absorb
+            floating-point noise only.
 
         Returns
         -------
@@ -1223,6 +1428,9 @@ class Sampler:
             individually and :meth:`SamplingResult.comparison` to
             tabulate them.
         """
+        priority = _check_priority(priority, allow_none=True)
+        tol_arr, rtol_arr = _check_selection(selection, priority, tol, rtol)
+
         if seed is not None:
             np.random.seed(seed)
             random.seed(seed)
@@ -1620,7 +1828,7 @@ class Sampler:
 
         # Keep, for each algorithm, the representative repeat: the
         # lowest-score repeat by default, or — when ``priority`` is given
-        # — the repeat closest to the Utopia point of those metrics (see
+        # — the repeat chosen on those metrics by the selection rule (see
         # _select_repeat). The full repeat list (spawn order) is kept so
         # compare() can reuse the very same optimisations. Deterministic
         # in both modes.
@@ -1629,7 +1837,7 @@ class Sampler:
             _repeats_by_alg.setdefault(alg_name, []).append(result)
         for alg_name, reps in _repeats_by_alg.items():
             algorithm_results[alg_name] = _select_repeat(
-                reps, priority, space)
+                reps, priority, space, selection, tol_arr, rtol_arr)
         if verbose:
             for alg_name in algorithm_names:
                 result = algorithm_results[alg_name]
@@ -1640,9 +1848,22 @@ class Sampler:
 
         t_elapsed = time.perf_counter() - t_run_start
 
-        # Pick the best result across all algorithms (lowest score)
+        # Pick the best result across all algorithms: the lowest score,
+        # or, with a priority, the same selection rule as for repeats.
         best_algorithm = min(algorithm_results,
                              key=lambda k: algorithm_results[k].score)
+        if priority and len(algorithm_results) > 1:
+            from . import metrics as _m
+            from .selection import select
+            _names = list(algorithm_results)
+            _sel = select(
+                np.array([_priority_values(algorithm_results[a].design,
+                                           priority, space)
+                          for a in _names]),
+                [m in _m._HIGHER_BETTER for m in priority],
+                rule=selection, tol=tol_arr, rtol=rtol_arr,
+                tiebreak=[algorithm_results[a].score for a in _names])
+            best_algorithm = _names[_sel.winner]
         best_design    = algorithm_results[best_algorithm].design
         best_score     = algorithm_results[best_algorithm].score
 
@@ -1946,16 +2167,24 @@ class Sampler:
         n_repeats:  int = 5,
         n_jobs:     Optional[int] = None,
         verbose:    bool = True,
+        selection:  str = 'lexicographic',
+        tol:        Union[float, Dict[str, float]] = 1e-9,
+        rtol:       Union[float, Dict[str, float]] = 0.0,
     ) -> "ComparisonResult":
         """
-        Run a criterion/algorithm sweep and rank the resulting designs.
+        Run a criterion/algorithm sweep and select the best design.
 
         Every (criterion, algorithm) combination is optimised with the
-        current sampler configuration. Because raw criterion scores are
-        on incomparable scales, designs are ranked on criterion-agnostic
-        quality metrics expressed as percentile ranks against a single
-        shared Monte Carlo baseline of random designs of the same size
-        (Joseph 2016; Pronzato & Mueller 2012).
+        current sampler configuration. Raw criterion scores are on
+        incomparable scales, so the designs are compared on
+        criterion-agnostic quality metrics, computed on normalised
+        coordinates. The winner is chosen on the raw values of the
+        ``priority`` metrics by the ``selection`` rule (see
+        :mod:`mergen.selection`). Percentile ranks against a shared
+        Monte Carlo baseline of random designs of the same size are
+        reported alongside as a description of how each design compares
+        with random designs; they are not used for selection, because
+        well-optimised designs all saturate at the top of that scale.
 
         Parameters
         ----------
@@ -1968,17 +2197,14 @@ class Sampler:
         algorithms : list of str, optional
             Optimisers to sweep. If None, ``['sa']``.
         priority : tuple of str
-            Quality metrics treated as competing objectives when
-            selecting the best design. All are on a common 0-100
-            percentile scale (higher is better) and are honoured jointly
-            via a Pareto/Utopia rule (Lu, Anderson-Cook & Robinson
-            2011): the non-dominated designs are kept, and the one
-            closest to the Utopia point (every metric = 100) is chosen.
-            No weights are needed and no single metric dominates.
-            Available metrics: min_distance, mean_distance, cv_distances,
-            minimax, max_abs_correlation, projection_cd2.
+            Quality metrics that decide the winner. A single metric may
+            be given as a string. Available metrics: min_distance,
+            mean_distance, cv_distances, minimax, max_abs_correlation,
+            projection_cd2.
         mc_samples : int, default 300
-            Size of the shared Monte Carlo baseline.
+            Size of the shared Monte Carlo baseline used for the
+            percentile columns. ``0`` skips it (the columns are then
+            NaN; the selection is unaffected).
         seed : int, default 44
             Base seed. All randomness (the repeats and the Monte Carlo
             baseline) is derived from it, so the whole comparison
@@ -1987,30 +2213,42 @@ class Sampler:
             Number of independent optimiser runs per combination. Each
             run uses a distinct seed derived from ``seed`` via
             NumPy's SeedSequence.spawn (independent, not consecutive
-            integers); the best-scoring repeat represents the
-            combination, exactly as ``run(seed, n_repeats)`` would
-            deliver it, and the table reports that design's metric
-            percentiles. More repeats therefore improve every
-            combination's delivered design rather than averaging over
-            seed luck. Use ``n_repeats=1`` for a single run.
+            integers). The representative repeat of each combination is
+            chosen with the same ``priority``, ``selection`` and
+            tolerances, exactly as ``run(seed, n_repeats, priority,
+            selection, tol, rtol)`` would deliver it.
         n_jobs : int or None, default None
-            Number of parallel workers for the combination x repeat
-            runs, following the joblib convention (None or 1 -> one
-            worker, -1 -> all cores). The runs are independent, so this
-            scales well; results are identical regardless of n_jobs.
+            Number of parallel workers across the combinations,
+            following the joblib convention (None or 1 -> one worker,
+            -1 -> all cores). Results are identical regardless of
+            n_jobs.
         verbose : bool, default True
-            Print progress and the final ranking table.
+            Print progress and the final table.
+        selection : ``'lexicographic'`` or ``'pareto'``, default ``'lexicographic'``
+            ``'lexicographic'`` applies the priority metrics in the
+            order listed: the first decides, and each later metric only
+            decides among designs tied on the earlier ones within the
+            tolerance. ``'pareto'`` treats them as unordered, competing
+            objectives: the non-dominated designs are kept and the one
+            closest to the Utopia point is chosen.
+        tol, rtol : float or dict, optional
+            Absolute and relative tolerance under which two metric
+            values count as equal: ``|a - b| <= tol + rtol * max(|a|,
+            |b|)``. Either a number for every metric or a dict
+            ``{metric: value}``. The defaults (``1e-9``, ``0``) absorb
+            floating-point noise only. Metrics are computed on
+            normalised coordinates, so ``tol={'min_distance': 0.01}``
+            treats designs whose minimum distances differ by less than
+            1 % of the parameter range as equally good.
 
         Returns
         -------
         ComparisonResult
-            ``.table`` (ranked DataFrame of percentile ranks),
-            ``.results`` (dict mapping (criterion, algorithm) to the
-            full SamplingResult), ``.best`` (winning key) and
-            ``.priority``.
+            ``.best`` (winning key), ``.best_result`` (its full
+            SamplingResult), ``.metrics`` (raw values), ``.table``
+            (percentile ranks), ``.ties``, ``.front`` and
+            :meth:`~ComparisonResult.reselect`.
         """
-        from . import metrics as _m
-
         # ── Resolve the sweep lists ────────────────────────────────────
         has_nominal = any(self.space.is_nominal(p) for p in self.space.names)
         nominal_ok  = set(nominal_supporting_criteria())
@@ -2020,7 +2258,11 @@ class Sampler:
             else:
                 crit_list = sorted(set(list_criteria()) - nominal_ok)
         else:
-            crit_list = list(criteria)
+            if isinstance(criteria, str):
+                criteria = [criteria]
+            if not all(isinstance(c, str) for c in criteria):
+                _fatal(f"criteria must be names (str); got {criteria!r}")
+            crit_list = [c.strip().lower() for c in criteria]
             if has_nominal:
                 bad = [cr for cr in crit_list if cr not in nominal_ok]
                 if bad:
@@ -2032,33 +2274,50 @@ class Sampler:
                     _warn(f"Criteria {bad} target nominal factors, which "
                           f"this space does not contain; their extra terms "
                           f"are dead weight here.")
-        alg_list = list(algorithms) if algorithms is not None else ['sa']
+        if isinstance(algorithms, str):
+            algorithms = [algorithms]
+        if algorithms is not None and not all(isinstance(a, str)
+                                              for a in algorithms):
+            _fatal(f"algorithms must be names (str); got {algorithms!r}")
+        alg_list = ([a.strip().lower() for a in algorithms]
+                    if algorithms is not None else ['sa'])
+        from .criteria import _REGISTRY as _CRIT
+        for label, lst in (('criteria', crit_list), ('algorithms', alg_list)):
+            if not lst:
+                _fatal(f"{label} cannot be empty.")
+            # Aliases of one criterion (phi_p / phip) count as the same.
+            key = ((lambda x: _CRIT.get(x, x)) if label == 'criteria'
+                   else (lambda x: x))
+            seen, kept, dupes = set(), [], []
+            for x in lst:
+                if key(x) in seen:
+                    dupes.append(x)
+                else:
+                    seen.add(key(x))
+                    kept.append(x)
+            if dupes:
+                _warn(f"{label} lists {sorted(set(dupes))} more than once "
+                      f"(or as an alias); each is run once.")
+            lst[:] = kept
 
-        for m in priority:
-            if m not in _m._METRIC_FN:
-                _fatal(f"Unknown priority metric '{m}'. "
-                       f"Available: {sorted(_m._METRIC_FN)}")
-        metric_names = list(dict.fromkeys(
-            list(priority) + ['min_distance', 'minimax',
-                              'max_abs_correlation', 'projection_cd2',
-                              'cv_distances', 'mean_distance']))
-
+        priority = _check_priority(priority, allow_none=False)
+        _check_selection(selection, priority, tol, rtol)
         if n_repeats < 1:
             _fatal(f"n_repeats must be >= 1; got {n_repeats}")
+        if (not isinstance(mc_samples, (int, np.integer))
+                or isinstance(mc_samples, bool) or mc_samples < 0):
+            _fatal(f"mc_samples must be a non-negative integer; "
+                   f"got {mc_samples!r}")
 
         # One job per (criterion, algorithm) combination. Each job calls
         # Sampler.run(seed, n_repeats), which owns the single seed
         # derivation (SeedSequence(seed).spawn) and returns every repeat.
         # compare() therefore triggers exactly the optimisations a
         # follow-up run() would, so their designs always agree.
-        gs      = self.space.grid_sampler()
-        gmins   = self.space.gmins
-        granges = self.space.granges
-
         combos = [(cr, alg) for cr in crit_list for alg in alg_list]
 
         effective_n_jobs = _resolve_n_jobs(n_jobs)
-        # job_results: list of ((cr, alg), [repeat SamplingResults])
+        # job_results: list of ((cr, alg), [repeat OptimisationResults])
         job_results = []
         if effective_n_jobs > 1 and len(combos) > 1:
             from joblib import Parallel, delayed
@@ -2127,113 +2386,131 @@ class Sampler:
                           flush=True)
                 job_results.append(
                     _compare_one_job(self, cr, alg, seed, n_repeats))
-
-        # For each combination keep the representative repeat, selected
-        # with the same priority-aware rule run(seed, n_repeats,
-        # priority) applies (see _select_repeat), so the table describes
-        # exactly the design each combination delivers for the user's
-        # stated priorities.
-        results: Dict[Tuple[str, str], SamplingResult] = {}
-        per_combo_designs: Dict[Tuple[str, str], list] = {}
-        for (cr, alg), reps in job_results:
-            per_combo_designs[(cr, alg)] = reps
-            results[(cr, alg)] = _select_repeat(reps, priority, self.space)
+        repeats = dict(job_results)
 
         # ── Shared Monte Carlo baseline ────────────────────────────────
-        n_ref   = len(np.asarray(next(iter(results.values())).design))
-        if verbose:
-            print(f"  [COMPARE]  Monte Carlo baseline "
-                  f"({mc_samples} random designs, n={n_ref}) ...",
-                  flush=True)
-        baseline = _m._mc_baseline(
-            gs, gmins, granges, n_ref,
-            metric_names=metric_names, crit_names=[],
-            mc_samples=mc_samples, seed=seed, space=self.space,
-        )
+        baseline = None
+        if mc_samples > 0:
+            from . import metrics as _m
+            n_ref = len(np.asarray(next(iter(repeats.values()))[0].design))
+            if verbose:
+                print(f"  [COMPARE]  Monte Carlo baseline "
+                      f"({mc_samples} random designs, n={n_ref}) ...",
+                      flush=True)
+            baseline = _m._mc_baseline(
+                self.space.grid_sampler(), self.space.gmins,
+                self.space.granges, n_ref,
+                metric_names=list(_COMPARE_METRICS),
+                crit_names=[], mc_samples=mc_samples, seed=seed,
+                space=self.space,
+            )
 
-        # ── Percentile ranks of the best repeat, per combination ──────
-        # run(seed, n_repeats) delivers the best-scoring repeat, so the
-        # table describes exactly the design each combination delivers:
-        # its rows match the winner's quality report one-to-one. (A mean
-        # over repeats would describe average seed behaviour instead of
-        # the delivered design and would disagree with best_result.)
-        rows = []
-        for (cr, alg), designs in per_combo_designs.items():
-            row = {'criterion': cr, 'algorithm': alg}
-            best_res = results[(cr, alg)]
-            X = np.asarray(best_res.design, dtype=float)
-            X_norm = (X - gmins) / np.where(granges > 1e-12,
-                                            granges, 1.0)
+        return self._finish_compare(
+            repeats=repeats, crit_list=crit_list, alg_list=alg_list,
+            priority=priority, selection=selection, tol=tol, rtol=rtol,
+            baseline=baseline, seed=seed, n_repeats=n_repeats,
+            verbose=verbose)
+
+    def _finish_compare(self, repeats, crit_list, alg_list, priority,
+                        selection, tol, rtol, baseline, seed, n_repeats,
+                        verbose) -> "ComparisonResult":
+        """
+        Select the representative repeat of every combination, choose
+        the winner and build the ComparisonResult. Shared by compare()
+        and ComparisonResult.reselect().
+        """
+        import contextlib
+        import io
+        from . import metrics as _m
+        from .selection import select
+
+        priority = _check_priority(priority, allow_none=False)
+
+        def only_priority(arg):
+            if isinstance(arg, Mapping):
+                return {m: v for m, v in arg.items() if m in priority}
+            return arg
+        tol_arr, rtol_arr = _check_selection(
+            selection, priority, only_priority(tol), only_priority(rtol))
+        metric_names = list(dict.fromkeys(
+            list(priority) + list(_COMPARE_METRICS)))
+        combos = [(cr, alg) for cr in crit_list for alg in alg_list]
+
+        # Representative repeat of each combination: the same rule
+        # run(seed, n_repeats, priority, selection, tol, rtol) applies,
+        # so the table describes exactly the design each combination
+        # delivers.
+        results: Dict[Tuple[str, str], Any] = {}
+        raw_rows, pct_rows = [], []
+        for key in combos:
+            rep = _select_repeat(repeats[key], priority, self.space,
+                                 selection, tol_arr, rtol_arr)
+            results[key] = rep
+            Xn = _normalised(rep.design, self.space)
+            raw = {'criterion': key[0], 'algorithm': key[1]}
+            pct = {'criterion': key[0], 'algorithm': key[1]}
             for m in metric_names:
-                val = _m._compute_metric(m, X_norm, space=self.space)
-                row[m] = float(_m._percentile_rank(
-                    val, baseline[m], m in _m._HIGHER_BETTER))
-            rows.append(row)
-        table = pd.DataFrame(rows)
+                val = _m._compute_metric(m, Xn, space=self.space)
+                raw[m] = float(val)
+                pct[m] = (float(_m._percentile_rank(
+                              val, baseline[m], m in _m._HIGHER_BETTER))
+                          if baseline is not None else np.nan)
+            raw_rows.append(raw)
+            pct_rows.append(pct)
+        metrics_df = pd.DataFrame(raw_rows)
+        table      = pd.DataFrame(pct_rows)
 
-        # ── Pareto-frontier ranking with a Utopia-point selection ─────
-        # The priority metrics are treated as competing objectives, all
-        # already on a common 0-100 percentile scale (higher is better).
-        # Rather than collapsing them with arbitrary weights (a weighted
-        # sum favours extreme corner solutions and needs weights that are
-        # not natural to set) or with a strict lexicographic order (which
-        # lets the first metric dominate and all but ignores the rest),
-        # designs are ranked with the Pareto/Utopia approach of Lu,
-        # Anderson-Cook & Robinson (2011): keep the non-dominated
-        # (Pareto-optimal) designs, then pick the one closest to the
-        # Utopia point where every metric reaches 100. This honours every
-        # priority metric without a weight choice.
-        obj = list(priority)
-        pts = table[obj].to_numpy(dtype=float)
-        n = len(pts)
+        sel = select(metrics_df[list(priority)].to_numpy(dtype=float),
+                     [m in _m._HIGHER_BETTER for m in priority],
+                     rule=selection, tol=tol_arr, rtol=rtol_arr)
+        if sel.excluded:
+            _warn("Excluded from selection (NaN or infinite priority "
+                  "metric): "
+                  + ", ".join(f"{combos[i][0]}/{combos[i][1]}"
+                              for i in sel.excluded))
+        best_key = combos[sel.winner]
 
-        def _dominates(a, b):
-            # a dominates b: no worse on any objective, better on at least
-            # one (all objectives are "higher is better" here).
-            return bool(np.all(a >= b) and np.any(a > b))
+        table.insert(0, 'best', [' *' if k == best_key else ''
+                                 for k in combos])
+        cmp = ComparisonResult(
+            table=table, metrics=metrics_df, results=results,
+            best=best_key, priority=priority, selection=selection,
+            tol=dict(zip(priority, tol_arr.tolist())),
+            rtol=dict(zip(priority, rtol_arr.tolist())),
+            ties=[combos[i] for i in sel.ties],
+            front=[combos[i] for i in sel.front],
+            decided_by=sel.decided_by)
+        cmp._context = dict(sampler=self, repeats=repeats,
+                            crit_list=crit_list, alg_list=alg_list,
+                            baseline=baseline, seed=seed,
+                            n_repeats=n_repeats, tol=tol, rtol=rtol)
 
-        pareto = []
-        for i in range(n):
-            if not any(_dominates(pts[j], pts[i]) for j in range(n)
-                       if j != i):
-                pareto.append(i)
-
-        # Utopia point = best achievable on each objective (100 for a
-        # percentile). Choose the Pareto design closest to it.
-        utopia = np.full(len(obj), 100.0)
-        dists = {i: float(np.linalg.norm(utopia - pts[i])) for i in pareto}
-        best_pos = min(dists, key=dists.get)
-        best_idx = table.index[best_pos]
-        best_key = (table.loc[best_idx, 'criterion'],
-                    table.loc[best_idx, 'algorithm'])
-
-        # Order rows by production order: criteria as the user listed
-        # them, and within each criterion the algorithms in their listed
-        # order. This keeps the table (and the heat map) grouped and
-        # readable, rather than shuffled by score.
-        crit_order = {cr: i for i, cr in enumerate(crit_list)}
-        alg_order = {al: i for i, al in enumerate(alg_list)}
-        table['_c'] = table['criterion'].map(crit_order)
-        table['_a'] = table['algorithm'].map(alg_order)
-        table = table.sort_values(['_c', '_a'], ignore_index=True)
-        table = table.drop(columns=['_c', '_a'])
-        table.insert(0, 'best',
-                     [' *' if (r.criterion, r.algorithm) == best_key
-                      else '' for r in table.itertuples()])
-
-        cmp = ComparisonResult(table=table, results=results,
-                               best=best_key, priority=tuple(priority))
-        # best_result must be a full SamplingResult, and it must match a
+        # best_result must be a full SamplingResult that matches a
         # standalone run() exactly. Produce it by calling run() once for
-        # the winning combination with the same seed and n_repeats — the
-        # single seed derivation guarantees identical output.
+        # the winning combination with the same settings; the single
+        # seed derivation guarantees identical optimisations.
+        # Its run banner is hidden; its warnings are passed on.
         _bc, _ba = best_key
-        cmp._best_result = self.run(criteria=_bc, algorithm=_ba,
-                                    seed=seed, n_repeats=n_repeats,
-                                    priority=tuple(priority),
-                                    n_jobs=1, verbose=False)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cmp._best_result = self.run(
+                criteria=_bc, algorithm=_ba, seed=seed,
+                n_repeats=n_repeats, priority=priority,
+                selection=selection, tol=cmp.tol, rtol=cmp.rtol,
+                n_jobs=1, verbose=False)
+        for line in buf.getvalue().splitlines():
+            if '[WARNING]' in line:
+                print(line)
+        delivered = cmp._best_result.algorithm_results[_ba].design
+        if not np.array_equal(np.asarray(delivered),
+                              np.asarray(results[best_key].design)):
+            _warn("best_result differs from the compared design: the "
+                  "sampler was reconfigured after compare(). Re-run "
+                  "compare() to obtain a consistent result.")
         if verbose:
             cmp.summary()
+        elif cmp._tie_text():
+            _warn(f"Tie: {cmp._tie_text()}")
         return cmp
 
     @staticmethod
