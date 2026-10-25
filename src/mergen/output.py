@@ -855,9 +855,10 @@ def plot_comparison(result, title: bool = True,
     Bar chart comparing the criterion score of each optimisation algorithm.
 
     Only meaningful when :meth:`Sampler.run` was called with
-    ``algorithm=[...]``. The best (lowest-scoring) algorithm is
-    highlighted; bar heights show the raw criterion value, lower is
-    better. Elapsed time is annotated above each bar.
+    ``algorithm=[...]``. The delivered algorithm
+    (:attr:`SamplingResult.best_algorithm`) is highlighted; bar heights
+    show the raw criterion value, lower is better. Elapsed time is
+    annotated above each bar.
 
     Parameters
     ----------

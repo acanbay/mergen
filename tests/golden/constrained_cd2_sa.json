@@ -1,0 +1,98 @@
+{
+ "samples": {
+  "values": [
+   [
+    0.0,
+    0.0
+   ],
+   [
+    2.0,
+    5.0
+   ],
+   [
+    4.0,
+    5.0
+   ],
+   [
+    5.0,
+    9.0
+   ],
+   [
+    0.0,
+    7.0
+   ],
+   [
+    9.0,
+    3.0
+   ],
+   [
+    7.0,
+    1.0
+   ],
+   [
+    8.0,
+    6.0
+   ],
+   [
+    6.0,
+    8.0
+   ],
+   [
+    3.0,
+    1.0
+   ],
+   [
+    10.0,
+    2.0
+   ]
+  ],
+  "labels": [
+   "Prescribed",
+   "Focus",
+   "Focus",
+   "Optimised",
+   "Optimised",
+   "Optimised",
+   "Optimised",
+   "Optimised",
+   "Optimised",
+   "Optimised",
+   "Prescribed"
+  ]
+ },
+ "validation": {
+  "values": [
+   [
+    10.0,
+    10.0
+   ],
+   [
+    1.0,
+    10.0
+   ]
+  ],
+  "labels": [
+   "Validation",
+   "Validation"
+  ]
+ },
+ "sets": {
+  "test": {
+   "values": [
+    [
+     10.0,
+     0.0
+    ],
+    [
+     0.0,
+     3.0
+    ]
+   ],
+   "labels": [
+    "test",
+    "test"
+   ]
+  }
+ },
+ "score": 0.08916623398994755
+}

@@ -27,7 +27,8 @@ What to look at
   optimisation outcome.
 - The printed ``summary()``: confirms all three runs share the same
   criterion, so their scores are directly comparable (unlike
-  comparing different criteria, which requires percentile ranking).
+  comparing different criteria, which requires criterion-agnostic
+  quality metrics).
 - ``distances_1.png`` (saved plot): for a maximin-style criterion, the
   pairwise-distance distribution of the winning design, pushed away
   from zero, is the natural coverage check.

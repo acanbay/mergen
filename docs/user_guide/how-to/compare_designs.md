@@ -2,8 +2,8 @@
 
 When you are unsure which criterion or optimiser suits your problem,
 `compare()` settles it empirically: it builds a design for each
-candidate combination on your actual space and ranks them on all
-quality metrics at once.
+candidate combination on your actual space and selects one on the
+raw values of the priority metrics.
 
 ## Comparing criteria
 
@@ -26,10 +26,21 @@ comparison = sampler.compare(
 
 With `criteria` left unset, `compare()` evaluates every criterion
 compatible with the space. Each combination is optimised several times
-(`n_repeats`, default 5) and ranked on the mean metric percentile, so
-the winner reflects typical rather than lucky single-run performance.
-The `priority` argument names the metrics that break ties, in order of
-importance.
+(`n_repeats`, default 5), and is represented by the repeat that is
+best on the priority metrics.
+
+The winner is chosen on the raw values of the `priority` metrics, in
+order of importance: the first metric decides, and each later metric
+only decides among designs tied on the earlier ones. Two values count
+as tied when they differ by at most `tol`, which defaults to
+floating-point noise. Metrics are computed on normalised coordinates,
+so `tol={'min_distance': 0.01}` treats designs whose minimum distances
+differ by less than 1 % of the parameter range as equally good. Pass
+`selection='pareto'` to treat the metrics as unordered, competing
+objectives instead; when two designs share the shortest distance to
+the ideal, the priority order breaks the tie, and the summary says so.
+`comparison.reselect(...)` applies a different priority, rule or
+tolerance without re-running the sweep.
 
 ## Reading and saving the result
 
@@ -58,9 +69,11 @@ comparison.plot(save=True)
 :alt: Heat map of percentile ranks for criterion and algorithm combinations.
 
 A small sweep (three criteria, two optimisers, two repeats each) on a
-two-parameter space. Each cell is the mean percentile rank of that
-combination on that metric; the starred row won under the requested
-priority.
+two-parameter space. Each cell is the percentile rank of that
+combination's design on that metric against random designs of the same
+size; the starred row won under the requested priority. The
+percentiles are descriptive: the selection uses the raw metric values,
+available as `comparison.metrics`.
 ```
 
 ## Comparing algorithms

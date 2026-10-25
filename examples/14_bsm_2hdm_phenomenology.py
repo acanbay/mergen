@@ -35,8 +35,8 @@ exported header.
 
 What to look at
 ---------------
-- ``comparison_table.md`` (saved): all numeric criteria ranked by
-  percentile against a shared Monte Carlo baseline. The question "did
+- ``comparison_table.md`` (saved): all numeric criteria with
+  percentiles against a shared Monte Carlo baseline. The question "did
   we cover the 5D space well?" maps directly to the min_distance and
   max_abs_correlation percentiles.
 - ``best_result.quality_report()`` (printed): the winning design's coverage
@@ -52,17 +52,16 @@ Mergen features used
 - LaTeX parameter names used directly as space keys, so they appear on
   plot axes and in the CSV header.
 - ``Sampler.compare()``: all factors are numeric, so criteria=None sweeps
-  the numeric criteria and ranks them on coverage percentiles. Each
+  the numeric criteria and compares them on coverage metrics. Each
   combination is optimised n_repeats times (default 5) from
-  reproducible seeds and ranked on the mean metric percentile via a
-  Pareto/Utopia rule, so the choice is stable rather than tied to one
-  seed.
-- ComparisonResult.best_result and its saved ranking table.
+  reproducible seeds, and the winner is chosen on the raw values of
+  the default priority metrics, min_distance then max_abs_correlation.
+- ComparisonResult.best_result and its saved table.
 
 Estimated runtime: several minutes on one core (several criteria in
 five dimensions, each repeated). On a multi-core machine pass
-n_jobs=-1 to ``compare()`` to parallelise the repeats (identical result,
-faster); leave it at the default to stay single-core.
+n_jobs=-1 to ``compare()`` to parallelise the combinations (identical
+result, faster); leave it at the default to stay single-core.
 """
 from mergen import ParameterSpace, Sampler
 
@@ -87,7 +86,7 @@ comparison = sampler.compare(
     n_jobs=1,  # one core; set n_jobs=-1 to use all cores (same result)
 )
 
-# 3. Save the ranking table.
+# 3. Save the comparison table.
 comparison.to_markdown('comparison_table.md')
 
 # 4. Inspect and save the winning set of benchmark points.

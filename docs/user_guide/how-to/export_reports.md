@@ -18,7 +18,7 @@ result.to_excel('design.xlsx')       # spreadsheet users
 Each call writes under the result's output directory, creating it if
 needed; the directory is reported in the run banner and available as
 `result.output_dir`. The comparison object exposes the same interface,
-so `comparison.to_markdown(...)` saves the ranked comparison table
+so `comparison.to_markdown(...)` saves the comparison table
 itself.
 
 ## The printed quality summary

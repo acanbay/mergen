@@ -33,7 +33,7 @@ What to look at
   that support the nominal turbulence factor; the winning row is
   starred.
 - ``comparison_table.md`` (saved): the criteria compatible with this mixed
-  space, ranked by percentile against a shared Monte Carlo baseline;
+  space, with percentiles against a shared Monte Carlo baseline;
   the winning row is flagged.
 - ``best_result.quality_report()`` (printed): the winning design's quality.
 - The saved pairplot: even coverage across the numeric factors, with
@@ -46,13 +46,13 @@ Mergen features used
 - ``Sampler.compare()``: on a mixed space, criteria=None auto-selects the
   nominal-supporting criteria, so the comparison is valid. Each
   combination is optimised n_repeats times (default 5) from
-  reproducible seeds and ranked on the mean metric percentile via a
-  Pareto/Utopia rule.
+  reproducible seeds, and the winner is chosen on the raw values of
+  the default priority metrics, min_distance then max_abs_correlation.
 - ComparisonResult.best_result and its saved table.
 
 Estimated runtime: a few minutes on one core. On a multi-core machine
-pass n_jobs=-1 to ``compare()`` to run the repeats in parallel (same
-result, faster); leave it at the default to stay single-core.
+pass n_jobs=-1 to ``compare()`` to run the combinations in parallel
+(same result, faster); leave it at the default to stay single-core.
 """
 from mergen import ParameterSpace, Sampler
 
@@ -73,7 +73,7 @@ comparison = sampler.compare(
     n_jobs=1,  # one core; set n_jobs=-1 to use all cores (same result)
 )
 
-# 3. Save the ranking table.
+# 3. Save the comparison table.
 comparison.to_markdown('comparison_table.md')
 comparison.plot(save=True)
 
