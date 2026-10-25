@@ -254,9 +254,10 @@ the uniform-design literature, use $\mathrm{CD}_2$; if it is balance
 across a hierarchy of resolutions, use $\mathrm{SL}_2$.
 
 When requirements conflict or you are unsure, do not guess:
-`mergen.compare()` runs the candidate criteria (and optimisers) on
-your actual space and ranks the results on all quality metrics at
-once. The how-to guide on comparing designs shows the workflow.
+`Sampler.compare()` runs the candidate criteria (and optimisers) on
+your actual space and selects the best design on the quality metrics
+you prioritise. The how-to guide on comparing designs shows the
+workflow.
 
 ## References
 

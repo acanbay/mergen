@@ -61,7 +61,7 @@ before `run()`:
 
 `Sampler.compare(criteria, algorithms, n_repeats)`
 : When you are unsure, run several combinations under a shared
-  baseline and get a ranked table; see
+  baseline and get the best design on the metrics you prioritise; see
   {doc}`comparing designs <how-to/compare_designs>`.
 
 ## Working with the result

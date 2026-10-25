@@ -12,8 +12,8 @@ and paste the whole thing into the assistant of your choice.
 Treat the answer as a draft, not a verdict. An assistant cannot see
 your system respond; when its suggestion matters, verify it the same
 way this documentation recommends everywhere else: run
-`Sampler.compare()` on the shortlisted options and let the ranked
-table decide (see {doc}`comparing designs
+`Sampler.compare()` on the shortlisted options and let the comparison
+decide (see {doc}`comparing designs
 <how-to/compare_designs>`).
 
 ## The template

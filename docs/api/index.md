@@ -14,6 +14,7 @@ criteria
 algorithms
 metrics
 sequential
+selection
 distances
 output
 ```
