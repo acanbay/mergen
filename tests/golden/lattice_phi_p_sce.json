@@ -1,0 +1,91 @@
+{
+ "samples": {
+  "values": [
+   [
+    0.2,
+    2500.0
+   ],
+   [
+    0.9,
+    2500.0
+   ],
+   [
+    0.2,
+    1400.0
+   ],
+   [
+    0.7,
+    2000.0
+   ],
+   [
+    0.4,
+    1000.0
+   ],
+   [
+    1.0,
+    1000.0
+   ],
+   [
+    0.9,
+    1500.0
+   ],
+   [
+    0.5,
+    2500.0
+   ],
+   [
+    0.7,
+    1000.0
+   ],
+   [
+    0.5,
+    1600.0
+   ],
+   [
+    1.0,
+    2000.0
+   ],
+   [
+    0.3,
+    2000.0
+   ]
+  ],
+  "labels": [
+   "Optimised",
+   "Optimised",
+   "Optimised",
+   "Optimised",
+   "Optimised",
+   "Optimised",
+   "Optimised",
+   "Optimised",
+   "Optimised",
+   "Optimised",
+   "Optimised",
+   "Optimised"
+  ]
+ },
+ "validation": {
+  "values": [
+   [
+    0.7,
+    1400.0
+   ],
+   [
+    0.5,
+    2100.0
+   ],
+   [
+    0.7,
+    2400.0
+   ]
+  ],
+  "labels": [
+   "Validation",
+   "Validation",
+   "Validation"
+  ]
+ },
+ "sets": {},
+ "score": 3.2452355094353025
+}
