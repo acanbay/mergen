@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ComparisonResult` takes the raw metric table as its second
   argument: `ComparisonResult(table, metrics, results, best, priority,
   ...)`. Code that builds one positionally must be updated.
+- Continuous integration also tests Python 3.13 and 3.14, and the
+  package metadata lists both.
 - `compare()` treats criterion and algorithm names case-insensitively,
   runs a name listed twice, or an alias of a listed criterion such as
   `phip` for `phi_p`, only once (with a warning). It accepts a single
