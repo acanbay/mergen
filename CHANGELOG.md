@@ -67,6 +67,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   decided by the listing order and a warning when `best_result` no
   longer matches the compared design because the sampler was
   reconfigured.
+- The Monte Carlo baseline of `quality_report()` and `compare()` drew
+  random designs from the full grid, ignoring constraints, and could
+  include exclusion centres. It now draws from the feasible candidate
+  pool without exclusion centres, as the documentation stated.
+- `minimax` was estimated on a regular grid over the unit cube. That
+  grid did not match the candidate points and ignored constraints and
+  nominal factors: on a triangular constrained space, a design holding
+  every feasible point scored 0.71 instead of 0. It is now the exact
+  maximum over the feasible candidate pool (a fixed subset of 50,000
+  points for larger pools). `comparison()` now passes the space to
+  every metric, so nominal factors are handled there as in
+  `quality_report()`.
 
 ### Results-affecting changes
 
@@ -81,6 +93,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `selection='pareto'` does not reproduce the 0.1.0 winner: 0.1.0
   applied its Pareto rule to percentile ranks, the new rule works on
   raw values with tolerances.
+- `minimax` values can change for any design, and the baseline medians
+  and percentiles change for constrained spaces and spaces with
+  exclusions. On unconstrained spaces without exclusions the baseline
+  draws the same random designs as 0.1.0. Because `compare()` selects
+  on these metrics, a `priority` that contains `minimax` may pick a
+  different winner. `comparison()` values change for spaces with
+  nominal factors.
 
 ## [0.1.0] - 2026-07-18
 

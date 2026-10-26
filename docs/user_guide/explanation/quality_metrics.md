@@ -42,7 +42,10 @@ $$
 
 The covering radius (Johnson, Moore & Ylvisaker, 1990): the distance
 from the most neglected point of the space to its nearest design
-point, estimated over a dense reference set. It answers "how far can
+point. Mergen takes the maximum over the feasible candidate points,
+which is exact for pools of up to 50,000 points; larger pools are
+represented by a fixed random subset of that size, which gives a
+value slightly too low. It answers "how far can
 the truth hide from my nearest run?" Low minimax means no region is
 left unwatched.
 

@@ -46,7 +46,7 @@ Liu & Liu (2023), Canadian Journal of Statistics 51(1).
 from __future__ import annotations
 
 from itertools import combinations
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -205,14 +205,68 @@ def cv_distances(X: np.ndarray, space=None) -> float:
     return float(dists.std() / mu) if mu > _EPS else 0.0
 
 
+#: Feasible pools up to this size are evaluated exactly by minimax().
+_MINIMAX_EXACT_MAX = 50_000
+
+
+def _embed_heom(Z: np.ndarray, levels: List[Optional[np.ndarray]]) -> np.ndarray:
+    """
+    Embed normalised points so that Euclidean distance equals HEOM.
+
+    Numeric columns are kept; a nominal column becomes a one-hot block
+    scaled by 1/sqrt(2), so two different levels are at distance 1 and
+    equal levels at distance 0 (Wilson & Martinez 1997).
+    """
+    cols = []
+    for j, lv in enumerate(levels):
+        if lv is None:
+            cols.append(Z[:, [j]])
+        else:
+            cols.append((Z[:, [j]] == lv[None, :]) / np.sqrt(2.0))
+    return np.hstack(cols)
+
+
+def _minimax_eval_set(space) -> np.ndarray:
+    """
+    Normalised feasible candidate pool used by minimax(): the whole
+    pool when it has at most ``_MINIMAX_EXACT_MAX`` points, otherwise a
+    fixed random subset of that size (the same for every design).
+    """
+    source = space.candidate_pool
+    cached = getattr(space, '_minimax_eval', None)
+    if cached is not None and cached[0] is source:
+        return cached[1]
+    pool = np.asarray(source, dtype=float)
+    if len(pool) > _MINIMAX_EXACT_MAX:
+        idx  = np.random.default_rng(44).choice(
+            len(pool), size=_MINIMAX_EXACT_MAX, replace=False)
+        pool = pool[np.sort(idx)]
+    granges = space.granges
+    E = (pool - space.gmins) / np.where(granges > _EPS, granges, 1.0)
+    # Keyed on the pool object, which the space rebuilds whenever its
+    # parameters or constraints change.
+    space._minimax_eval = (source, E)
+    return E
+
+
 def minimax(X: np.ndarray, space=None, n_eval: int = 5_000) -> float:
     """
     Minimax (fill / coverage) distance.
 
-    The maximum over evaluation grid points of the minimum distance
-    to any design point. Lower values indicate better space
-    coverage. Uses HEOM when *space* has nominal factors so that
-    coverage is defined consistently on mixed spaces.
+    The largest distance from a point of the space to its nearest
+    design point. Lower values indicate better space coverage. Uses
+    HEOM when *space* has nominal factors so that coverage is defined
+    consistently on mixed spaces; without *space* nominal factors are
+    not recognised.
+
+    With *space* given, the points to cover are the feasible candidate
+    pool (constraints applied), so the value is exact for the discrete
+    problem Mergen solves. Pools larger than ``_MINIMAX_EXACT_MAX``
+    points are represented by a fixed random subset; the value is then
+    an estimate from below. Without *space*, a regular grid on
+    :math:`[0, 1]^d` (``n_eval`` points; random points for d > 6) is
+    used, which ignores constraints and nominal factors and is also
+    an estimate from below.
 
     References
     ----------
@@ -223,6 +277,17 @@ def minimax(X: np.ndarray, space=None, n_eval: int = 5_000) -> float:
     n, d = X.shape
     chunk = 1_000
 
+    if space is not None:
+        from scipy.spatial import cKDTree
+        E = _minimax_eval_set(space)
+        if space.has_nominal:
+            mask   = space.is_mask
+            levels = [np.unique(np.concatenate([E[:, j], X[:, j]]))
+                      if mask[j] else None for j in range(d)]
+            E, X = _embed_heom(E, levels), _embed_heom(X, levels)
+        dist, _ = cKDTree(X).query(E, k=1)
+        return float(dist.max())
+
     if d <= 6:
         n_grid   = max(3, int(round(n_eval ** (1 / d))))
         axes     = [np.linspace(0, 1, n_grid)] * d
@@ -232,19 +297,12 @@ def minimax(X: np.ndarray, space=None, n_eval: int = 5_000) -> float:
     else:
         eval_pts = np.random.default_rng(44).uniform(0, 1, (n_eval, d))
 
-    heom_mode = space is not None and space.has_nominal
     max_min = 0.0
     for start in range(0, len(eval_pts), chunk):
         ep = eval_pts[start:start + chunk]
-        if heom_mode:
-            # HEOM squared distance, chunk-vs-X broadcast.
-            from .distances import heom_squared
-            d2 = heom_squared(ep[:, None, :], X[None, :, :], space=space)
-            dists = np.sqrt(d2)
-        else:
-            dists = np.sqrt(
-                ((ep[:, np.newaxis, :] - X[np.newaxis, :, :]) ** 2).sum(axis=2)
-            )
+        dists = np.sqrt(
+            ((ep[:, np.newaxis, :] - X[np.newaxis, :, :]) ** 2).sum(axis=2)
+        )
         max_min = max(max_min, float(dists.min(axis=1).max()))
     return float(max_min)
 
@@ -352,14 +410,17 @@ def _mc_baseline(
     mc_samples:   int,
     seed:         int = 44,
     space         = None,
+    exclude:      Optional[Sequence] = None,
 ) -> Dict[str, np.ndarray]:
     """
     Draw mc_samples random designs of size n from the feasible pool
     and evaluate all requested metrics and criteria.
 
-    The feasible pool is the full candidate set (constraints already
-    applied via GridSampler). Prescribed and focus reserved indices
-    are NOT excluded — they are part of the feasible space.
+    With *space* given, the pool is its feasible candidate pool
+    (constraints applied) minus the points in *exclude* (exclusion
+    centres, which a design can never contain). Prescribed and focus
+    points are NOT excluded: they are part of the feasible space.
+    Without *space*, the full Cartesian product of *gs* is used.
 
     Returns
     -------
@@ -368,11 +429,24 @@ def _mc_baseline(
     rng     = np.random.default_rng(seed)
     results = {m: [] for m in metric_names + crit_names}
 
+    if space is not None:
+        pool = np.asarray(space.candidate_pool, dtype=float)
+        if exclude is not None and len(exclude):
+            ex   = np.asarray(exclude, dtype=float).reshape(-1, pool.shape[1])
+            keep = ~np.any(np.all(np.isclose(pool[:, None, :], ex[None, :, :],
+                                             rtol=1e-9, atol=1e-9),
+                                  axis=2), axis=1)
+            pool = pool[keep]
+    else:
+        pool = None
+    n_pool = len(pool) if pool is not None else gs.n_candidates
+
     for _ in range(mc_samples):
-        indices  = rng.choice(gs.n_candidates,
-                              size=min(n, gs.n_candidates),
-                              replace=False)
-        pts_raw  = np.array([gs.index_to_point(int(i)) for i in indices])
+        indices  = rng.choice(n_pool, size=min(n, n_pool), replace=False)
+        if pool is not None:
+            pts_raw = pool[indices]
+        else:
+            pts_raw = np.array([gs.index_to_point(int(i)) for i in indices])
         X_norm   = (pts_raw - gmins) / np.where(granges > _EPS, granges, 1.0)
 
         for m in metric_names:
@@ -509,6 +583,7 @@ def quality_report(
             gs, gmins, granges, n,
             metric_names, crit_names,
             mc_samples, space=space,
+            exclude=result._meta.get('exclusions'),
         )
         if verbose:
             print(f"  {_GREEN}[METRICS]{_RESET}  "
@@ -670,12 +745,13 @@ def comparison(result) -> pd.DataFrame:
         row    = {}
         for m in _DEFAULT_METRICS:
             try:
-                row[m] = _compute_metric(m, X_norm)
+                row[m] = _compute_metric(m, X_norm, space=space)
             except Exception:
                 row[m] = np.nan
         # Also include the criterion score
         try:
-            row[f'{crit_name}_score'] = _compute_criterion(crit_name, X_norm)
+            row[f'{crit_name}_score'] = _compute_criterion(crit_name, X_norm,
+                                                           space=space)
         except Exception:
             row[f'{crit_name}_score'] = np.nan
         rows[crit_name] = row

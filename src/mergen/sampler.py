@@ -2008,6 +2008,9 @@ class Sampler:
             'n_validation'    : len(df_val),
             'best_log_score'  : float(np.log(max(best_score, _EPS))),
             'elapsed_sec'     : float(t_elapsed),
+            # Exclusion centres, which the baseline of quality_report()
+            # leaves out of the random designs.
+            'exclusions'      : [ep.point.tolist() for ep in self._exclusions],
         }
         return result
 
@@ -2154,6 +2157,9 @@ class Sampler:
             'n_validation'    : len(df_val),
             'best_log_score'  : float('nan'),
             'elapsed_sec'     : float(t_elapsed),
+            # Exclusion centres, which the baseline of quality_report()
+            # leaves out of the random designs.
+            'exclusions'      : [ep.point.tolist() for ep in self._exclusions],
         }
         return result
 
@@ -2403,6 +2409,7 @@ class Sampler:
                 metric_names=list(_COMPARE_METRICS),
                 crit_names=[], mc_samples=mc_samples, seed=seed,
                 space=self.space,
+                exclude=[ep.point for ep in self._exclusions],
             )
 
         return self._finish_compare(

@@ -24,7 +24,7 @@ result.quality_report()
   Metric                      Value    Baseline  Better when    Rank
 ────────────────────────────────────────────────────────────────────
   Min distance               0.0857      0.0505  higher      90th pct
-  Minimax distance           0.7013      0.5851  lower        6th pct *
+  Minimax distance           0.7013      0.5696  lower        5th pct *
   Max |correlation|          0.3978      0.2386  lower        8th pct *
   2D projection CD2          0.2488      0.1890  lower        6th pct *
   CV distances               0.3908      0.4017  lower       72th pct
@@ -63,8 +63,8 @@ better.
 *Rank* is direction-adjusted, so it always reads the same way: it is
 the share of baseline designs that your design beats on that metric.
 The 90th percentile min distance above outperforms 90 percent of the
-random designs; the 6th percentile minimax distance outperforms only
-6 percent of them. Higher rank is always better, whatever the metric's
+random designs; the 5th percentile minimax distance outperforms only
+5 percent of them. Higher rank is always better, whatever the metric's
 direction, and the terminal colour coding follows the same rule.
 
 ### The asterisks
