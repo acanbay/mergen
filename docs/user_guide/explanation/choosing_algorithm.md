@@ -89,9 +89,9 @@ better) with wall time annotated. Produced by
 Budget is controlled per algorithm through `Sampler.set_optimizer()`
 (for example the number of restarts or iterations); the defaults are
 sized so that a typical design of a few dozen points finishes in about
-a minute. If two optimisers seem plausible, `Sampler.compare()` accepts a
-list of algorithms and settles the question empirically on your actual
-problem.
+a minute. If two optimisers seem plausible, `Sampler.compare()`
+accepts a list of algorithms and settles the question empirically on
+your actual problem.
 
 ## References
 

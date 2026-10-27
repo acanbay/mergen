@@ -15,12 +15,13 @@ size from the same feasible space (respecting all constraints and
 exclusions, and leaving out `add_set()` points, focus centres with
 `include_center=False` and the reference points of
 `sequential.fill_around`, which the optimiser cannot use) and computes
-every metric for each. The *Rank* column is direction-adjusted: it is the share of these random designs that your
-design outperforms on that metric, so higher is always better. Ties
-count half, and your design is counted among the 301 designs, so the
-rank never reaches exactly 0 or 100. A design at the 90th percentile
-on minimum distance beats about 90 percent of random attempts; one at
-the 6th percentile beats almost none.
+every metric for each. The *Rank* column is direction-adjusted: it is
+the share of these random designs that your design outperforms on that
+metric, so higher is always better. Ties count half, and your design
+is counted among the 301 designs, so the rank never reaches exactly 0
+or 100. A design at the 90th percentile on minimum distance beats
+about 90 percent of random attempts; one at the 6th percentile beats
+almost none.
 
 Because the baseline is generated at runtime from your actual space,
 the comparison remains honest under constraints: a heavily constrained
@@ -33,11 +34,10 @@ the rest is drawn at random, and the report footer says so. The rank
 then measures what the optimisation added around your fixed points. A
 metric that the fixed points alone decide (for example the minimum
 distance of two prescribed points as close as any two grid points can
-be) gives the
-same value for every random design, and its rank is 50. To compare the
-whole delivered design with fully random designs, load it into a new
-sampler with `load_design(result.samples)` and call `quality_report()`
-there.
+be) gives the same value for every random design, and its rank is 50.
+To compare the whole delivered design with fully random designs, load
+it into a new sampler with `load_design(result.samples)` and call
+`quality_report()` there.
 
 ## Min distance ($d_{\min}$)
 
@@ -89,12 +89,12 @@ is the geometric face of what the projection-based criteria optimise.
 ## Centred $L_2$-discrepancy ($\mathrm{CD}_2$)
 
 The centred $L_2$-discrepancy of the whole design (Hickernell, 1998;
-lower is better): how far the points are from uniform on the unit cube,
-the quantity the `cd2` criterion minimises. It is not in the default
-report, but it can be named in a `priority`, for example
+lower is better): how far the points are from uniform on the unit
+cube, the quantity the `cd2` criterion minimises. It is not in the
+default report, but it can be named in a `priority`, for example
 `priority=('minimax', 'cd2')`; with `selection='lexicographic'` this
-asks for the best coverage first and the most uniform design second. Nominal factors are left out, as in the
-projection version.
+asks for the best coverage first and the most uniform design second.
+Nominal factors are left out, as in the projection version.
 
 ## CV of distances ($\mathrm{CV}_d$)
 

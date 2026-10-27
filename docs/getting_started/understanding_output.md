@@ -61,20 +61,19 @@ from the same feasible space and computes every metric for each of
 them. If your design has prescribed or focus points, every random
 design keeps them and only the rest is random; the quality metrics
 page explains this. This baseline is what turns raw numbers into
-evidence. A minimum
-distance of 0.1491 means nothing in isolation; knowing that 300 random
-attempts had a median of 0.0505 quantifies what the optimisation
-gained.
+evidence. A minimum distance of 0.1491 means nothing in isolation;
+knowing that 300 random attempts had a median of 0.0505 quantifies
+what the optimisation gained.
 
 ### Reading a row
 
 Each row has four parts.
 
 *Value* is the metric computed on your design. *Baseline* is the
-median of the same metric over the 300 random designs. *Better when* tells
-you the direction: for minimum distance, higher is better (points far
-from their nearest neighbour); for discrepancy-type metrics, lower is
-better.
+median of the same metric over the 300 random designs. *Better when*
+tells you the direction: for minimum distance, higher is better
+(points far from their nearest neighbour); for discrepancy-type
+metrics, lower is better.
 
 *Rank* is direction-adjusted, so it always reads the same way: it is
 the share of baseline designs that your design beats on that metric.

@@ -47,8 +47,8 @@ sampler.add_focus(point=[300, 2.0], spread=1.0, n_samples=4)
 nodes around the point, with a Gaussian weight whose width `spread` is
 counted in grid steps of each axis, so `spread=1.0` keeps them mostly
 within one or two steps of the point whatever the units; a nominal
-factor keeps the point's category. Use it when one region of the space warrants denser
-sampling than the rest.
+factor keeps the point's category. Use it when one region of the space
+warrants denser sampling than the rest.
 
 ## Exclusion zones
 
