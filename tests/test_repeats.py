@@ -74,7 +74,7 @@ class TestAutoRepeats:
         a = _hard_sampler().run(criteria='cd2', algorithm='sa', seed=44,
                                 n_repeats=6, n_jobs=1, verbose=False)
         b = _hard_sampler().run(criteria='cd2', algorithm='sa', seed=44,
-                                n_repeats=6, n_jobs=3, verbose=False)
+                                n_repeats=6, n_jobs=2, verbose=False)
         # The repeats really differ, so a seed tied to the worker would
         # show.
         scores = [r.score for r in a._repeats_by_alg['sa']]
@@ -203,7 +203,7 @@ def test_compare_does_not_depend_on_n_jobs():
                                        algorithms=['sa'], n_repeats=4,
                                        mc_samples=20, n_jobs=n_jobs,
                                        verbose=False)
-    a, b = sweep(1), sweep(4)
+    a, b = sweep(1), sweep(2)
     assert a.best == b.best
     assert a.metrics.equals(b.metrics)
     assert a.best_result.samples.equals(b.best_result.samples)
