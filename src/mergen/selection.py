@@ -8,7 +8,7 @@ and a ``priority``) both end with the same question: given a few
 candidate designs and their raw metric values, which one is delivered?
 This module answers it with one of two documented rules.
 
-``'lexicographic'`` (default)
+``'lexicographic'`` (default of :func:`select`)
     The priority metrics are ranked by importance. Candidates are
     filtered metric by metric: at each level only those within the
     tolerance of the best surviving value are kept, and the next metric
@@ -16,18 +16,17 @@ This module answers it with one of two documented rules.
     Waltz 1967; Ehrgott 2005, ch. 5). Each level compares against the
     best survivor, never pairwise, so tolerances cannot chain.
 
-``'pareto'``
+``'pareto'`` (default of :meth:`Sampler.run` and :meth:`Sampler.compare`)
     The priority metrics are treated as unordered, competing objectives
     (Lu, Anderson-Cook & Robinson 2011). The non-dominated candidates
-    are kept; each metric is min-max scaled over all valid candidates,
-    metrics whose spread lies within the tolerance are dropped as
-    uninformative, and the front member closest to the Utopia point
-    wins. Ties on Utopia distance (for example, two candidates that are
-    the only valid ones and each win one of two metrics) are resolved in
-    priority order; :attr:`Selection.decided_by` reports when that
-    happens. A min-max compromise also depends on the
-    candidate set: adding a candidate can change which of the others
-    wins.
+    are kept; each metric is min-max scaled over these front members,
+    metrics whose spread on the front lies within the tolerance are
+    dropped as uninformative, and the front member closest to the
+    Utopia point wins. Scaling over the front means a dominated
+    candidate can never change the winner. Ties on Utopia distance (for
+    example, two front members that each win one of two metrics) are
+    resolved in priority order; :attr:`Selection.decided_by` reports
+    when that happens.
 
 Two values ``a`` and ``b`` of a metric count as equal when
 ``|a - b| <= tol + rtol * max(|a|, |b|)`` (the semantics of
@@ -251,7 +250,9 @@ def select(
         rest = ties
         decided_by = 'metrics' if len(ties) == 1 else 'tiebreak'
     else:
-        lo, hi = V[valid].min(axis=0), V[valid].max(axis=0)
+        # Scale over the front, so dominated candidates cannot move the
+        # Utopia point or the ranges.
+        lo, hi = V[list(front)].min(axis=0), V[list(front)].max(axis=0)
         span   = hi - lo
         inform = ~_close(hi, lo, tol, rtol)
         if inform.any():
