@@ -459,7 +459,7 @@ class TestOptimizerValidation:
         space = mergen.ParameterSpace({'x': _LEVELS.tolist()})
         s = mergen.Sampler(space)
         s.set_design(n_samples=n)
-        res = s.run(criteria='phi_p', algorithm=algorithm,
+        res = s.run(n_repeats=1, criteria='phi_p', algorithm=algorithm,
                     seed=44, verbose=False)
         found = _phi_p_naive(res.samples[['x']].to_numpy(), 15)
         assert np.isclose(found, best, rtol=1e-9)
@@ -471,7 +471,7 @@ class TestOptimizerValidation:
                                        'y': _LEVELS.tolist()})
         s = mergen.Sampler(space)
         s.set_design(n_samples=10)
-        res = s.run(criteria='cd2', algorithm=algorithm,
+        res = s.run(n_repeats=1, criteria='cd2', algorithm=algorithm,
                     seed=44, verbose=False)
         opt = CD2().evaluate(res.samples[['x', 'y']].to_numpy(), space=None)
 
@@ -482,3 +482,16 @@ class TestOptimizerValidation:
                 [rng.permutation(_LEVELS)[:10] for _ in range(2)]), None)
             for _ in range(200)])
         assert opt < np.median(baseline)
+
+
+@pytest.mark.parametrize("value, shown", [
+    ("1", False), ("true", False), ("0", True), ("false", True), ("", True),
+])
+def test_mergen_silent_values(value, shown):
+    # 0.1.0 treated any non-empty value, "0" included, as silent.
+    import subprocess
+    import sys
+    env = {**__import__('os').environ, 'MERGEN_SILENT': value}
+    out = subprocess.run([sys.executable, '-c', 'import mergen'],
+                         capture_output=True, text=True, env=env).stdout
+    assert ('Ali Can Canbay' in out) is shown

@@ -30,7 +30,7 @@ class TestConstraints:
         s = mergen.Sampler(sp)
         s.set_design(n_samples=6, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=200)
-        r = s.run(criteria='cd2', algorithm='sa', seed=1, verbose=False)
+        r = s.run(n_repeats=1, criteria='cd2', algorithm='sa', seed=1, verbose=False)
         pts = r.best_design[['x', 'y']].values
         # On a discrete pool the SA only picks from the (already filtered)
         # candidate pool, so every returned point must obey the constraint.
@@ -56,7 +56,7 @@ class TestFocusPrescribedExclusion:
         s.add_prescribed([[0.30, 0.70], [0.80, 0.20]], in_design=True)
         s.set_design(n_samples=10, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=300)
-        r = s.run(criteria='cd2', algorithm='sa', seed=1, verbose=False)
+        r = s.run(n_repeats=1, criteria='cd2', algorithm='sa', seed=1, verbose=False)
         pts = r.best_design[['x', 'y']].values
         for pp in [[0.30, 0.70], [0.80, 0.20]]:
             dists = np.linalg.norm(pts - np.array(pp), axis=1)
@@ -68,22 +68,26 @@ class TestFocusPrescribedExclusion:
                     n_samples=3, in_design=True)
         s.set_design(n_samples=10, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=300)
-        r = s.run(criteria='cd2', algorithm='sa', seed=1, verbose=False)
-        pts = r.best_design[['x', 'y']].values
+        r = s.run(n_repeats=1, criteria='cd2', algorithm='sa', seed=1, verbose=False)
+        df = r.best_design
+        pts = df.loc[df.point_type == 'Focus', ['x', 'y']].values
         dists = np.linalg.norm(pts - np.array([0.5, 0.5]), axis=1)
-        assert np.sum(dists < 0.3) >= 3
+        # The focus rows themselves, not the optimised rows, must sit
+        # around the centre: all three within three spreads.
+        assert len(pts) == 3
+        assert dists.max() <= 3 * 0.2
 
     def test_exclusion_zone_avoided(self, grid_space):
         s = mergen.Sampler(grid_space)
         s.add_exclusion(point=[0.5, 0.5], spread=0.15)
         s.set_design(n_samples=10, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=300)
-        r = s.run(criteria='cd2', algorithm='sa', seed=1, verbose=False)
-        pts = r.best_design[['x', 'y']].values
+        r = s.run(n_repeats=1, criteria='cd2', algorithm='sa', seed=1, verbose=False)
+        # An exclusion bans its centre point only (see add_exclusion).
+        pts = np.vstack([r.best_design[['x', 'y']].values,
+                         r.validation[['x', 'y']].values]).astype(float)
         dists = np.linalg.norm(pts - np.array([0.5, 0.5]), axis=1)
-        assert dists.min() >= 0.05 - 1e-6, (
-            "a design point lies well inside the exclusion sphere"
-        )
+        assert dists.min() > 1e-9, "the exclusion centre is in the design"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -94,7 +98,7 @@ class TestValidationSet:
         s = mergen.Sampler(num_space)
         s.set_design(n_samples=10, n_validation=4)
         s.set_optimizer('sa', n_restarts=1, max_iter=300)
-        r = s.run(criteria='cd2', algorithm='sa', seed=1, verbose=False)
+        r = s.run(n_repeats=1, criteria='cd2', algorithm='sa', seed=1, verbose=False)
         # best_design is training only; validation lives elsewhere
         assert len(r.best_design) == 10
 
@@ -117,7 +121,7 @@ class TestNested:
         kw.setdefault('n_inner', 4)
         kw.setdefault('seed', 1)
         return mergen.sequential.nested(
-            s, criteria='cd2', algorithm='sa', verbose=False, **kw,
+            s, criteria='cd2', algorithm='sa', verbose=False, **kw, n_repeats=1
         )
 
     def test_nested_returns_two_frames(self, sampler):
@@ -167,7 +171,7 @@ class TestEdgeCases:
         s = mergen.Sampler(mergen.ParameterSpace({'x': ('continuous', 0., 1.)}))
         s.set_design(n_samples=8, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=200)
-        r = s.run(criteria='cd2', algorithm='sa', seed=1, verbose=False)
+        r = s.run(n_repeats=1, criteria='cd2', algorithm='sa', seed=1, verbose=False)
         assert len(r.best_design) == 8
 
     def test_high_dimensional_space(self):
@@ -179,7 +183,7 @@ class TestEdgeCases:
         s = mergen.Sampler(mergen.ParameterSpace(params))
         s.set_design(n_samples=15, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=200)
-        r = s.run(criteria='cd2', algorithm='sa', seed=1, verbose=False)
+        r = s.run(n_repeats=1, criteria='cd2', algorithm='sa', seed=1, verbose=False)
         assert np.isfinite(r.best_score)
         assert len(r.best_design) == 15
 
@@ -195,7 +199,8 @@ class TestEdgeCases:
         s = mergen.Sampler(sp)
         s.set_design(n_samples=20, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=300)
-        r = s.run(criteria='maxproqq', algorithm='sa', seed=1, verbose=False)
+        r = s.run(n_repeats=1, criteria='maxproqq', algorithm='sa',
+                  seed=1, verbose=False)
         assert np.isfinite(r.best_score)
 
 
@@ -222,7 +227,7 @@ class TestQualityRegression:
         s = mergen.Sampler(num_space)
         s.set_design(n_samples=10, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=1000)
-        r = s.run(criteria='cd2', algorithm='sa', seed=1, verbose=False)
+        r = s.run(n_repeats=1, criteria='cd2', algorithm='sa', seed=1, verbose=False)
 
         assert r.best_score < random_median, (
             f"SA ({r.best_score:.4f}) not better than random median "
@@ -234,9 +239,11 @@ class TestQualityRegression:
         s = mergen.Sampler(num_space)
         s.set_design(n_samples=10, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=100)
-        r_short = s.run(criteria='cd2', algorithm='sa', seed=1, verbose=False)
+        r_short = s.run(n_repeats=1, criteria='cd2', algorithm='sa',
+                        seed=1, verbose=False)
         s.set_optimizer('sa', n_restarts=1, max_iter=2000)
-        r_long  = s.run(criteria='cd2', algorithm='sa', seed=1, verbose=False)
+        r_long  = s.run(n_repeats=1, criteria='cd2', algorithm='sa',
+                        seed=1, verbose=False)
         # long is at least as good (allow 5% wiggle for stochastic ties)
         assert r_long.best_score <= r_short.best_score * 1.05
 
@@ -249,11 +256,11 @@ class TestExtendFillDetail:
         s = mergen.Sampler(num_space)
         s.set_design(n_samples=8, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=300)
-        r = s.run(criteria='cd2', algorithm='sa', seed=1, verbose=False)
+        r = s.run(n_repeats=1, criteria='cd2', algorithm='sa', seed=1, verbose=False)
         original = r.best_design[['x', 'y']].values.copy()
         extended = mergen.sequential.extend(
             s, r.best_design, n_new=4,
-            criteria='cd2', algorithm='sa', verbose=False,
+            criteria='cd2', algorithm='sa', verbose=False, n_repeats=1
         )
         ext_pts = extended.best_design[['x', 'y']].values
         # Every original point must survive in the extended design
@@ -264,7 +271,7 @@ class TestExtendFillDetail:
         s = mergen.Sampler(num_space)
         s.set_design(n_samples=10, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=300)
-        r = s.run(criteria='cd2', algorithm='sa', seed=1, verbose=False)
+        r = s.run(n_repeats=1, criteria='cd2', algorithm='sa', seed=1, verbose=False)
         folds = mergen.sequential.k_fold_split(s, r.best_design, k=5)
         # Test indices across folds should be disjoint
         seen = set()
@@ -291,7 +298,7 @@ class TestAddSet:
         s.add_set('test', [[2, 2], [8, 8]], color='#9b5de5')
         s.set_design(n_samples=8, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=200)
-        r = s.run(seed=1, verbose=False)
+        r = s.run(n_repeats=1, seed=1, verbose=False)
         assert 'test' in r.sets
         assert len(r.sets['test']) == 2
         assert (r.sets['test']['color'] == '#9b5de5').all()
@@ -302,7 +309,7 @@ class TestAddSet:
         s.add_set('test', [[2, 2], [8, 8], [5, 9]])
         s.set_design(n_samples=10, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=300)
-        r = s.run(seed=1, verbose=False)
+        r = s.run(n_repeats=1, seed=1, verbose=False)
         design = set(map(tuple, r.best_design[['x', 'y']].values))
         held   = {(2.0, 2.0), (8.0, 8.0), (5.0, 9.0)}
         assert design.isdisjoint(held)
@@ -334,7 +341,7 @@ class TestLoadDesign:
         s = mergen.Sampler(grid10)
         s.load_design([[1, 1], [5, 5], [9, 9]])
         s.set_design(n_validation=2)
-        r = s.run(seed=1, verbose=False)
+        r = s.run(n_repeats=1, seed=1, verbose=False)
         assert (r.samples['point_type'] == 'Existing').all()
         assert (r.samples['color'] == '#3a86ff').all()
         assert len(r.samples) == 3
@@ -345,7 +352,7 @@ class TestLoadDesign:
         s = mergen.Sampler(grid10)
         s.load_design(prev, name='campaign1', color='#ff8800')
         s.set_design(n_validation=2)
-        r = s.run(seed=1, verbose=False)
+        r = s.run(n_repeats=1, seed=1, verbose=False)
         assert (r.samples['point_type'] == 'campaign1').all()
         assert (r.samples['color'] == '#ff8800').all()
 
@@ -353,7 +360,7 @@ class TestLoadDesign:
         s = mergen.Sampler(grid10)
         s.load_design([[1, 1], [5, 5], [9, 9], [3, 7]])
         s.set_design(n_validation=3)
-        r = s.run(seed=1, verbose=False)
+        r = s.run(n_repeats=1, seed=1, verbose=False)
         assert len(r.validation) == 3
         design = set(map(tuple, r.samples[['x', 'y']].values))
         val    = set(map(tuple, r.validation[['x', 'y']].values))
@@ -364,14 +371,14 @@ class TestLoadDesign:
         s.load_design([[1, 1]])
         s.set_design(n_samples=10)
         with pytest.raises(ValueError):
-            s.run(seed=1, verbose=False)
+            s.run(n_repeats=1, seed=1, verbose=False)
 
     def test_rejects_prescribed(self, grid10):
         s = mergen.Sampler(grid10)
         s.load_design([[1, 1]])
         s.add_prescribed([[5, 5]])
         with pytest.raises(ValueError):
-            s.run(seed=1, verbose=False)
+            s.run(n_repeats=1, seed=1, verbose=False)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -390,7 +397,7 @@ class TestCompare:
         return s
 
     def test_basic_flow(self, sampler_numeric, capsys):
-        cmp = sampler_numeric.compare(
+        cmp = sampler_numeric.compare(n_repeats=5,
             criteria=['umaxpro', 'cd2'], mc_samples=50, verbose=False)
         capsys.readouterr()
         assert len(cmp.results) == 2
@@ -398,7 +405,7 @@ class TestCompare:
         assert cmp.best in cmp.results
 
     def test_numeric_auto_filter(self, sampler_numeric, capsys):
-        cmp = sampler_numeric.compare(mc_samples=50, verbose=False)
+        cmp = sampler_numeric.compare(n_repeats=5, mc_samples=50, verbose=False)
         capsys.readouterr()
         crits = {k[0] for k in cmp.results}
         assert 'maxproqq' not in crits
@@ -412,18 +419,18 @@ class TestCompare:
         s = mergen.Sampler(space)
         s.set_design(n_samples=8, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=150)
-        cmp = s.compare(mc_samples=50, verbose=False)
+        cmp = s.compare(n_repeats=5, mc_samples=50, verbose=False)
         capsys.readouterr()
         assert {k[0] for k in cmp.results} == {'maxproqq', 'qqd'}
 
     def test_invalid_priority_metric(self, sampler_numeric):
         with pytest.raises(ValueError):
-            sampler_numeric.compare(
+            sampler_numeric.compare(n_repeats=5,
                 criteria=['umaxpro'], priority=('no_such_metric',),
                 mc_samples=50, verbose=False)
 
     def test_best_result_consistency(self, sampler_numeric, capsys):
-        cmp = sampler_numeric.compare(
+        cmp = sampler_numeric.compare(n_repeats=5,
             criteria=['umaxpro', 'phi_p'], mc_samples=50, verbose=False)
         capsys.readouterr()
         # best_result is a full SamplingResult for the winning
@@ -445,7 +452,7 @@ class TestCompare:
             np.sort(r.samples[cols].to_numpy(dtype=float), axis=0))
 
     def test_percentiles_in_range(self, sampler_numeric, capsys):
-        cmp = sampler_numeric.compare(
+        cmp = sampler_numeric.compare(n_repeats=5,
             criteria=['umaxpro', 'cd2'], mc_samples=50, verbose=False)
         capsys.readouterr()
         cols = [c for c in cmp.table.columns
@@ -470,7 +477,7 @@ class TestCompareSixMetrics:
         return s
 
     def test_all_six_metrics_present(self, sampler_numeric, capsys):
-        cmp = sampler_numeric.compare(
+        cmp = sampler_numeric.compare(n_repeats=5,
             criteria=['cd2', 'phi_p'], mc_samples=50, verbose=False)
         capsys.readouterr()
         cols = [c for c in cmp.table.columns
@@ -498,7 +505,7 @@ class TestCompareOrdering:
     def test_row_order_matches_input(self, sampler_numeric, capsys):
         crits = ['phi_p', 'cd2', 'maxpro']
         algs = ['sa', 'sce']
-        cmp = sampler_numeric.compare(
+        cmp = sampler_numeric.compare(n_repeats=5,
             algorithms=algs, criteria=crits, mc_samples=40, verbose=False)
         capsys.readouterr()
         got = [(r.criterion, r.algorithm) for r in cmp.table.itertuples()]
@@ -506,7 +513,7 @@ class TestCompareOrdering:
         assert got == expected
 
     def test_best_marker_present(self, sampler_numeric, capsys):
-        cmp = sampler_numeric.compare(
+        cmp = sampler_numeric.compare(n_repeats=5,
             criteria=['cd2', 'phi_p'], mc_samples=40, verbose=False)
         capsys.readouterr()
         marks = [r.best.strip() for r in cmp.table.itertuples()]
@@ -525,7 +532,7 @@ class TestComparisonResultOutputs:
         s = mergen.Sampler(space)
         s.set_design(n_samples=8, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=120)
-        return s.compare(criteria=['cd2', 'phi_p'],
+        return s.compare(n_repeats=5, criteria=['cd2', 'phi_p'],
                          mc_samples=40, verbose=False)
 
     def test_plot_saves_file(self, comparison, tmp_path, capsys):
@@ -556,7 +563,7 @@ class TestQualityReportDefaultPercentile:
         s = mergen.Sampler(space)
         s.set_design(n_samples=8, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=120)
-        r = s.run(criteria='cd2', verbose=False)
+        r = s.run(n_repeats=1, criteria='cd2', verbose=False)
         rep = r.quality_report(verbose=False)
         capsys.readouterr()
         assert any(k.endswith('_percentile_rank') for k in rep)
@@ -569,7 +576,7 @@ class TestQualityReportDefaultPercentile:
         s = mergen.Sampler(space)
         s.set_design(n_samples=8, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=120)
-        r = s.run(criteria='cd2', verbose=False)
+        r = s.run(n_repeats=1, criteria='cd2', verbose=False)
         rep = r.quality_report(mc_samples=0, verbose=False)
         capsys.readouterr()
         assert not any(k.endswith('_percentile_rank') for k in rep)
@@ -606,7 +613,7 @@ class TestReportExportsLatex:
         s = mergen.Sampler(space)
         s.set_design(n_samples=8, n_validation=0)
         s.set_optimizer('sa', n_restarts=1, max_iter=120)
-        r = s.run(criteria='phi_p', verbose=False)
+        r = s.run(n_repeats=1, criteria='phi_p', verbose=False)
         r.output_dir = str(tmp_path)
         return r, tmp_path
 
@@ -677,7 +684,7 @@ class TestParetoUtopiaRanking:
         s.set_optimizer('sa', n_restarts=2, max_iter=200)
         s.set_optimizer('sce', n_restarts=2, max_iter=200)
         prio = ('min_distance', 'max_abs_correlation')
-        cmp = s.compare(criteria=['cd2', 'maxpro', 'phi_p'],
+        cmp = s.compare(n_repeats=5, criteria=['cd2', 'maxpro', 'phi_p'],
                         algorithms=['sa', 'sce'], priority=prio,
                         selection='pareto', mc_samples=60, verbose=False)
         capsys.readouterr()
