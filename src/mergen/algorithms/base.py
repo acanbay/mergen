@@ -37,6 +37,29 @@ if TYPE_CHECKING:
     from mergen.criteria import BaseCriterion
 
 
+def banned_points(gs, banned, design: np.ndarray) -> np.ndarray:
+    """
+    Coordinates of the banned grid nodes that are not design rows.
+
+    Swap moves build new rows from existing coordinates, so they never
+    look up a grid index; they test new rows against these points.
+    """
+    if not banned:
+        return np.empty((0, design.shape[1]))
+    pts = np.array([gs.index_to_point(int(i)) for i in sorted(banned)],
+                   dtype=float)
+    in_design = np.array([
+        np.all(np.isclose(design, p, rtol=1e-9, atol=0.0), axis=1).any()
+        for p in pts])
+    return pts[~in_design].reshape(-1, design.shape[1])
+
+
+def hits(points: np.ndarray, row: np.ndarray) -> bool:
+    """Whether *row* coincides with any of *points*."""
+    return bool(len(points)) and bool(
+        np.all(np.isclose(points, row, rtol=1e-9, atol=0.0), axis=1).any())
+
+
 # ── Optimisation result ──────────────────────────────────────────────────
 @dataclass
 class OptimisationResult:

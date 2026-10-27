@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .base import BaseOptimizer, OptimisationResult
+from .base import BaseOptimizer, OptimisationResult, banned_points, hits
 
 if TYPE_CHECKING:
     from mergen.space    import ParameterSpace
@@ -65,8 +65,8 @@ class SAOptimizer(BaseOptimizer):
     Parameters
     ----------
     n_restarts : int, default 5
-        Number of independent restarts; the best design across restarts
-        is returned. Restarts ≥ 2 use ILS-style perturbation kicks from
+        Number of restarts; the best design across restarts is
+        returned. Restarts ≥ 2 use ILS-style perturbation kicks from
         the current best (Lourenço et al. 2003).
     max_iter : int or None, default None
         Maximum Metropolis iterations per restart. ``None`` triggers the
@@ -166,6 +166,16 @@ class SAOptimizer(BaseOptimizer):
             raise ValueError(
                 f"n_restarts must be ≥ 1; got {self.n_restarts}"
             )
+        for p_name in ('max_iter', 'perturbation_size'):
+            val = getattr(self, p_name)
+            if val is not None and val < 1:
+                raise ValueError(f"{p_name} must be ≥ 1; got {val}")
+        if self.T_start is not None and not self.T_start > 0:
+            raise ValueError(f"T_start must be > 0; got {self.T_start}")
+        for p_name in ('cooling', 'T_end_ratio', 'target_accept'):
+            val = getattr(self, p_name)
+            if val is not None and not 0.0 < val < 1.0:
+                raise ValueError(f"{p_name} must be in (0, 1); got {val}")
 
         # ── Set up grid + helpers ─────────────────────────────────
         gs            = space.grid_sampler()
@@ -182,6 +192,7 @@ class SAOptimizer(BaseOptimizer):
             idx = gs.point_to_index(row)
             if idx >= 0:
                 reserved.add(idx)
+        banned_pts = banned_points(gs, banned, initial_design)
 
         # ── Multi-restart loop ─────────────────────────────────────
         best_design:    np.ndarray = initial_design.copy()
@@ -209,7 +220,7 @@ class SAOptimizer(BaseOptimizer):
             out_design, out_reserved, out_score, n_iter, n_acc = self._run_one(
                 r_design, r_reserved, gs, gmins, granges,
                 space, criterion, n_frozen, crit_start,
-                eff_seed, r_idx, verbose,
+                eff_seed, r_idx, verbose, banned_pts,
             )
 
             restart_scores.append(out_score)
@@ -265,6 +276,7 @@ class SAOptimizer(BaseOptimizer):
         seed:        int,
         r_idx:       int,
         verbose:     bool,
+        banned_pts:  Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, set, float, int, int]:
         """
         Run a single SA restart with hybrid moves.
@@ -282,12 +294,13 @@ class SAOptimizer(BaseOptimizer):
         n        = len(design)
         n_swap   = n - n_frozen
 
-        if n_swap == 0:
-            return design, reserved, float('inf'), 0, 0
-
         # Normalised view for criterion
         X_norm    = (design[crit_start:] - gmins) / granges
         raw_score = criterion.evaluate(X_norm, space)
+
+        # Every row frozen: nothing to move, but the score is real.
+        if n_swap == 0:
+            return design, reserved, float(raw_score), 0, 0
 
         # Per-restart deterministic RNG (independent of global random)
         rng = np.random.default_rng(seed + r_idx)
@@ -311,9 +324,10 @@ class SAOptimizer(BaseOptimizer):
             T_end   = float(self.T_end_ratio) * T_start
             cooling = (T_end / T_start) ** (1.0 / max(1, max_iter))
 
-        best_score  = raw_score
-        best_design = design.copy()
-        T           = T_start
+        best_score    = raw_score
+        best_design   = design.copy()
+        best_reserved = reserved.copy()
+        T             = T_start
 
         if verbose:
             self._info(
@@ -336,6 +350,7 @@ class SAOptimizer(BaseOptimizer):
                 accepted, raw_score, X_norm = self._try_swap(
                     design, X_norm, n_frozen, crit_start, raw_score,
                     space, criterion, constraints, names, T, rng,
+                    banned_pts, reserved, gs,
                 )
             else:
                 accepted, raw_score, X_norm, reserved = self._try_replace(
@@ -357,8 +372,9 @@ class SAOptimizer(BaseOptimizer):
                     # ESE's best-tracking).
                     raw_score = float(criterion.evaluate(X_norm, space))
                     if raw_score < best_score and raw_score > _CRIT_EPS:
-                        best_score  = raw_score
-                        best_design = design.copy()
+                        best_score    = raw_score
+                        best_design   = design.copy()
+                        best_reserved = reserved.copy()
 
             T *= cooling
 
@@ -380,7 +396,9 @@ class SAOptimizer(BaseOptimizer):
                 f"rate={n_accepted/max_iter:.1%})"
             )
 
-        return best_design, reserved, best_score, max_iter, n_accepted
+        # The grid nodes of the best design, not of the last one: the
+        # next restart perturbs the best design.
+        return best_design, best_reserved, best_score, max_iter, n_accepted
 
     # ────────────────────────────────────────────────────────────────
     # Private: one column-swap move                                     #
@@ -393,9 +411,14 @@ class SAOptimizer(BaseOptimizer):
         space,       criterion,
         constraints, names,
         T,           rng,
+        banned_pts=None, reserved=None, gs=None,
     ) -> Tuple[bool, float, np.ndarray]:
         """
         Attempt a column-swap between two non-frozen rows on a random axis.
+
+        A swap that would create a banned point is rejected. An accepted
+        swap moves the two rows' grid nodes in ``reserved`` (updated in
+        place), so random replacements may use the nodes it frees.
 
         Returns
         -------
@@ -413,7 +436,14 @@ class SAOptimizer(BaseOptimizer):
 
         v = int(rng.integers(0, n_dims))
         if np.isclose(design[i_abs, v], design[j_abs, v],
-                      rtol=1e-9, atol=1e-9):
+                      rtol=1e-9, atol=0.0):
+            return False, raw_score, X_norm
+        # Rows that differ only on axis v swap into each other, so the
+        # design does not change. Scoring such a swap as two single-row
+        # updates passes through a duplicate point, and the cancellation
+        # that follows reports a large false improvement.
+        other = np.arange(n_dims) != v
+        if np.array_equal(design[i_abs, other], design[j_abs, other]):
             return False, raw_score, X_norm
 
         # Constraint + duplicate check on BOTH resulting rows
@@ -431,12 +461,15 @@ class SAOptimizer(BaseOptimizer):
         # criteria (e.g. CD2) do not punish; designs must never contain
         # duplicate points.
         dup_i = np.all(np.isclose(design, row_i,
-                                  rtol=1e-9, atol=1e-9), axis=1)
+                                  rtol=1e-9, atol=0.0), axis=1)
         dup_j = np.all(np.isclose(design, row_j,
-                                  rtol=1e-9, atol=1e-9), axis=1)
+                                  rtol=1e-9, atol=0.0), axis=1)
         dup_i[i_abs] = dup_i[j_abs] = False
         dup_j[i_abs] = dup_j[j_abs] = False
         if dup_i.any() or dup_j.any():
+            return False, raw_score, X_norm
+        if banned_pts is not None and (hits(banned_pts, row_i)
+                                       or hits(banned_pts, row_j)):
             return False, raw_score, X_norm
 
         # Compute Δscore via two incremental updates (i then j on updated X)
@@ -473,6 +506,13 @@ class SAOptimizer(BaseOptimizer):
                 or rng.random() < np.exp(
                     float(np.clip(-log_delta / T, -700, 0)))):
             # Apply swap to design
+            if reserved is not None:
+                for row in (design[i_abs], design[j_abs]):
+                    reserved.discard(gs.point_to_index(row))
+                for row in (row_i, row_j):
+                    idx = gs.point_to_index(row)
+                    if idx >= 0:
+                        reserved.add(idx)
             design[i_abs, v], design[j_abs, v] = (
                 design[j_abs, v], design[i_abs, v])
             return True, score_temp, X_temp
@@ -509,17 +549,10 @@ class SAOptimizer(BaseOptimizer):
         if not (0 <= i_rel < len(X_norm)):
             return False, raw_score, X_norm, reserved
 
-        # Draw a fresh grid point that is currently unused. Swap moves
-        # do not maintain ``reserved``, so it can be stale here;
-        # excluding the *current* design rows' indices as well
-        # guarantees the replacement never coincides with an existing
-        # design point.
-        occupied = set(reserved)
-        for row in design:
-            ridx = gs.point_to_index(row)
-            if ridx >= 0:
-                occupied.add(ridx)
-        new_raw, new_idx = gs.random_point_excluding(occupied, rng=rng)
+        # Draw a fresh grid point that is currently unused. ``reserved``
+        # holds the grid node of every design row (swaps and
+        # replacements keep it current) plus the banned nodes.
+        new_raw, new_idx = gs.random_point_excluding(reserved, rng=rng)
         if new_raw is None:
             return False, raw_score, X_norm, reserved
 
@@ -595,69 +628,54 @@ class SAOptimizer(BaseOptimizer):
         probe_norm  = (probe_arr - gmins) / granges
         probe_score = criterion.evaluate(probe_norm, space)
 
-        # Collect positive transitions
-        E_min, E_max, all_deltas = [], [], []
+        # Collect uphill moves in the units of the acceptance rule: the
+        # Metropolis test uses the change of log(score), so the
+        # temperature must be calibrated on that same quantity.
+        constraints = space._constraints
+        names       = space.names
+        uphill, all_deltas = [], []
         for _ in range(n_probe):
             i_rel   = int(rng.integers(0, n_crit))
             new_idx = int(rng.integers(0, gs.n_candidates))
             if new_idx in probe_res:
                 continue
             new_raw = gs.index_to_point(new_idx)
+            if constraints and not all(
+                    c(dict(zip(names, new_raw))) for c in constraints):
+                continue
             new_pt  = (new_raw - gmins) / granges
-            ld, new_score = criterion.incremental(
+            ld, _ = criterion.incremental(
                 probe_norm, i_rel, new_pt, space, probe_score)
+            if not np.isfinite(ld):
+                continue
             all_deltas.append(abs(ld))
             if ld > 0:
-                E_min.append(probe_score)
-                E_max.append(new_score)
+                uphill.append(ld)
 
         target = float(self.target_accept)
-
-        if not E_min:
-            # No positive transitions found — fall back on |Δ| average
+        if not uphill:
+            # No uphill move found: fall back on the mean |change|.
             T_start = (np.mean(all_deltas) / -np.log(target)
                        if all_deltas else 1.0)
             T_start = float(max(T_start, 1e-12))
         else:
-            E_min_arr = np.array(E_min)
-            E_max_arr = np.array(E_max)
-            # Johnson (1989) initial estimate
-            deltas = np.log(E_max_arr) - np.log(np.maximum(E_min_arr, 1e-300))
-            T_start = -np.mean(deltas) / np.log(target)
-
-            # Numerical guard: on a near-flat probe landscape the mean
-            # log-delta underflows towards a denormal, and the
-            # multiplicative Ben-Ameur update can shrink T_start
-            # towards zero, overflowing -E/T (float64 exp range is
-            # ~709). A floor with max(E)/T <= 700 keeps every exp()
-            # argument representable; in the normal regime T_start is
-            # orders of magnitude above the floor, so behaviour is
-            # unchanged. Applied to the initial estimate and to every
-            # in-loop update.
-            T_floor = float(np.max(E_max_arr)) / 700.0
-            T_start = float(max(T_start, T_floor))
-
-            # Ben-Ameur (2004) iterative refinement, Eq. (6) with p=1
-            eps = 1e-3
-            p   = 1
-            for _ in range(50):
-                lo = -E_max_arr / T_start
-                hi = -E_min_arr / T_start
-                lo -= lo.max()
-                hi -= hi.max()
-                chi_hat = np.sum(np.exp(lo)) / np.sum(np.exp(hi))
-                chi_hat = float(np.clip(chi_hat, 1e-10, 1 - 1e-10))
-                if abs(chi_hat - target) <= eps:
+            # Ben-Ameur (2004): choose T so that the mean acceptance
+            # probability of the sampled uphill moves equals the target,
+            # chi(T) = mean(exp(-delta / T)). chi increases with T, so
+            # bisection on log T finds the root.
+            d  = np.asarray(uphill, dtype=float)
+            lo = np.log(max(float(d.min()), 1e-300)) - np.log(1e6)
+            hi = np.log(float(d.max())) + np.log(1e6)
+            for _ in range(200):
+                mid = 0.5 * (lo + hi)
+                chi = float(np.mean(np.exp(-d / np.exp(mid))))
+                if chi < target:
+                    lo = mid
+                else:
+                    hi = mid
+                if hi - lo < 1e-9:
                     break
-                ratio = np.log(chi_hat) / np.log(target)
-                if ratio <= 0:
-                    T_start *= 2.0
-                    continue
-                T_new = T_start * (ratio ** (1.0 / p))
-                if T_new < 0 or np.isnan(T_new) or np.isinf(T_new):
-                    p *= 2
-                    continue
-                T_start = float(max(T_new, T_floor))
+            T_start = float(np.exp(0.5 * (lo + hi)))
 
         max_iter = max(2000, 100 * n)
         return float(T_start), int(max_iter)
@@ -697,15 +715,9 @@ class SAOptimizer(BaseOptimizer):
         rng = np.random.default_rng(seed + r_idx + 500)
         kick_rows = rng.choice(np.arange(n_frozen, n), size=k, replace=False)
 
-        # Swap moves during the sweeps do not maintain ``reserved``, so
-        # it can be stale here; excluding the *current* design rows'
-        # indices as well guarantees the replacement never coincides
-        # with an existing design point.
+        # ``reserved`` holds the grid node of every design row plus the
+        # banned nodes; ``occupied`` follows the kicks below.
         occupied = set(reserved)
-        for row in design:
-            ridx = gs.point_to_index(row)
-            if ridx >= 0:
-                occupied.add(ridx)
 
         for i in kick_rows:
             for _ in range(20):  # up to 20 attempts to find a feasible replacement
