@@ -35,9 +35,10 @@ What to look at
 - ``summary()``: the "Candidates" count reflects the constraint (fewer
   than the unconstrained Cartesian product); the design size and any
   automatic validation split are also reported here.
-- ``quality_report()``: min_distance and max_absolute_correlation
-  percentiles against the Monte Carlo baseline show that the mixed
-  factor space is well covered despite the categorical columns.
+- ``quality_report()``: percentiles against the Monte Carlo baseline.
+  The distance-based metrics rank high; max_absolute_correlation can
+  rank lower in a small mixed design, because the criterion does not
+  target correlation and the categorical columns limit the choice.
 - ``plot('pairplot')``: panels involving the nominal catalyst factor
   should show all three levels visited; panels between numeric
   factors should look evenly spread.
@@ -52,7 +53,7 @@ Mergen features used
 - ``criteria='maxproqq'``, the default-safe choice when the space
   contains any nominal factor.
 
-Estimated runtime: a few seconds.
+Estimated runtime: under a minute.
 """
 from mergen import ParameterSpace, Sampler
 

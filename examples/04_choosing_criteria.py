@@ -36,8 +36,9 @@ What to look at
   here: a GP surrogate's prediction variance grows where design points
   are far apart (min_distance), and correlated inputs make the
   individual effect of each factor harder to separate
-  (max_abs_correlation). They are applied in order: min_distance
-  decides, and max_abs_correlation decides among designs tied on it.
+  (max_abs_correlation). They are treated as competing objectives
+  (selection='pareto'); with selection='lexicographic' min_distance
+  would decide and max_abs_correlation only break ties.
 - The winning design's saved pairplot: an even spread in every panel
   is the visual signature of a good space-filling design.
 - The saved quality plot: each metric's percentile against the Monte
@@ -51,19 +52,20 @@ Mergen features used
 - ``Sampler.compare(criteria=None, ...)``: criteria=None resolves to
   every criterion compatible with the space; since this space has no
   nominal factor, the QQ-family criteria are automatically excluded.
-  Each combination is optimised n_repeats times (default 5) from
-  independent, reproducible seeds. The winner is chosen on the raw
-  values of the priority metrics, in the order listed.
+  Each combination is optimised from independent, reproducible seeds
+  until its best result has been found five times or a work limit is
+  reached (n_repeats='auto'); a warning names any combination that
+  hit the limit first. The winner is the design closest
+  to the best value of every priority metric among those no other
+  design beats on all of them (selection='pareto').
 - ComparisonResult: .table, .metrics, .best, .best_result.
 - comparison.table saved to outputs/comparison_table.md; the winning
   design saved as a pairplot (PNG) and a CSV. ``quality_report()`` stays
   in the terminal.
 
-Estimated runtime: a few minutes on one core (five criteria x five
-repeats). On a multi-core machine, pass n_jobs=-1 (or a small number
-like n_jobs=4) to ``compare()`` to run the combinations in parallel;
-the result is identical, only faster. Leave n_jobs at its default to
-stay on a single core.
+Estimated runtime: one to two minutes. compare() uses every core by
+default (n_jobs=-1); pass n_jobs=1 to stay on one core. The result is
+the same for any n_jobs.
 """
 from mergen import ParameterSpace, Sampler
 
@@ -76,14 +78,13 @@ space = ParameterSpace({
 
 # 2. Configure the sampler and compare every compatible criterion.
 #    Each criterion/algorithm combination is optimised several times
-#    (n_repeats default 5) and represented by the repeat that is best
-#    on the priority metrics. On a multi-core machine add n_jobs=-1
-#    to parallelise; the result is unchanged.
+#    and represented by the repeat that is best on the priority
+#    metrics. Every core is used (n_jobs=-1); the result does not
+#    depend on the number of cores.
 sampler = Sampler(space)
 sampler.set_design(n_samples=30)
 comparison = sampler.compare(
     priority=('min_distance', 'max_abs_correlation'),
-    n_jobs=1,  # one core; set n_jobs=-1 to use all cores (same result)
 )
 
 # 3. Save the comparison table itself: which criterion won, and by

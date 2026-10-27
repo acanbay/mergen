@@ -56,6 +56,12 @@ Use it when exact preservation of per-axis level frequencies is a
 requirement, for example when each level of a discrete factor must
 appear a fixed number of times.
 
+The same property limits what ESE can reach. It never changes how often
+each level is used, so when the best design uses the levels unevenly,
+for example a lattice that skips every other level of a coarse factor,
+ESE cannot get there however long it runs, and `sa` or `sce` will find
+better designs. `compare()` makes such cases visible.
+
 One structural limitation follows directly from the move: with a
 single parameter ($d = 1$), swapping two values within the only column
 permutes the rows but leaves the design, as a set of points,
@@ -80,12 +86,12 @@ better) with wall time annotated. Produced by
 `result.plot('comparison')`.
 ```
 
-Budget is controlled per algorithm through `algorithm_params` (for
-example the number of restarts or iterations); the defaults are sized
-so that a typical design of a few dozen points finishes in about a
-minute. If two optimisers seem plausible, `mergen.compare()` accepts a
-list of algorithms and settles the question empirically on your actual
-problem.
+Budget is controlled per algorithm through `Sampler.set_optimizer()`
+(for example the number of restarts or iterations); the defaults are
+sized so that a typical design of a few dozen points finishes in about
+a minute. If two optimisers seem plausible, `Sampler.compare()`
+accepts a list of algorithms and settles the question empirically on
+your actual problem.
 
 ## References
 

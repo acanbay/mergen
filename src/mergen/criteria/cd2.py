@@ -60,12 +60,36 @@ class CD2(BaseCriterion):
         return float(np.sqrt(max(t1 - t2 + t3, 0.0)))
 
     def incremental(self, X, i, new_pt, space, current_score):
-        # Build updated design and recompute — CD2 cross terms make a
-        # closed-form O(n·d) update possible but complex; full recompute
-        # is O(n²·d) and acceptable for typical design sizes (n ≤ 200).
-        X_new    = X.copy()
-        X_new[i] = new_pt
-        new_score = self.evaluate(X_new, space)
+        # Moving point i changes its own term in the single sum and row
+        # and column i of the double sum, so the squared discrepancy
+        # changes by an O(n·d) amount.
+        X      = np.asarray(X, dtype=float)
+        n      = len(X)
+        old_pt = X[i]
+        new_pt = np.asarray(new_pt, dtype=float)
+        a      = np.abs(X - 0.5)
+        a_old  = np.abs(old_pt - 0.5)
+        a_new  = np.abs(new_pt - 0.5)
+
+        def single(ap):
+            return np.prod(1.0 + 0.5 * ap - 0.5 * ap ** 2)
+
+        def pairs(p, ap):
+            # Products against every row, and against the point itself.
+            row  = np.prod(1.0 + 0.5 * ap + 0.5 * a - 0.5 * np.abs(p - X),
+                           axis=1)
+            self_term = np.prod(1.0 + ap)
+            return row, self_term
+
+        row_old, self_old = pairs(old_pt, a_old)
+        row_new, self_new = pairs(new_pt, a_new)
+        mask = np.ones(n, dtype=bool)
+        mask[i] = False
+        delta = (-(2.0 / n) * (single(a_new) - single(a_old))
+                 + (2.0 * np.sum(row_new[mask] - row_old[mask])
+                    + self_new - self_old) / n ** 2)
+        new_sq    = max(current_score ** 2 + delta, 0.0)
+        new_score = float(np.sqrt(new_sq))
         log_delta = np.log(max(new_score, _EPS)) - np.log(max(current_score, _EPS))
         return float(log_delta), float(new_score)
 

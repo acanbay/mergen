@@ -46,6 +46,29 @@ from typing import List, Optional, Union
 import numpy as np
 import pandas as pd
 
+
+def _quality_table(result) -> str:
+    """
+    The terminal quality table as plain text, for the text exports.
+
+    Uses the same Monte Carlo baseline as ``result.quality_report()``.
+    Returns an empty string, with a warning, if the report fails.
+    """
+    import contextlib
+    import io
+    import re
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            result.quality_report(verbose=True)
+    except Exception as exc:
+        warnings.warn(f"Quality metrics left out of the export: {exc}",
+                      stacklevel=3)
+        return ''
+    text = re.sub(r'\033\[[0-9;]*m', '', buf.getvalue())
+    return '\n'.join(line for line in text.split('\n')
+                     if '[METRICS]' not in line).strip()
+
 try:
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
@@ -745,7 +768,7 @@ def plot_quality(result, title: bool = True,
     _require_mpl()
     from . import metrics as _metrics
 
-    stats = result.quality_report(mc_samples=200, verbose=False)
+    stats = result.quality_report(mc_samples=300, verbose=False)
 
     metric_names = _metrics._DEFAULT_METRICS
     labels = [_metrics.metric_latex(m) for m in metric_names]
@@ -792,7 +815,7 @@ def plot_quality(result, title: bool = True,
         if not np.isnan(v):
             label = f"{v:.4f}"
             if r is not None and not np.isnan(r):
-                label += f"  ({r:.0f}th pct)"
+                label += f"  ({_metrics._pct_ordinal(r)} pct)"
             t = ax.annotate(label, xy=(v, i),
                             xytext=(bar_pad_px, 0),
                             textcoords='offset points',
@@ -1140,22 +1163,9 @@ def _report_header(result) -> str:
             )
 
     # Quality metrics — full table format (same as terminal)
-    try:
-        import io
-        import sys
-        buf = io.StringIO()
-        old_stdout = sys.stdout
-        sys.stdout = buf
-        result.quality_report(mc_samples=200, verbose=True)
-        sys.stdout = old_stdout
-        table_str = buf.getvalue()
-        # Strip ANSI colour codes for text-based exports
-        import re
-        table_str = re.sub(r'\033\[[0-9;]*m', '', table_str)
-        if table_str.strip():
-            lines += ["", table_str.rstrip()]
-    except Exception:
-        pass
+    table_str = _quality_table(result)
+    if table_str:
+        lines += ["", table_str]
 
     return "\n".join(lines)
 
@@ -1170,17 +1180,25 @@ def export_csv(result, filename: str = 'design.csv') -> None:
     os.makedirs(d, exist_ok=True)
     p  = os.path.join(d, filename)
     df = _full_df(result)
-    df.to_csv(p, index=True, float_format='%.10g')
+    # Default float formatting writes the shortest exact representation.
+    df.to_csv(p, index=True)
     print(f"  Saved: {p}  ({len(df)} rows)")
 
 
 def export_json(result, filename: str = 'design.json') -> None:
     """Save all points to JSON (single table)."""
+    import json
     d  = _outdir(result)
     os.makedirs(d, exist_ok=True)
     p  = os.path.join(d, filename)
     df = _full_df(result)
-    df.to_json(p, orient='records', indent=2, double_precision=10)
+    # json writes every float exactly; pandas' double_precision counts
+    # decimal places and turned 1e-12 into 0.0.
+    records = df.astype(object).where(df.notna(), None).to_dict(
+        orient='records')
+    with open(p, 'w', encoding='utf-8') as f:
+        json.dump(records, f, indent=2,
+                  default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     print(f"  Saved: {p}  ({len(df)} rows)")
 
 
@@ -1202,7 +1220,7 @@ def export_excel(result, filename: str = 'design.xlsx') -> None:
     df = _full_df(result)
 
     with pd.ExcelWriter(p, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name='Design', index=True, float_format='%.10g')
+        df.to_excel(writer, sheet_name='Design', index=True)
         ws = writer.sheets['Design']
         # Auto-size columns
         for col in ws.columns:
@@ -1219,9 +1237,6 @@ def export_markdown(result, filename: str = 'report.md') -> None:
     run settings → quality metrics → design tables.
     """
     import mergen
-    import re
-    import io
-    import sys as _sys
     d = _outdir(result)
     os.makedirs(d, exist_ok=True)
     p = os.path.join(d, filename)
@@ -1275,23 +1290,9 @@ def export_markdown(result, filename: str = 'report.md') -> None:
 
         # ── Quality Metrics — same as terminal ────────────────────────
         f.write("## Quality Metrics\n\n")
-        try:
-            buf = io.StringIO()
-            old_stdout = _sys.stdout
-            _sys.stdout = buf
-            result.quality_report(mc_samples=200, verbose=True)
-            _sys.stdout = old_stdout
-            table_str = buf.getvalue()
-            # Strip ANSI colour codes
-            table_str = re.sub(r'\033\[[0-9;]*m', '', table_str)
-            # Strip [METRICS] progress lines
-            lines_clean = [l for l in table_str.split('\n')
-                          if '[METRICS]' not in l]
-            table_str = '\n'.join(lines_clean).strip()
-            if table_str:
-                f.write("```\n" + table_str + "\n```\n\n")
-        except Exception:
-            pass
+        table_str = _quality_table(result)
+        if table_str:
+            f.write("```\n" + table_str + "\n```\n\n")
         f.write("---\n\n")
 
         # ── Design Points ─────────────────────────────────────────────
@@ -1332,9 +1333,6 @@ def export_latex(result, filename: str = 'report.tex') -> None:
     run settings → quality metrics → design tables per point type.
     """
     import mergen
-    import re
-    import io
-    import sys as _sys
     d = _outdir(result)
     os.makedirs(d, exist_ok=True)
     p = os.path.join(d, filename)
@@ -1389,20 +1387,11 @@ def export_latex(result, filename: str = 'report.tex') -> None:
 
         # Quality Metrics
         f.write("\\subsection*{Quality Metrics}\n\n")
-        try:
-            buf = io.StringIO()
-            old_stdout = _sys.stdout
-            _sys.stdout = buf
-            result.quality_report(mc_samples=200, verbose=True)
-            _sys.stdout = old_stdout
-            table_str = buf.getvalue()
-            table_str = re.sub(r'\033\[[0-9;]*m', '', table_str)
-            lines_clean = [l for l in table_str.split('\n') if '[METRICS]' not in l]
+        table_str = _quality_table(result)
+        if table_str:
             f.write("\\begin{verbatim}\n")
-            f.write('\n'.join(lines_clean).strip())
+            f.write(table_str)
             f.write("\n\\end{verbatim}\n\n")
-        except Exception:
-            pass
 
         # Design points per type
         for lbl in ("Prescribed", "Focus", "Optimised"):
@@ -1431,9 +1420,6 @@ def export_html(result, filename: str = 'report.html') -> None:
     Save a self-contained HTML report with styled tables.
     """
     import mergen
-    import re
-    import io
-    import sys as _sys
     d = _outdir(result)
     os.makedirs(d, exist_ok=True)
     p = os.path.join(d, filename)
@@ -1486,18 +1472,7 @@ def export_html(result, filename: str = 'report.html') -> None:
         return df.to_html(index=True, border=0, classes='', float_format='%.10g')
 
     def _get_metrics_text():
-        try:
-            buf = io.StringIO()
-            old_stdout = _sys.stdout
-            _sys.stdout = buf
-            result.quality_report(mc_samples=200, verbose=True)
-            _sys.stdout = old_stdout
-            table_str = buf.getvalue()
-            table_str = re.sub(r'\033\[[0-9;]*m', '', table_str)
-            lines_clean = [l for l in table_str.split('\n') if '[METRICS]' not in l]
-            return '\n'.join(lines_clean).strip()
-        except Exception:
-            return ''
+        return _quality_table(result)
 
     with open(p, 'w', encoding='utf-8') as f:
         mathjax = (

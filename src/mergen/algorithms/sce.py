@@ -59,7 +59,7 @@ class SCEOptimizer(BaseOptimizer):
     Parameters
     ----------
     n_restarts : int, default 5
-        Number of independent restarts. Each restart starts from the
+        Number of restarts. Each restart starts from the
         previous best after an ILS perturbation (Lourenço et al. 2003).
     max_iter : int or None, default None
         Total iteration budget per restart (1 iteration = 1 axis visit
@@ -134,6 +134,8 @@ class SCEOptimizer(BaseOptimizer):
             raise ValueError(f"n_restarts must be ≥ 1; got {self.n_restarts}")
         if self.K_axis < 1:
             raise ValueError(f"K_axis must be ≥ 1; got {self.K_axis}")
+        if self.max_iter is not None and self.max_iter < 1:
+            raise ValueError(f"max_iter must be ≥ 1; got {self.max_iter}")
         if self.max_ils_kicks < 1:
             raise ValueError(
                 f"max_ils_kicks must be ≥ 1; got {self.max_ils_kicks}"
@@ -274,6 +276,7 @@ class SCEOptimizer(BaseOptimizer):
         n_accepted         = 0
         log_interval       = max(max_iter // 10, 500)
         n_local_opt        = 0
+        n_failed           = 0
         score_at_last_kick = best_score
 
         iter_count = 0
@@ -309,14 +312,13 @@ class SCEOptimizer(BaseOptimizer):
                         # Small axis — scan all other levels
                         cur_raw = design[i, axis]
                         cand_levels = [v for v in axis_levels
-                                       if abs(v - cur_raw) > 1e-12]
+                                       if v != cur_raw]
                     else:
                         # Large axis — random sample
                         cand_idx = rng.choice(n_levels, size=K_axis,
                                               replace=False)
                         cand_levels = [axis_levels[j] for j in cand_idx
-                                       if abs(axis_levels[j]
-                                              - design[i, axis]) > 1e-12]
+                                       if axis_levels[j] != design[i, axis]]
 
                     # Greedy 1D search
                     best_value_raw   = None
@@ -408,9 +410,14 @@ class SCEOptimizer(BaseOptimizer):
             # End of sweep — handle local optima with ILS kick
             if not improved_in_sweep:
                 n_local_opt += 1
-                if (n_local_opt >= max_ils_kicks
-                        or (n_local_opt > 1
-                            and best_score >= score_at_last_kick - _EPS)):
+                # Count kicks in a row that did not improve the best
+                # design; stop after max_ils_kicks of them.
+                if n_local_opt > 1:
+                    if best_score < score_at_last_kick - _EPS:
+                        n_failed = 0
+                    else:
+                        n_failed += 1
+                if n_failed >= max_ils_kicks:
                     if verbose:
                         self._info(
                             f"Local optimum reached after sweep {sweep} "
@@ -418,6 +425,12 @@ class SCEOptimizer(BaseOptimizer):
                             f"kicks={n_local_opt - 1})."
                         )
                     break
+
+                # Kick from the best design found so far (iterated
+                # local search), not from the current one.
+                design   = best_design.copy()
+                reserved = best_reserv.copy()
+                X_norm   = (design[crit_start:] - gmins) / granges
 
                 # ── ILS kick on current best ─────────────────────
                 if self.perturbation_size is not None:
@@ -516,7 +529,7 @@ class SCEOptimizer(BaseOptimizer):
 
         for i in kick_rows:
             for _ in range(20):
-                new_pt, new_idx = gs.random_point_excluding(occupied)
+                new_pt, new_idx = gs.random_point_excluding(occupied, rng=rng)
                 if new_pt is None:
                     break
                 if constraints:

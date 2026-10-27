@@ -22,11 +22,13 @@ criterion updates stay numerically consistent with full evaluations.
 Third, reproducibility: a design is a set of exact grid coordinates,
 identical on every machine.
 
-The grid can be astronomically large; a candidate set is never
-enumerated. Mergen indexes the grid through a mixed-radix bijection
-between integers and coordinate tuples, so a candidate point is
-materialised only when the optimiser looks at it, and memory use is
-independent of grid size.
+Mergen indexes the grid through a mixed-radix bijection between
+integers and coordinate tuples, so the optimisers address a candidate
+point by its index. The feasible candidate pool is, however, built in
+full when constraints are checked, when the quality metrics and the
+validation set are computed, and for the baseline of random designs,
+so memory grows with the grid size; very fine grids in many dimensions
+need a coarser `resolution`.
 
 ## The Latin hypercube backbone
 

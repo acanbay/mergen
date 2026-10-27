@@ -195,7 +195,8 @@ class TestCompareSelection:
             cmp.best = ('cd2', 'sa')
 
     def test_summary_names_the_rule(self, sampler, capsys):
-        lex = sampler.compare(criteria=['cd2', 'phi_p'], **_KW)
+        lex = sampler.compare(criteria=['cd2', 'phi_p'],
+                              selection='lexicographic', **_KW)
         par = lex.reselect(selection='pareto', verbose=False)
         capsys.readouterr()
         lex.summary()
@@ -317,12 +318,16 @@ class TestReviewRegressions:
             c.reselect(priority='minimax', tol={'min_distance': 0.1},
                        verbose=False)
 
-    def test_pareto_front_of_two_is_not_always_a_tie(self):
-        # Scaling uses every valid candidate, so a two-member front can
-        # still be decided on Utopia distance.
-        sel = select(np.array([[0, 1], [1, 0], [4, 2]]), [False, False],
-                     rule='pareto')
-        assert sel.front == (0, 1) and sel.decided_by == 'metrics'
+    @pytest.mark.parametrize('extra', [[5.0, 0.95], [0.95, 5.0], [3, 3]])
+    def test_pareto_winner_ignores_dominated_candidates(self, extra):
+        # Scaling over the front: a dominated design cannot stretch a
+        # range and move the winner, as it could when every valid
+        # candidate set the scale.
+        front = np.array([[0.0, 1.0], [0.45, 0.45], [1.0, 0.0]])
+        alone = select(front, [False, False], rule='pareto')
+        more = select(np.vstack([front, extra]), [False, False],
+                      rule='pareto')
+        assert alone.winner == more.winner == 1
 
     def test_pareto_tie_text_does_not_claim_tolerance(self):
         from mergen.sampler import ComparisonResult
@@ -336,27 +341,96 @@ class TestReviewRegressions:
 
     def test_run_without_priority_ignores_selection_args(self, sampler,
                                                           capsys):
-        kw = dict(criteria='cd2', algorithm='sa', seed=3, verbose=False)
+        kw = dict(criteria='cd2', algorithm='sa', seed=3, n_repeats=1,
+                  verbose=False)
         ref = sampler.run(**kw).samples
         capsys.readouterr()
         r = sampler.run(tol={'minimax': 0.1}, selection='pareto', **kw)
         assert 'apply only when a priority' in capsys.readouterr().out
         assert r.samples.equals(ref)
 
-    def test_multi_algorithm_run_honours_priority(self, sampler):
+    def test_multi_algorithm_run_honours_priority(self, sampler,
+                                                  monkeypatch):
+        # Fixed optimiser outputs, so the scenario does not depend on how
+        # the optimisers search: 'sa' has the lower criterion score (the
+        # 0.1.0 choice), 'sce' the better priority metrics.
+        from mergen import sampler as sampler_mod
+        from mergen.algorithms.base import OptimisationResult
+        designs = {
+            'sa':  [(0.2, 1100), (0.3, 1300), (0.4, 1900), (0.5, 2000),
+                    (0.5, 2400), (0.6, 1600), (0.7, 1600), (0.8, 2200),
+                    (0.9, 1500), (1.0, 2000)],
+            'sce': [(0.2, 1800), (0.2, 2500), (0.3, 1500), (0.3, 1700),
+                    (0.6, 1900), (0.6, 2100), (0.7, 2200), (0.8, 2300),
+                    (0.9, 1800), (1.0, 1700)],
+        }
+        crit = mergen.criteria.get_criterion('cd2')
+
+        def fake_task(alg_name, space, **kwargs):
+            D = np.array(designs[alg_name], dtype=float)
+            score = crit.evaluate((D - space.gmins) / space.granges, space)
+            return OptimisationResult(design=D, score=float(score),
+                                      converged=True, n_iter=0,
+                                      elapsed=0.0, metadata={})
+
+        monkeypatch.setattr(sampler_mod, '_run_one_algorithm_task',
+                            fake_task)
         prio = ('max_abs_correlation', 'min_distance')
+        # n_jobs=1: the stand-in task only exists in this process.
         r = sampler.run(criteria='cd2', algorithm=['sa', 'sce'], seed=1,
-                        n_repeats=2, priority=prio, verbose=False)
-        # The scenario must separate the rules: the lowest criterion
-        # score (the 0.1.0 choice) is not the priority winner here.
+                        n_repeats=2, priority=prio, n_jobs=1,
+                        verbose=False)
         scores = {a: res.score for a, res in r.algorithm_results.items()}
-        assert min(scores, key=scores.get) != r.best_algorithm
-        from mergen.sampler import _priority_values
-        names = list(r.algorithm_results)
-        vals = np.array([_priority_values(r.algorithm_results[a].design,
-                                          prio, sampler.space)
-                         for a in names])
-        w = select(vals, [False, True],
-                   tiebreak=[r.algorithm_results[a].score
-                             for a in names]).winner
-        assert r.best_algorithm == names[w]
+        assert min(scores, key=scores.get) == 'sa'
+        assert r.best_algorithm == 'sce'
+
+
+def test_compare_tie_does_not_depend_on_list_order():
+    # Six runs on a 2 x 3 grid: every combination returns the whole
+    # grid, so all tie on every metric and the names decide.
+    space = mergen.ParameterSpace({'x': [0, 1], 'y': [0, 1, 2]})
+    winners = set()
+    for crits, algs in [(['phi_p', 'cd2'], ['sce', 'sa']),
+                        (['cd2', 'phi_p'], ['sa', 'sce'])]:
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=6, n_validation=0)
+        c = s.compare(criteria=crits, algorithms=algs, n_repeats=1,
+                      mc_samples=0, verbose=False)
+        assert len(c.ties) == 4
+        winners.add(c.best)
+    assert winners == {('cd2', 'sa')}
+
+
+def test_compare_table_matches_the_report_with_an_out_of_budget_point():
+    space = mergen.ParameterSpace({'x': list(range(11)),
+                                   'y': list(range(11))})
+    s = mergen.Sampler(space)
+    s.add_prescribed([[0, 0]])
+    s.add_prescribed([[5, 5]], in_design=False)
+    s.set_design(n_samples=8, n_validation=0)
+    s.set_optimizer('sa', n_restarts=1, max_iter=200)
+    c = s.compare(criteria=['cd2', 'phi_p'], algorithms=['sa'],
+                  n_repeats=2, mc_samples=0, verbose=False)
+    row = c.metrics.set_index(['criterion', 'algorithm']).loc[c.best]
+    report = c.best_result.quality_report(mc_samples=0, verbose=False)
+    for m in ('min_distance', 'minimax', 'max_abs_correlation'):
+        assert row[m] == pytest.approx(report[m])
+
+
+def test_compare_refuses_a_loaded_design():
+    space = mergen.ParameterSpace({'x': list(range(5)), 'y': list(range(5))})
+    s = mergen.Sampler(space)
+    s.load_design([[0, 0], [4, 4], [2, 2]])
+    with pytest.raises(ValueError, match='loaded design'):
+        s.compare(criteria=['cd2'], n_repeats=1, verbose=False)
+
+
+def test_run_algorithm_tie_does_not_depend_on_list_order():
+    space = mergen.ParameterSpace({'x': [0, 1], 'y': [0, 1, 2]})
+    best = set()
+    for algs in (['sce', 'sa'], ['sa', 'sce']):
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=6, n_validation=0)
+        best.add(s.run(criteria='cd2', algorithm=algs, seed=1, n_repeats=1,
+                       verbose=False).best_algorithm)
+    assert best == {'sa'}

@@ -23,10 +23,12 @@ What to look at
 ---------------
 - ``summary()``: the "Optimised" and "Validation" counts confirm the
   design was built and that a hold-out set was reserved automatically.
-- ``quality_report()``: percentiles against the Monte Carlo baseline
-  should be well above 90 for min_distance and near 0 for
-  max_absolute_correlation; that pair is the primary evidence of a
-  good space-filling design.
+- ``quality_report()``: percentiles against the Monte Carlo baseline,
+  oriented so that higher is better. min_distance and the 2D projection
+  discrepancy should rank well above 90: the points are far apart and
+  every pair of factors is evenly covered. Other rows, such as the
+  maximum correlation, can rank lower, because no single criterion
+  serves every metric; the explanation pages show how to choose.
 - ``plot('pairplot')``: every 2D projection should look evenly
   populated, with no clustered corners or empty bands.
 
@@ -38,7 +40,7 @@ Mergen features used
   example stays minimal and shows the shape of the workflow with no
   configuration to reason about.
 
-Estimated runtime: a few seconds.
+Estimated runtime: under a minute.
 """
 from mergen import ParameterSpace, Sampler
 

@@ -15,7 +15,8 @@ Metrics (always computed from the design, no MC needed)
     min_distance         Johnson et al. (1990) — worst-case separation
     minimax              Johnson et al. (1990) — fill distance / coverage
     max_abs_correlation  — orthogonality between parameters
-    projection_cd2       Liu & Liu (2023) — 2D projection uniformity
+    projection_cd2       Sun et al. (2019) — 2D projection uniformity
+    cd2                  Hickernell (1998) — whole-design uniformity (priority)
     cv_distances         Lekivetz & Jones (2015) — clustering index
     mean_distance        — average pairwise distance
 
@@ -39,14 +40,14 @@ References
 ----------
 Johnson, Moore & Ylvisaker (1990), J. Statist. Plan. Infer. 26(2).
 Hickernell (1998), Math. Comp. 67.
-Lekivetz & Jones (2015), Quality Engineering 27(1).
-Liu & Liu (2023), Canadian Journal of Statistics 51(1).
+Lekivetz & Jones (2015), Qual. Reliab. Eng. Int. 31(5).
+Sun, Wang & Xu (2019), Annals of Statistics 47(1).
 """
 
 from __future__ import annotations
 
 from itertools import combinations
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -74,6 +75,7 @@ _METRIC_LABELS = {
     'minimax'            : 'Minimax distance',
     'max_abs_correlation': 'Max |correlation|',
     'projection_cd2'     : '2D projection CD2',
+    'cd2'                : 'Centred L2 discrepancy',
     'cv_distances'       : 'CV distances',
     'mean_distance'      : 'Mean distance',
 }
@@ -89,6 +91,7 @@ _METRIC_LATEX = {
     'minimax'            : r'$d_{\mathrm{mM}}$',
     'max_abs_correlation': r'$|\rho|_{\max}$',
     'projection_cd2'     : r'$\mathrm{CD}_2^{\mathrm{proj}}$',
+    'cd2'                : r'$\mathrm{CD}_2$',
     'cv_distances'       : r'$\mathrm{CV}_d$',
     'mean_distance'      : r'$\bar{d}$',
 }
@@ -106,13 +109,17 @@ _HIGHER_BETTER = {'min_distance', 'mean_distance'}
 #   phi_p      : Morris & Mitchell (1995), Johnson et al. (1990)
 #   MaxPro     : Joseph, Gul & Ba (2015), Biometrika 102(2)
 #   uMaxPro    : Vorechovsky & Masek (2026), arxiv 2603.19778
+#   MaxProQQ   : Joseph, Gul & Ba (2020), J. Qual. Technol. 52(4)
 #   cd2        : Hickernell (1998)
+#   qqd        : Zhang, Yang & Zhou (2021); a discrepancy, like cd2
 #   stratified : Tian & Xu (2025), JRSS-B
 _CRIT_OPTIMISES = {
     'umaxpro'    : {'projection_cd2', 'minimax', 'max_abs_correlation'},
     'maxpro'     : {'projection_cd2', 'minimax', 'max_abs_correlation'},
+    'maxproqq'   : {'projection_cd2', 'minimax', 'max_abs_correlation'},
     'phi_p'      : {'min_distance', 'mean_distance', 'cv_distances'},
     'cd2'        : {'projection_cd2', 'cv_distances', 'minimax'},
+    'qqd'        : {'projection_cd2', 'cv_distances', 'minimax'},
     'stratified' : {'projection_cd2', 'cv_distances'},
 }
 
@@ -121,7 +128,7 @@ _CRIT_OPTIMISES = {
 # Metric functions — all operate on normalised [0,1]^d coordinates
 # ======================================================================
 
-from .distances import heom_pairwise  # noqa: E402
+from .distances import heom_pairwise, _embed_heom  # noqa: E402
 
 
 def _pairwise_distances(
@@ -195,8 +202,9 @@ def cv_distances(X: np.ndarray, space=None) -> float:
 
     References
     ----------
-    Lekivetz, R. & Jones, B. (2015).
-        *Quality Engineering*, 27(1), 46-52.
+    Lekivetz, R. & Jones, B. (2015). Fast flexible space-filling
+        designs for nonrectangular regions. *Quality and Reliability
+        Engineering International*, 31(5), 829-837.
     """
     dists = _pairwise_distances(X, space=space)
     if dists.size == 0:
@@ -205,14 +213,51 @@ def cv_distances(X: np.ndarray, space=None) -> float:
     return float(dists.std() / mu) if mu > _EPS else 0.0
 
 
+#: Feasible pools up to this size are evaluated exactly by minimax().
+_MINIMAX_EXACT_MAX = 50_000
+
+
+def _minimax_eval_set(space) -> np.ndarray:
+    """
+    Normalised feasible candidate pool used by minimax(): the whole
+    pool when it has at most ``_MINIMAX_EXACT_MAX`` points, otherwise a
+    fixed random subset of that size (the same for every design).
+    """
+    source = space.candidate_pool
+    cached = getattr(space, '_minimax_eval', None)
+    if cached is not None and cached[0] is source:
+        return cached[1]
+    pool = np.asarray(source, dtype=float)
+    if len(pool) > _MINIMAX_EXACT_MAX:
+        idx  = np.random.default_rng(44).choice(
+            len(pool), size=_MINIMAX_EXACT_MAX, replace=False)
+        pool = pool[np.sort(idx)]
+    granges = space.granges
+    E = (pool - space.gmins) / granges
+    # Keyed on the pool object, which the space rebuilds whenever its
+    # parameters or constraints change.
+    space._minimax_eval = (source, E)
+    return E
+
+
 def minimax(X: np.ndarray, space=None, n_eval: int = 5_000) -> float:
     """
     Minimax (fill / coverage) distance.
 
-    The maximum over evaluation grid points of the minimum distance
-    to any design point. Lower values indicate better space
-    coverage. Uses HEOM when *space* has nominal factors so that
-    coverage is defined consistently on mixed spaces.
+    The largest distance from a point of the space to its nearest
+    design point. Lower values indicate better space coverage. Uses
+    HEOM when *space* has nominal factors so that coverage is defined
+    consistently on mixed spaces; without *space* nominal factors are
+    not recognised.
+
+    With *space* given, the points to cover are the feasible candidate
+    pool (constraints applied), so the value is exact for the discrete
+    problem Mergen solves. Pools larger than ``_MINIMAX_EXACT_MAX``
+    points are represented by a fixed random subset; the value is then
+    an estimate from below. Without *space*, a regular grid on
+    :math:`[0, 1]^d` (``n_eval`` points; random points for d > 6) is
+    used, which ignores constraints and nominal factors and is also
+    an estimate from below.
 
     References
     ----------
@@ -223,6 +268,17 @@ def minimax(X: np.ndarray, space=None, n_eval: int = 5_000) -> float:
     n, d = X.shape
     chunk = 1_000
 
+    if space is not None:
+        from scipy.spatial import cKDTree
+        E = _minimax_eval_set(space)
+        if space.has_nominal:
+            mask   = space.is_mask
+            levels = [np.unique(np.concatenate([E[:, j], X[:, j]]))
+                      if mask[j] else None for j in range(d)]
+            E, X = _embed_heom(E, levels), _embed_heom(X, levels)
+        dist, _ = cKDTree(X).query(E, k=1)
+        return float(dist.max())
+
     if d <= 6:
         n_grid   = max(3, int(round(n_eval ** (1 / d))))
         axes     = [np.linspace(0, 1, n_grid)] * d
@@ -232,19 +288,12 @@ def minimax(X: np.ndarray, space=None, n_eval: int = 5_000) -> float:
     else:
         eval_pts = np.random.default_rng(44).uniform(0, 1, (n_eval, d))
 
-    heom_mode = space is not None and space.has_nominal
     max_min = 0.0
     for start in range(0, len(eval_pts), chunk):
         ep = eval_pts[start:start + chunk]
-        if heom_mode:
-            # HEOM squared distance, chunk-vs-X broadcast.
-            from .distances import heom_squared
-            d2 = heom_squared(ep[:, None, :], X[None, :, :], space=space)
-            dists = np.sqrt(d2)
-        else:
-            dists = np.sqrt(
-                ((ep[:, np.newaxis, :] - X[np.newaxis, :, :]) ** 2).sum(axis=2)
-            )
+        dists = np.sqrt(
+            ((ep[:, np.newaxis, :] - X[np.newaxis, :, :]) ** 2).sum(axis=2)
+        )
         max_min = max(max_min, float(dists.min(axis=1).max()))
     return float(max_min)
 
@@ -285,7 +334,10 @@ def projection_cd2(X: np.ndarray, space=None) -> float:
     Mean centred L2 discrepancy across all 2D projections.
 
     Evaluates uniformity in every pair of parameter dimensions.
-    Lower values indicate better 2D projection coverage.
+    Lower values indicate better 2D projection coverage. Sun, Wang &
+    Xu (2019) average the squared discrepancy, CD2²; this metric
+    averages CD2 itself, which ranks designs on the same projections
+    but is not the same number.
 
     Nominal columns are excluded from the projection sweep because
     the CD2 kernel of Hickernell (1998) is defined on ordered
@@ -294,8 +346,8 @@ def projection_cd2(X: np.ndarray, space=None) -> float:
 
     References
     ----------
-    Liu, H. & Liu, M.-Q. (2023).
-        *Canadian Journal of Statistics*, 51(1), 293-311.
+    Sun, F., Wang, Y. & Xu, H. (2019). Uniform projection designs.
+        *Annals of Statistics*, 47(1), 641-661.
     Hickernell, F. J. (1998). *Mathematics of Computation*, 67(221),
         299-322.
     """
@@ -313,12 +365,37 @@ def projection_cd2(X: np.ndarray, space=None) -> float:
     return float(np.mean(vals))
 
 
+def cd2(X: np.ndarray, space=None) -> float:
+    """
+    Centred L2 discrepancy of the whole design.
+
+    The same quantity the ``'cd2'`` criterion minimises, here as a
+    quality metric, so it can be named in a ``priority``. Lower values
+    indicate a design closer to uniform on the unit cube. Nominal
+    columns are left out, as in :func:`projection_cd2`; with no ordered
+    column the value is NaN.
+
+    References
+    ----------
+    Hickernell, F. J. (1998). *Mathematics of Computation*, 67(221),
+        299-322.
+    """
+    X = np.asarray(X, dtype=float)
+    if space is not None and space.has_nominal:
+        X = X[:, ~space.is_mask]
+    if X.shape[1] == 0:
+        return float('nan')
+    from .criteria import CD2 as _CD2
+    return float(_CD2().evaluate(X, space=None))
+
+
 # ── Metric dispatcher ─────────────────────────────────────────────────────
 _METRIC_FN = {
     'min_distance'       : min_distance,
     'minimax'            : minimax,
     'max_abs_correlation': max_abs_correlation,
     'projection_cd2'     : projection_cd2,
+    'cd2'                : cd2,
     'cv_distances'       : cv_distances,
     'mean_distance'      : mean_distance,
 }
@@ -332,15 +409,49 @@ def _compute_metric(name: str, X: np.ndarray, space=None) -> float:
     return float(_METRIC_FN[name](X, space=space))
 
 
-def _compute_criterion(name: str, X: np.ndarray, space=None) -> float:
-    """Compute a criterion score by name on normalised design X."""
+def _compute_criterion(name, X: np.ndarray, space=None) -> float:
+    """
+    Compute a criterion score on normalised design X. *name* is a
+    criterion name or a criterion instance (with its own parameters).
+    """
     from .criteria import get_criterion
-    return float(get_criterion(name).evaluate(X, space=space))
+    crit = get_criterion(name) if isinstance(name, str) else name
+    return float(crit.evaluate(X, space=space))
 
 
 # ======================================================================
 # Monte Carlo baseline
 # ======================================================================
+
+def _drop_rows(pool: np.ndarray, rows, tol) -> np.ndarray:
+    """
+    The pool without the rows that match any of *rows* within *tol* (a
+    scalar or one value per axis) on every axis, in the original order.
+    Each coordinate is mapped to its nearest level of the pool on that
+    axis, so the cost is one sort per axis rather than one pass over the
+    pool per row. Exact when *tol* is below half the gap between
+    neighbouring levels, as ``grid_tol`` is.
+    """
+    R = np.asarray(rows, dtype=float).reshape(-1, pool.shape[1])
+    if not len(R) or not len(pool):
+        return pool
+    tol = np.broadcast_to(np.asarray(tol, dtype=float), (pool.shape[1],))
+    pool_key = np.zeros(len(pool), dtype=np.int64)
+    row_key  = np.zeros(len(R), dtype=np.int64)
+    matched  = np.ones(len(R), dtype=bool)
+    for j in range(pool.shape[1]):
+        levels, inv = np.unique(pool[:, j], return_inverse=True)
+        pos  = np.clip(np.searchsorted(levels, R[:, j]), 1, len(levels) - 1) \
+            if len(levels) > 1 else np.zeros(len(R), dtype=np.int64)
+        if len(levels) > 1:
+            left = np.abs(R[:, j] - levels[pos - 1]) <= np.abs(
+                R[:, j] - levels[pos])
+            pos  = np.where(left, pos - 1, pos)
+        matched &= np.abs(R[:, j] - levels[pos]) <= tol[j]
+        pool_key = pool_key * len(levels) + inv.ravel()
+        row_key  = row_key * len(levels) + pos
+    return pool[~np.isin(pool_key, row_key[matched])]
+
 
 def _mc_baseline(
     gs,
@@ -352,14 +463,25 @@ def _mc_baseline(
     mc_samples:   int,
     seed:         int = 44,
     space         = None,
+    exclude:      Optional[Sequence] = None,
+    crit_objs:    Optional[Dict] = None,
+    fixed:        Optional[Sequence] = None,
 ) -> Dict[str, np.ndarray]:
     """
     Draw mc_samples random designs of size n from the feasible pool
     and evaluate all requested metrics and criteria.
 
-    The feasible pool is the full candidate set (constraints already
-    applied via GridSampler). Prescribed and focus reserved indices
-    are NOT excluded — they are part of the feasible space.
+    With *space* given, the pool is its feasible candidate pool
+    (constraints applied) minus the points in *exclude* (exclusion
+    centres, add_set() points and focus centres with
+    include_center=False, which the optimiser can never choose). Without *space*, the
+    full Cartesian product of *gs* is used.
+
+    *fixed* are the delivered rows the optimiser did not choose
+    (prescribed and focus points). Each random design is then those k
+    rows plus n - k points drawn from the pool without them, so the
+    rank measures what the optimiser added. Without fixed rows the
+    draws are unchanged.
 
     Returns
     -------
@@ -368,12 +490,41 @@ def _mc_baseline(
     rng     = np.random.default_rng(seed)
     results = {m: [] for m in metric_names + crit_names}
 
+    if space is not None:
+        pool = np.asarray(space.candidate_pool, dtype=float)
+        if exclude is not None and len(exclude):
+            pool = _drop_rows(pool, exclude, space.grid_tol)
+    else:
+        pool = None
+    F = (np.empty((0, len(gmins))) if fixed is None
+         else np.asarray(fixed, dtype=float).reshape(-1, len(gmins)))
+    if len(F):
+        if pool is None:
+            pool = np.array([gs.index_to_point(i)
+                             for i in range(gs.n_candidates)], dtype=float)
+        pool = _drop_rows(pool, F,
+                          space.grid_tol if space is not None else 1e-9)
+    n_free = max(n - len(F), 0)
+    n_pool = len(pool) if pool is not None else gs.n_candidates
+    if n_pool == 0 and n_free > 0:
+        return {k: np.full(mc_samples, np.nan) for k in results}
+    if n_pool < n_free:
+        import warnings
+        warnings.warn(
+            f"Only {n_pool} feasible points are left for the baseline, so "
+            f"its random designs have {len(F) + n_pool} points instead "
+            f"of {n}.", UserWarning, stacklevel=3)
+
     for _ in range(mc_samples):
-        indices  = rng.choice(gs.n_candidates,
-                              size=min(n, gs.n_candidates),
+        indices  = rng.choice(n_pool, size=min(n_free, n_pool),
                               replace=False)
-        pts_raw  = np.array([gs.index_to_point(int(i)) for i in indices])
-        X_norm   = (pts_raw - gmins) / np.where(granges > _EPS, granges, 1.0)
+        if pool is not None:
+            pts_raw = pool[indices]
+        else:
+            pts_raw = np.array([gs.index_to_point(int(i)) for i in indices])
+        if len(F):
+            pts_raw = np.vstack([F, pts_raw.reshape(-1, len(gmins))])
+        X_norm   = (pts_raw - gmins) / granges
 
         for m in metric_names:
             try:
@@ -383,7 +534,8 @@ def _mc_baseline(
 
         for c in crit_names:
             try:
-                results[c].append(_compute_criterion(c, X_norm, space=space))
+                results[c].append(_compute_criterion(
+                    (crit_objs or {}).get(c, c), X_norm, space=space))
             except Exception:
                 results[c].append(np.nan)
 
@@ -393,15 +545,19 @@ def _mc_baseline(
 def _percentile_rank(design_val: float, mc_vals: np.ndarray,
                      higher_better: bool) -> float:
     """
-    Percentile rank of ``design_val`` within ``mc_vals`` with midrank
-    tie handling: values strictly beaten count fully, ties count half
-    (the standard "mean" definition, cf. scipy.stats.percentileofscore
-    with kind='mean'). On a discrete grid many random designs share the
-    same metric value (e.g. an adjacent-cell minimum distance); with a
-    strict count a design that ties the entire baseline would misleadingly
-    display as the 0th percentile, whereas midrank correctly places it
-    mid-distribution.
+    Percentile rank of ``design_val`` among the ``B`` baseline values
+    and the design itself (``B + 1`` values), with midrank tie handling:
+    values strictly beaten count fully, ties count half, and the design
+    ties with itself. On a discrete grid many random designs share the
+    same metric value (e.g. an adjacent-cell minimum distance); midrank
+    places a design that ties the whole baseline mid-distribution
+    instead of at the 0th percentile. Counting the design keeps the rank
+    strictly between 0 and 100, since ``B`` random designs cannot show
+    that no design beats it. The rank describes the design; it does not
+    take part in choosing one.
     """
+    if np.isnan(design_val):
+        return np.nan
     mc_clean = mc_vals[~np.isnan(mc_vals)]
     if len(mc_clean) == 0:
         return np.nan
@@ -410,7 +566,8 @@ def _percentile_rank(design_val: float, mc_vals: np.ndarray,
         beaten = (mc_clean < design_val) & ~equal
     else:
         beaten = (mc_clean > design_val) & ~equal
-    return float((beaten.mean() + 0.5 * equal.mean()) * 100)
+    B = len(mc_clean)
+    return float((beaten.sum() + 0.5 * (equal.sum() + 1)) / (B + 1) * 100)
 
 
 # ======================================================================
@@ -456,7 +613,7 @@ def quality_report(
     # Normalise design (all point types included)
     pts    = result.samples[names].values.astype(float)
     n, d   = pts.shape
-    X_norm = (pts - gmins) / np.where(granges > _EPS, granges, 1.0)
+    X_norm = (pts - gmins) / granges
 
     # Resolve metrics
     if metrics == 'default':
@@ -474,7 +631,8 @@ def quality_report(
     # Criteria: always include the one used in run()
     run_criteria = result._meta.get('criteria', None)
     crit_names   = []
-    if run_criteria:
+    # A loaded design was not optimised on any criterion.
+    if run_criteria and run_criteria != 'loaded':
         if isinstance(run_criteria, str):
             crit_names = [run_criteria]
         else:
@@ -483,6 +641,9 @@ def quality_report(
         for c in criteria_metrics:
             if c not in crit_names:
                 crit_names.append(c)
+    # A name that is both a metric and a scored criterion ('cd2') is
+    # reported once, as the criterion.
+    metric_names = [m for m in metric_names if m not in crit_names]
 
     # ── Compute design values ─────────────────────────────────────────
     design_metrics: Dict[str, float] = {}
@@ -492,23 +653,45 @@ def quality_report(
         except Exception:
             design_metrics[m] = np.nan
 
+    # The run's criterion is scored with the instance it optimised, so
+    # non-default parameters (e.g. phi_p's p) are respected.
+    crit_objs = {}
+    if result._meta.get('criterion_obj') is not None and run_criteria:
+        crit_objs[crit_names[0]] = result._meta['criterion_obj']
+
     design_criteria: Dict[str, float] = {}
     for c in crit_names:
         try:
-            design_criteria[c] = _compute_criterion(c, X_norm, space=space)
+            design_criteria[c] = _compute_criterion(
+                crit_objs.get(c, c), X_norm, space=space)
         except Exception:
             design_criteria[c] = np.nan
 
     # ── MC baseline ───────────────────────────────────────────────────
+    # Fixed rows that are part of the delivered design (fill_around
+    # drops its reference rows from the samples).
+    fixed = np.asarray(result._meta.get('fixed_points') or [],
+                       dtype=float).reshape(-1, d)
+    if len(fixed):
+        tol   = getattr(space, 'grid_tol', 1e-9)
+        fixed = fixed[[bool(np.any(np.all(np.abs(pts - f) <= tol, axis=1)))
+                       for f in fixed]]
+    n_fixed = len(fixed)
     mc_vals: Dict[str, np.ndarray] = {}
     if mc_samples > 0:
         if verbose:
             print(f"  {_YELLOW}[METRICS]{_RESET}  "
                   f"Computing MC baseline ({mc_samples} designs)...")
+        # Same baseline seed as compare() for the run's seed.
+        seed = result._meta.get('seed')
         mc_vals = _mc_baseline(
             gs, gmins, granges, n,
             metric_names, crit_names,
-            mc_samples, space=space,
+            mc_samples, seed=44 if seed is None else seed, space=space,
+            exclude=(list(result._meta.get('exclusions') or [])
+                     + list(result._meta.get('baseline_reserved') or [])),
+            crit_objs=crit_objs,
+            fixed=fixed,
         )
         if verbose:
             print(f"  {_GREEN}[METRICS]{_RESET}  "
@@ -520,7 +703,7 @@ def quality_report(
             n, d, result._meta.get('criteria', '?'),
             metric_names, design_metrics,
             crit_names, design_criteria,
-            mc_vals
+            mc_vals, n_fixed,
         )
 
     # ── Return dict ───────────────────────────────────────────────────
@@ -529,6 +712,7 @@ def quality_report(
         'n_params'  : d,
         'criteria'  : result._meta.get('criteria', '?'),
         'mc_samples': mc_samples,
+        'baseline_fixed_points': n_fixed,
     }
     for m in metric_names:
         out[m] = design_metrics[m]
@@ -559,11 +743,28 @@ def _fmt_val(v) -> str:
     return f'{v:.4f}'
 
 
+def _ordinal(p) -> str:
+    """A percentile as an English ordinal: 1st, 2nd, 3rd, 11th, 72nd."""
+    k = int(round(float(p)))
+    if 10 <= k % 100 <= 20:
+        return f'{k}th'
+    return f"{k}{({1: 'st', 2: 'nd', 3: 'rd'}).get(k % 10, 'th')}"
+
+
+def _pct_ordinal(p) -> str:
+    """A percentile rank as an ordinal, within 1st..99th.
+
+    The rank never reaches 0 or 100 (see :func:`_percentile_rank`), so
+    rounding must not print it as either.
+    """
+    return _ordinal(min(max(int(round(float(p))), 1), 99))
+
+
 def _fmt_pct(p) -> str:
     if p is None or (isinstance(p, float) and np.isnan(p)):
         return '      n/a'
     colour = _GREEN if p >= 75 else (_YELLOW if p >= 50 else _RED)
-    text = f'{p:.0f}th pct'
+    text = f'{_pct_ordinal(p)} pct'
     return f'{colour}{text}{_RESET}'
 
 
@@ -571,7 +772,7 @@ def _print_table(
     n, d, run_crit,
     metric_names, design_metrics,
     crit_names, design_criteria,
-    mc_vals,
+    mc_vals, n_fixed=0,
 ):
     W   = 72
     has_mc = len(mc_vals) > 0
@@ -599,7 +800,7 @@ def _print_table(
         if has_mc and m in mc_vals:
             med = float(np.nanmedian(mc_vals[m]))
             pct = _percentile_rank(val, mc_vals[m], m in _HIGHER_BETTER)
-            pct_str = f'{pct:.0f}th pct' if pct is not None else 'n/a'
+            pct_str = f'{_pct_ordinal(pct)} pct' if pct is not None else 'n/a'
             colour  = _GREEN if (pct or 0) >= 75 else (_YELLOW if (pct or 0) >= 50 else _RED)
             print(f"  {label:<22} {_fmt_val(val):>10}  "
                   f"{_fmt_val(med):>10}  {direc:<12}  "
@@ -634,7 +835,12 @@ def _print_table(
 
     if has_mc:
         print(sep)
-        print(f"  Baseline: {len(mc_vals[next(iter(mc_vals))])} MC designs from feasible space  |  Rank = percentile among baseline designs")
+        n_mc = len(mc_vals[next(iter(mc_vals))])
+        if n_fixed:
+            print(f"  Baseline: {n_mc} random completions of the {n_fixed} "
+                  f"fixed points  |  Rank = percentile among them")
+        else:
+            print(f"  Baseline: {n_mc} MC designs from feasible space  |  Rank = percentile among baseline designs")
     print('═' * W)
     print()
 
@@ -666,16 +872,17 @@ def comparison(result) -> pd.DataFrame:
     rows = {}
     for crit_name, df in result.designs.items():
         pts    = df[names].values.astype(float)
-        X_norm = (pts - gmins) / np.where(granges > _EPS, granges, 1.0)
+        X_norm = (pts - gmins) / granges
         row    = {}
         for m in _DEFAULT_METRICS:
             try:
-                row[m] = _compute_metric(m, X_norm)
+                row[m] = _compute_metric(m, X_norm, space=space)
             except Exception:
                 row[m] = np.nan
         # Also include the criterion score
         try:
-            row[f'{crit_name}_score'] = _compute_criterion(crit_name, X_norm)
+            row[f'{crit_name}_score'] = _compute_criterion(crit_name, X_norm,
+                                                           space=space)
         except Exception:
             row[f'{crit_name}_score'] = np.nan
         rows[crit_name] = row

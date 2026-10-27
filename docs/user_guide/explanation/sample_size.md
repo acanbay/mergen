@@ -38,9 +38,16 @@ space-filling points, a small design now is not wasted budget later.
 ## The validation set
 
 By default `set_design` reserves an additional 20 percent of
-`n_samples` as validation points, chosen to be maximally distant from
-the design proper. These are honest held-out locations for testing a
-surrogate fit. They are extra runs, so account for them in the total
+`n_samples` as validation points. They are feasible candidate points,
+chosen as a set so that the smallest distance from a validation point
+to the design, to the other validation points, to out-of-budget
+prescribed and focus points and to the sets added with `add_set()` is
+as large as possible. When the exact search for that set is too large,
+Mergen keeps the best set it has found, which is never worse than adding
+one point at a time (Kennard-Stone), and warns that the set is not
+proven optimal. They test a surrogate fit where it extrapolates
+most, far from the data it was fitted on, rather than at typical
+locations. They are extra runs, so account for them in the total
 budget, or set `n_validation=0` when no surrogate is planned.
 
 ## Practical advice

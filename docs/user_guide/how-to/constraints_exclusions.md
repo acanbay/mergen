@@ -17,7 +17,9 @@ space.add_constraint(lambda p: p['flow_rate'] + p['n_stages'] <= 20)
 Only candidates satisfying every constraint enter the design, and the
 Monte Carlo baseline in the quality report is drawn from the same
 feasible region, so quality percentiles stay honest inside a
-constrained space.
+constrained space. Prescribed and focus points are kept in every
+baseline design, so the percentiles measure what the optimiser added
+around them.
 
 ## Prescribed points
 
@@ -38,23 +40,34 @@ A focus region concentrates extra runs around a critical operating
 point, on top of the space-filling design:
 
 ```python
-sampler.add_focus(point=[300, 2.0], spread=0.15, n_samples=4)
+sampler.add_focus(point=[300, 2.0], spread=1.0, n_samples=4)
 ```
 
-`spread` is the neighbourhood radius and `n_samples` the number of
-focus runs. Use it when one region of the space warrants denser
-sampling than the rest.
+`n_samples` is the number of focus runs. They are drawn from the grid
+nodes around the point, with a Gaussian weight whose width `spread` is
+counted in grid steps of each axis, so `spread=1.0` keeps them mostly
+within one or two steps of the point whatever the units; a nominal
+factor keeps the point's category. Use it when one region of the space
+warrants denser sampling than the rest.
 
 ## Exclusion zones
 
-An exclusion zone keeps the design away from an unsafe or
-uninteresting region:
+An exclusion removes one unsafe or uninteresting point from the
+candidates:
 
 ```python
-sampler.add_exclusion(point=[500, 5.0], spread=0.20)
+sampler.add_exclusion(point=[500, 5.0])
 ```
 
-No design point will be placed within `spread` of the excluded point.
+No design, validation or extra-set point is placed at the excluded
+point. Its neighbours stay available: in this version the `spread`
+argument has no effect. To keep a whole region free, add a constraint
+instead:
+
+```python
+space.add_constraint(
+    lambda p: not (p['temperature'] > 450 and p['pressure'] > 4.0))
+```
 
 ## Grid alignment
 

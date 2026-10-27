@@ -10,7 +10,7 @@ discrete, continuous, integer, or mixed — and provides rigorous quality
 assessment via standard space-filling metrics.
 
 This is the algorithm-independent core. Optimisation algorithms (SA,
-SCE, ESE) live in the ``mergen.algorithms`` subpackage (added later).
+SCE, ESE) live in the ``mergen.algorithms`` subpackage.
 
 Quick start
 -----------
@@ -132,6 +132,8 @@ def info() -> None:
 
 # Print banner on import.
 # To suppress: set environment variable MERGEN_SILENT=1 before importing.
+# "0", "false", "no", "off" and an empty value leave the banner on.
 import os as _os  # noqa: E402
-if not _os.environ.get('MERGEN_SILENT'):
+if _os.environ.get('MERGEN_SILENT', '').strip().lower() in (
+        '', '0', 'false', 'no', 'off'):
     print(_banner())

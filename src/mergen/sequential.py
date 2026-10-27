@@ -59,8 +59,8 @@ from typing import List, Optional, Tuple, TYPE_CHECKING, Union
 import numpy as np
 import pandas as pd
 
-from .sampler   import _fatal
-from .distances import heom_squared
+from .sampler   import _fatal, _warn
+from .distances import heom_squared, kennard_stone
 
 if TYPE_CHECKING:
     from .sampler import Sampler, SamplingResult
@@ -121,8 +121,9 @@ def _kennard_stone_array(
     Array-based Kennard-Stone selection in normalised coordinates.
 
     Picks ``n_select`` indices from ``pool`` so that each chosen point
-    is as far as possible (in normalised Euclidean distance) from the
-    set of already-chosen points.
+    is as far as possible (HEOM distance in normalised coordinates,
+    see :func:`mergen.distances.kennard_stone`) from the set of
+    already-chosen points.
 
     Parameters
     ----------
@@ -179,64 +180,52 @@ def _kennard_stone_array(
     if n_select > N:
         _fatal(f"n_select ({n_select}) exceeds pool size ({N}).")
 
-    excluded  = set() if excluded is None else set(excluded)
-    available = set(range(N)) - excluded
-    if len(available) < n_select:
+    excluded = set() if excluded is None else set(excluded)
+    free     = np.ones(N, dtype=bool)
+    free[[i for i in excluded if 0 <= i < N]] = False
+    if int(free.sum()) < n_select:
         _fatal(
-            f"Only {len(available)} pool points are available after "
+            f"Only {int(free.sum())} pool points are available after "
             f"exclusions; cannot pick {n_select}."
         )
 
     chosen: List[int] = []
+    avail = np.flatnonzero(free)
 
     # ── First-point selection ──────────────────────────────────────
     if anchor is None or anchor == 'center':
         centre = np.full(space.n_parameters, 0.5)
-        avail  = np.fromiter(available, dtype=int)
         d_to_c = np.linalg.norm(norm_pool[avail] - centre, axis=1)
-        first  = int(avail[int(np.argmin(d_to_c))])
-        chosen.append(first)
-        available.discard(first)
+        chosen.append(int(avail[int(np.argmin(d_to_c))]))
     elif anchor == 'maximin':
-        avail = np.fromiter(available, dtype=int)
         sub   = norm_pool[avail]
         # (N_avail, N_avail) squared HEOM distance between all pairs.
         d2    = heom_squared(sub[:, None, :], sub[None, :, :],
                              space=dist_space)
         i, j  = np.unravel_index(int(np.argmax(d2)), d2.shape)
         chosen.extend([int(avail[i]), int(avail[j])])
-        available.difference_update(chosen)
     elif isinstance(anchor, (int, np.integer)):
         anchor = int(anchor)
-        if anchor not in available:
+        if not (0 <= anchor < N and free[anchor]):
             _fatal(
                 f"anchor index {anchor} is not available "
                 f"(out of range or excluded)."
             )
         chosen.append(anchor)
-        available.discard(anchor)
     else:
         _fatal(
             f"anchor must be 'center', 'maximin', an int, or None; "
             f"got {anchor!r}."
         )
+    free[chosen] = False
 
     # ── Sequential maximin selection ───────────────────────────────
-    while len(chosen) < n_select and available:
-        avail = np.fromiter(available, dtype=int)
-        ref   = norm_pool[chosen]
-        cand  = norm_pool[avail]
-        # Broadcasting gives an (N_cand, N_ref) squared HEOM matrix
-        # in a single call; take sqrt to match the Euclidean scale
-        # used by the original comparison. sqrt is monotone so the
-        # argmax below is unchanged either way; keeping it makes the
-        # code line up with Kennard & Stone (1969) as written.
-        d2    = heom_squared(cand[:, None, :], ref[None, :, :],
-                             space=dist_space)
-        d_min = np.sqrt(d2).min(axis=1)
-        best  = int(avail[int(np.argmax(d_min))])
-        chosen.append(best)
-        available.discard(best)
+    # The same Kennard-Stone step as the validation and extra sets of
+    # Sampler.run, with the anchor rows as the reference set.
+    rest = kennard_stone(norm_pool, n_select - len(chosen),
+                         ref=norm_pool[chosen], available=free,
+                         space=dist_space)
+    chosen.extend(int(i) for i in rest)
 
     return chosen
 
@@ -253,6 +242,7 @@ def extend(
     n_validation:    int  = 0,
     seed:            Optional[int] = 44,
     verbose:         bool = True,
+    n_repeats:       Union[int, str] = 'auto',
 ) -> "SamplingResult":
     """
     Extend an existing design by ``n_new`` space-filling points.
@@ -273,13 +263,18 @@ def extend(
         Parameter space, constraints, and any pre-set design state
         (focus regions, exclusions, etc.). The sampler is not
         permanently modified; any state added during this call is
-        rolled back on exit.
+        rolled back on exit. Its prescribed and focus points are not
+        added again: the existing design already contains them (a
+        prescribed point missing from it is left out with a warning).
+        Its extra sets are generated around the extended design.
     existing_design : np.ndarray or DataFrame or list
         Points that must appear in the final design unchanged.
-        DataFrame columns must include all parameter names.
+        DataFrame columns must include all parameter names; a
+        ``point_type`` column, as in ``result.samples``, keeps its
+        labels.
     n_new : int
         Number of new points to add.
-    criteria, algorithm, n_validation, seed, verbose
+    criteria, algorithm, n_validation, seed, verbose, n_repeats
         Passed through to :meth:`Sampler.run`. Defaults match the
         one-shot workflow.
 
@@ -292,23 +287,58 @@ def extend(
     Wang, G. G. (2003). *Journal of Mechanical Design*, 125(2).
     Qian, P. Z. G. (2009). *Biometrika*, 96(4).
     """
-    arr, _ = _coerce_design(sampler, existing_design)
+    arr, df = _coerce_design(sampler, existing_design)
     if int(n_new) < 1:
         _fatal(f"n_new must be ≥ 1; got {n_new}.")
 
+    tol = sampler.space.grid_tol
+    missing = [pt.tolist() for pt, _, _ in sampler._prescribed
+               if not np.any(np.all(np.abs(arr - pt) <= tol, axis=1))]
+    if missing:
+        _warn(f"{len(missing)} prescribed point(s) of the sampler are not "
+              f"in existing_design and are left out: {missing}.")
+
     snap = sampler._snapshot_state()
     try:
-        for row in arr:
+        # The existing design already holds the sampler's prescribed and
+        # focus points, and a loaded design is what is being extended:
+        # add the rows once, as the only fixed points.
+        sampler._prescribed.clear()
+        sampler._focus.clear()
+        sampler._loaded_design = None
+        # A row that is an out-of-budget prescribed point of the sampler
+        # stays out of the budget, as it was in the existing design.
+        out = [any(not in_d and np.all(np.abs(row - pt) <= tol)
+                   for pt, in_d, _ in snap['prescribed']) for row in arr]
+        for row, is_out in zip(arr, out):
             sampler.add_prescribed([row.tolist()],
-                                   in_design=True, in_optim=True)
+                                   in_design=not is_out, in_optim=True)
         sampler.set_design(
-            n_samples    = len(arr) + int(n_new),
+            n_samples    = len(arr) - sum(out) + int(n_new),
             n_validation = int(n_validation),
+            extra_sets   = snap['extra_sets'],
         )
-        return sampler.run(criteria=criteria, algorithm=algorithm,
-                           seed=seed, verbose=verbose)
+        result = sampler.run(criteria=criteria, algorithm=algorithm,
+                             seed=seed, n_repeats=n_repeats,
+                             verbose=verbose)
     finally:
         sampler._restore_state(snap)
+
+    # The existing rows first, in their input order (an out-of-budget
+    # row is otherwise placed after the new ones), then the new rows.
+    P = result.samples[sampler.space.names].to_numpy()
+    first = [int(np.flatnonzero(np.all(np.abs(P - row) <= tol, axis=1))[0])
+             for row in arr]
+    rest = [i for i in range(len(P)) if i not in set(first)]
+    result.samples = (result.samples.iloc[first + rest]
+                      .reset_index(drop=True))
+    result.samples.index.name = 'id'
+
+    # Keep the labels the existing rows came with.
+    if df is not None and 'point_type' in df.columns:
+        col = result.samples.columns.get_loc('point_type')
+        result.samples.iloc[:len(arr), col] = df['point_type'].to_numpy()
+    return result
 
 
 def fill_around(
@@ -320,6 +350,7 @@ def fill_around(
     n_validation:     int  = 0,
     seed:             Optional[int] = 44,
     verbose:          bool = True,
+    n_repeats:        Union[int, str] = 'auto',
 ) -> "SamplingResult":
     """
     Generate ``n_new`` points that space-fill the region *around* a
@@ -334,12 +365,16 @@ def fill_around(
     Parameters
     ----------
     sampler : Sampler
+        Parameter space, constraints, exclusions and user sets. Its
+        prescribed points count as further reference points; its focus
+        regions and any loaded design are not used. The sampler is
+        restored on exit.
     reference_points : np.ndarray or DataFrame or list
         Coordinates of the points to fill around. Not included in the
         output.
     n_new : int
         Number of new points to generate.
-    criteria, algorithm, n_validation, seed, verbose
+    criteria, algorithm, n_validation, seed, verbose, n_repeats
         See :meth:`Sampler.run`.
 
     Returns
@@ -351,8 +386,20 @@ def fill_around(
     if int(n_new) < 1:
         _fatal(f"n_new must be ≥ 1; got {n_new}.")
 
+    # The sampler's own prescribed points are references too; each
+    # point is added once.
+    tol  = sampler.space.grid_tol
+    refs = []
+    for row in list(arr) + [pt for pt, _, _ in sampler._prescribed]:
+        if not any(np.all(np.abs(row - r) <= tol) for r in refs):
+            refs.append(np.asarray(row, dtype=float))
+    arr = np.array(refs)
+
     snap = sampler._snapshot_state()
     try:
+        sampler._prescribed.clear()
+        sampler._focus.clear()
+        sampler._loaded_design = None
         for row in arr:
             sampler.add_prescribed([row.tolist()],
                                    in_design=False, in_optim=True)
@@ -361,7 +408,8 @@ def fill_around(
             n_validation = int(n_validation),
         )
         result = sampler.run(criteria=criteria, algorithm=algorithm,
-                             seed=seed, verbose=verbose)
+                             seed=seed, n_repeats=n_repeats,
+                             verbose=verbose)
     finally:
         sampler._restore_state(snap)
 
@@ -372,8 +420,16 @@ def fill_around(
     sample_pts = result.samples[sampler.space.names].to_numpy()
     keep       = np.ones(len(sample_pts), dtype=bool)
     for ref in arr:
-        keep &= ~np.all(np.isclose(sample_pts, ref), axis=1)
+        keep &= ~np.all(np.abs(sample_pts - ref) <= sampler.space.grid_tol,
+                        axis=1)
     result.samples = result.samples[keep].reset_index(drop=True)
+    result._meta['n_design'] = len(result.samples)
+    # Every delivered row was chosen by the optimiser; the references
+    # were not available to it.
+    result._meta['fixed_points'] = []
+    result._meta['baseline_reserved'] = (
+        list(result._meta.get('baseline_reserved') or [])
+        + np.asarray(arr, dtype=float).tolist())
     return result
 
 
@@ -435,8 +491,8 @@ def run_order(
 
     Implements a sequential Kennard-Stone reordering: row 0 is the
     chosen anchor; row k (for ``k > 0``) is the design point most
-    distant (in normalised Euclidean distance) from rows ``0, …,
-    k-1``. Stopping the run after any prefix yields a balanced
+    distant (HEOM distance in normalised coordinates) from rows
+    ``0, …, k-1``. Stopping the run after any prefix yields a balanced
     sub-design rather than a clustered one.
 
     Use this when:
@@ -570,6 +626,7 @@ def nested(
     algorithm: Union[str, List[str]] = 'sa',
     seed:      Optional[int] = 44,
     verbose:   bool = True,
+    n_repeats: Union[int, str] = 'auto',
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Build a nested pair of designs: a small *inner* design that is a
@@ -605,7 +662,7 @@ def nested(
         Size of the outer (larger) design.
     n_inner : int
         Size of the inner (smaller) design. ``1 ≤ n_inner < n_outer``.
-    criteria, algorithm, seed, verbose
+    criteria, algorithm, seed, verbose, n_repeats
         Passed to :meth:`Sampler.run` when building the outer design.
 
     Returns
@@ -640,7 +697,8 @@ def nested(
     try:
         sampler.set_design(n_samples=n_outer, n_validation=0)
         outer_result = sampler.run(criteria=criteria, algorithm=algorithm,
-                                   seed=seed, verbose=verbose)
+                                   seed=seed, n_repeats=n_repeats,
+                                   verbose=verbose)
     finally:
         sampler._restore_state(snap)
 

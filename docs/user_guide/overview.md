@@ -33,11 +33,12 @@ before `run()`:
 : Resume from a complete previous design; `run()` then builds only
   what is missing around it.
 
-`add_focus(region, n)`
-: A region of the space that deserves extra points.
+`add_focus(point, spread, n_samples)`
+: Extra points around a grid point that deserves them.
 
-`add_exclusion(region)` and feasibility constraints
-: Combinations that must never be proposed. See
+`add_exclusion(point)` and feasibility constraints
+: A single grid point, or whole combinations, that must never be
+  proposed. See
   {doc}`constraints and exclusions <how-to/constraints_exclusions>`.
 
 `add_set(name, points)`
@@ -48,8 +49,9 @@ before `run()`:
   algorithm.
 
 `set_dimension_weights(weights)`
-: Make some parameters count more than others in the distance
-  calculations.
+: Meant to make some parameters count more than others in the
+  distance calculations. In this version the weights are stored but
+  not used, and the call warns about it.
 
 ## Running
 
@@ -57,7 +59,11 @@ before `run()`:
 : Builds the design. Seven criteria and three algorithms are
   available; the {doc}`criterion guide
   <explanation/choosing_criterion>` and the {doc}`algorithm guide
-  <explanation/choosing_algorithm>` explain when to pick which.
+  <explanation/choosing_algorithm>` explain when to pick which. By
+  default the optimisation is repeated until its best result has been
+  found five times or a work limit is reached, and the repeats run on
+  every core. When the limit is reached first, a warning says that
+  another seed may give a different design.
 
 `Sampler.compare(criteria, algorithms, n_repeats)`
 : When you are unsure, run several combinations under a shared
@@ -74,9 +80,10 @@ before `run()`:
   {doc}`quality metrics <explanation/quality_metrics>`.
 
 `plot(kind)`
-: Eight plot kinds: `'pairplot'`, `'1d'`, `'2d'`, `'distances'`,
-  `'correlation'`, `'quality'`, `'comparison'`,
-  `'comparison_matrix'`.
+: Seven plot kinds: `'pairplot'`, `'1d'`, `'2d'`, `'distances'`,
+  `'correlation'`, `'quality'` and `'comparison'`, or `'all'` for
+  every one. The criterion-by-algorithm heat map is
+  `ComparisonResult.plot()`.
 
 `to_csv()`, `to_excel()`, `to_json()`, `to_markdown()`,
 `to_latex()`, `to_html()`

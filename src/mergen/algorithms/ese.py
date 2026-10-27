@@ -8,19 +8,24 @@ ESE is the de-facto reference algorithm in the DoE community for
 optimising Latin Hypercube Samples. Compared with classical Simulated
 Annealing it has two distinguishing features:
 
-1. **Best-of-J inner loop.** At every inner iteration, ``J`` candidate
-   elementary perturbations of the current design are generated and the
-   *best* (lowest-scoring) is the one passed to the Metropolis test.
-   This is a greedy filter that focuses the stochastic acceptance on
-   high-quality moves and dramatically reduces variance across seeds.
+1. **Best-of-J inner loop.** At inner iteration ``i``, ``J`` distinct
+   element exchanges within column ``i mod d`` of the current design
+   are generated and the *best* (lowest-scoring) one is the candidate.
+   It is accepted when its score change Δ satisfies
+   ``Δ <= Th × U(0, 1)`` for a threshold ``Th``.
 
-2. **Adaptive temperature.** After every outer iteration the temperature
-   is updated according to the *acceptance ratio* and the
-   *improvement ratio* over the just-completed inner loop. Unlike SA
-   the temperature can *increase* (re-heat) when the algorithm is
-   stuck — this is the "warming" phase of Jin et al. (2005) and is
-   especially effective on constrained problems where classical SA
-   gets trapped in column-swap dead-ends.
+2. **Adaptive threshold.** After every outer iteration ``Th`` is updated
+   from the *acceptance ratio* and the *improvement ratio* of the
+   just-completed inner loop. When the best design improved
+   (improving process) ``Th`` is lowered while accepted moves outnumber
+   improvements, kept when every accepted move improved, and raised
+   otherwise. When it did not (exploration process) ``Th`` is raised
+   quickly until more than ``accept_high`` of the moves are accepted,
+   then lowered slowly until fewer than ``accept_low`` are, and so on.
+
+The rules, constants and defaults follow Jin, Chen & Sudjianto (2005)
+as restated by Liu & Wang's EESE paper and Ba, Myers & Brenneman (2015);
+the original paper could not be consulted directly.
 
 By construction ESE uses *column-swap* perturbations only, so every
 accepted move preserves the per-axis level frequencies of the input
@@ -37,6 +42,8 @@ Damblin, G., Couplet, M. & Iooss, B. (2013). Numerical studies of
     space filling designs: optimization of Latin Hypercube Samples
     and subprojection properties.
     *Journal of Simulation*, 7, 276–289.
+Ba, S., Myers, W. R. & Brenneman, W. A. (2015). Optimal sliced Latin
+    hypercube designs. *Technometrics*, 57(4), 479–487.
 Dupuy, D., Helbert, C. & Franco, J. (2015). DiceDesign and DiceEval:
     Two R-Packages for Design and Analysis of Computer Experiments.
     *Journal of Statistical Software*, 65(11), 1–38.
@@ -49,7 +56,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .base import BaseOptimizer, OptimisationResult
+from .base import BaseOptimizer, OptimisationResult, banned_points, hits
 
 if TYPE_CHECKING:
     from mergen.space    import ParameterSpace
@@ -57,6 +64,8 @@ if TYPE_CHECKING:
 
 
 _CRIT_EPS = 1e-10
+# Candidate exchanges per restart when Q is not given.
+_DEFAULT_EXCHANGES = 10_000
 _EPS      = 1e-300
 
 
@@ -67,39 +76,43 @@ class ESEOptimizer(BaseOptimizer):
     Parameters
     ----------
     n_restarts : int, default 1
-        Number of independent ESE runs. Each restart starts from a
+        Number of ESE runs. Each run after the first starts from a
         perturbation of the running best design. The DiceDesign default
         is 1 because ESE's adaptive temperature already provides robust
         diversification within a single run.
-    M : int, default 100
-        Number of inner-loop iterations per outer iteration.
-        ("inner_it" in Jin et al. 2005 and DiceDesign.)
-    J : int, default 50
-        Number of candidate column-swap perturbations generated at each
-        inner iteration; the best (lowest-scoring) candidate is the one
-        Metropolis-tested. Higher ``J`` ⇒ greedier search.
-    Q : int, default 1
-        Number of outer-loop iterations per restart. Total elementary
-        perturbations evaluated ≈ ``M × J × Q``.
-        ("it" in DiceDesign.)
+    M : int or None, default None
+        Number of inner-loop iterations per outer iteration. ``None``
+        uses Jin et al.'s ``min(2 × n_e × d / J, 100)``, where ``n_e`` is
+        the number of distinct element exchanges in a column,
+        ``n (n - 1) / 2`` for ``n`` movable rows.
+    J : int or None, default None
+        Number of distinct element exchanges tried at each inner
+        iteration; the best one is the candidate. ``None`` uses
+        ``min(n_e / 5, 50)``.
+    Q : int or None, default None
+        Number of outer-loop iterations per restart; the threshold is
+        adapted after each one. ``None`` runs enough outer iterations
+        for about 10,000 candidate exchanges (``M × J × Q``, the effort
+        of DiceDesign's defaults), and never fewer than 2.
     T_start : float or None, default None
-        Initial temperature. ``None`` activates the Jin–Sudjianto
-        default: ``0.005 × initial criterion value``.
+        Initial threshold ``Th0`` on the change of the criterion score.
+        ``None`` uses ``0.005 ×`` the score of the starting design.
     alpha_cool : float, default 0.8
-        Geometric cooling factor applied when the algorithm enters the
-        "improvement / exploitation" branch of the adaptive schedule.
-        ``T ← alpha_cool × T``.
-    alpha_warm : float, default 0.8
-        Geometric warming factor applied when the algorithm enters the
-        "no-improvement / exploration" branch. ``T ← T / alpha_warm``.
-        (Equivalent to ``T × (1 / alpha_warm)`` ≈ ``T × 1.25``.)
+        Improving process: ``Th ← alpha_cool × Th`` while accepted moves
+        outnumber improvements of the best design, ``Th`` unchanged
+        when every accepted move improved it, ``Th ← Th / alpha_cool``
+        when at most ``accept_low`` of the moves were accepted.
+    alpha_warm : float, default 0.7
+        Exploration process: ``Th ← Th / alpha_warm`` while raising the
+        threshold.
+    alpha_explore : float, default 0.9
+        Exploration process: ``Th ← alpha_explore × Th`` while lowering
+        it.
     accept_low : float, default 0.1
-        Lower acceptance-ratio threshold separating the exploitation
-        and exploration branches.
+        Acceptance ratio below which exploration starts raising the
+        threshold.
     accept_high : float, default 0.8
-        Upper acceptance-ratio threshold. Above this the algorithm is
-        considered to be over-accepting and the cooling rate is
-        increased.
+        Acceptance ratio above which exploration starts lowering it.
     seed_offset : int, default 0
         Added to the user-supplied seed for the internal RNG.
 
@@ -109,7 +122,6 @@ class ESEOptimizer(BaseOptimizer):
     histogram of the *final* design equals that of the *initial* design.
     To make full use of ESE, the initial design should already be a
     balanced LHS — Mergen's Sampler does this automatically via
-    :meth:`GridSampler.greedy_maximin_seed` or
     :meth:`GridSampler.balanced_lhs_seed`.
 
     Examples
@@ -126,12 +138,13 @@ class ESEOptimizer(BaseOptimizer):
     def get_default_params(cls) -> Dict[str, Any]:
         return {
             'n_restarts'  : 1,
-            'M'           : 100,
-            'J'           : 50,
-            'Q'           : 1,
+            'M'           : None,
+            'J'           : None,
+            'Q'           : None,
             'T_start'     : None,
             'alpha_cool'  : 0.8,
-            'alpha_warm'  : 0.8,
+            'alpha_warm'  : 0.7,
+            'alpha_explore': 0.9,
             'accept_low'  : 0.1,
             'accept_high' : 0.8,
             'seed_offset' : 0,
@@ -159,7 +172,7 @@ class ESEOptimizer(BaseOptimizer):
 
         # ── Validate ──
         for p_name in ['M', 'J', 'Q', 'n_restarts']:
-            if getattr(self, p_name) < 1:
+            if getattr(self, p_name) is not None and getattr(self, p_name) < 1:
                 raise ValueError(f"{p_name} must be ≥ 1; "
                                  f"got {getattr(self, p_name)}")
         if not 0.0 < self.alpha_cool < 1.0:
@@ -168,6 +181,9 @@ class ESEOptimizer(BaseOptimizer):
         if not 0.0 < self.alpha_warm < 1.0:
             raise ValueError(f"alpha_warm must be in (0, 1); "
                              f"got {self.alpha_warm}")
+        if not 0.0 < self.alpha_explore < 1.0:
+            raise ValueError(f"alpha_explore must be in (0, 1); "
+                             f"got {self.alpha_explore}")
 
         gs      = space.grid_sampler()
         gmins   = space.gmins
@@ -180,6 +196,7 @@ class ESEOptimizer(BaseOptimizer):
             idx = gs.point_to_index(row)
             if idx >= 0:
                 reserved.add(idx)
+        banned_pts = banned_points(gs, banned, initial_design)
 
         # ── Multi-restart loop ──
         best_design:   np.ndarray = initial_design.copy()
@@ -196,7 +213,7 @@ class ESEOptimizer(BaseOptimizer):
             else:
                 r_design, r_reserved = self._perturb_restart(
                     best_design, best_reserved, gs, n_frozen, space,
-                    eff_seed, r_idx,
+                    eff_seed, r_idx, banned_pts,
                 )
 
             if verbose and self.n_restarts > 1:
@@ -206,7 +223,7 @@ class ESEOptimizer(BaseOptimizer):
              n_iter, n_acc, n_imp) = self._run_one(
                 r_design, r_reserved, gs, gmins, granges,
                 space, criterion, n_frozen, crit_start,
-                eff_seed, r_idx, verbose,
+                eff_seed, r_idx, verbose, banned_pts,
             )
 
             restart_scores.append(out_score)
@@ -265,6 +282,7 @@ class ESEOptimizer(BaseOptimizer):
         seed:        int,
         r_idx:       int,
         verbose:     bool,
+        banned_pts:  Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, set, float, int, int, int]:
         """One ESE restart with outer/inner loop and adaptive temperature."""
         design   = design.copy()
@@ -287,15 +305,25 @@ class ESEOptimizer(BaseOptimizer):
         best_design  = design.copy()
         best_reserv  = reserved.copy()
 
-        # T_start = 0.005 × initial score (Jin–Sudjianto default)
-        T = (float(self.T_start) if self.T_start is not None
-             else 0.005 * max(raw_score, _EPS))
+        # Jin, Chen & Sudjianto (2005): threshold Th0 = 0.005 x the
+        # starting score; J and M from the number of distinct element
+        # exchanges in a column.
+        T  = (float(self.T_start) if self.T_start is not None
+              else 0.005 * float(raw_score))
         T0 = T
+        n_e = n_swap * (n_swap - 1) // 2
+        J = self.J if self.J is not None else max(1, min(n_e // 5, 50))
+        M = (self.M if self.M is not None
+             else max(1, min(2 * n_e * n_dims // J, 100)))
+        Q = (self.Q if self.Q is not None
+             else max(2, -(-_DEFAULT_EXCHANGES // (M * J))))
+        # n_repeats='auto' lengthens a default search through this factor.
+        Q *= int(getattr(self, 'budget_factor', 1))
 
         if verbose:
             self._info(
                 f"Start  log(score)={np.log(max(raw_score, _EPS)):.3f}  "
-                f"T0={T0:.3e}  M={self.M}  J={self.J}  Q={self.Q}  "
+                f"Th0={T0:.3e}  M={M}  J={J}  Q={Q}  "
                 f"swappable={n_swap}"
             )
 
@@ -305,25 +333,48 @@ class ESEOptimizer(BaseOptimizer):
         n_total_iter     = 0
         n_total_accepted = 0
         n_total_improved = 0
+        # Exploration raises Th until enough moves are accepted, then
+        # lowers it until too few are; this flag holds the direction.
+        raising = False
 
         # ── Outer loop ──
-        for q in range(self.Q):
-            for m in range(self.M):
-                # ── Inner loop: produce J column-swap candidates and pick best ──
-                best_cand_score   = None
-                best_cand_log_del = None
-                best_cand_swap    = None      # (i_abs, j_abs, axis)
-                best_cand_X_new   = None
+        for q in range(Q):
+            # Jin et al. adapt Th on the counts of the last outer
+            # iteration only.
+            n_acc_q, n_imp_q = 0, 0
+            best_at_start    = best_score
+            for m in range(M):
+                # ── Inner loop: J distinct exchanges in column m mod d ──
+                v = m % n_dims
+                best_cand_score = None
+                best_cand_swap  = None      # (i_abs, j_abs)
+                best_cand_X_new = None
+                tried: set = set()
+                n_cand = 0
 
-                for _ in range(self.J):
-                    # Sample a column-swap (i, j, v)
+                # J distinct exchanges that change the design; draws
+                # that cannot (same row, same level, a repeated pair, an
+                # infeasible or duplicate result) do not count.
+                while n_cand < J and len(tried) < n_e:
                     i_abs = int(rng.integers(n_frozen, n))
                     j_abs = int(rng.integers(n_frozen, n))
                     if i_abs == j_abs:
                         continue
-                    v = int(rng.integers(0, n_dims))
+                    pair = (min(i_abs, j_abs), max(i_abs, j_abs))
+                    if pair in tried:
+                        continue
+                    tried.add(pair)
                     if np.isclose(design[i_abs, v], design[j_abs, v],
-                                  rtol=1e-9, atol=1e-9):
+                                  rtol=1e-9, atol=0.0):
+                        continue
+                    # Rows that differ only on axis v swap into each
+                    # other, so the design does not change. Scoring such
+                    # a swap as two single-row updates passes through a
+                    # duplicate point, and the cancellation that follows
+                    # reports a large false improvement.
+                    other = np.arange(n_dims) != v
+                    if np.array_equal(design[i_abs, other],
+                                      design[j_abs, other]):
                         continue
 
                     # Constraint + duplicate check on both resulting rows
@@ -341,26 +392,21 @@ class ESEOptimizer(BaseOptimizer):
                     # distance-free criteria (e.g. CD2) do not punish;
                     # designs must never contain duplicate points.
                     dup_i = np.all(np.isclose(design, row_i,
-                                              rtol=1e-9, atol=1e-9), axis=1)
+                                              rtol=1e-9, atol=0.0), axis=1)
                     dup_j = np.all(np.isclose(design, row_j,
-                                              rtol=1e-9, atol=1e-9), axis=1)
+                                              rtol=1e-9, atol=0.0), axis=1)
                     dup_i[i_abs] = dup_i[j_abs] = False
                     dup_j[i_abs] = dup_j[j_abs] = False
                     if dup_i.any() or dup_j.any():
                         continue
+                    if banned_pts is not None and (
+                            hits(banned_pts, row_i)
+                            or hits(banned_pts, row_j)):
+                        continue
 
-                    # Δscore via two incremental updates
-                    new_i = (
-                        np.array([design[j_abs, v] if k == v
-                                  else design[i_abs, k]
-                                  for k in range(n_dims)]) - gmins
-                    ) / granges
-                    new_j = (
-                        np.array([design[i_abs, v] if k == v
-                                  else design[j_abs, k]
-                                  for k in range(n_dims)]) - gmins
-                    ) / granges
-
+                    # Score change via two incremental updates
+                    new_i = (row_i - gmins) / granges
+                    new_j = (row_j - gmins) / granges
                     i_rel = i_abs - crit_start
                     j_rel = j_abs - crit_start
                     i_in  = (0 <= i_rel < len(X_norm))
@@ -379,71 +425,66 @@ class ESEOptimizer(BaseOptimizer):
                             X_temp, j_rel, new_j, space, score_temp)
                         X_temp[j_rel] = new_j
 
-                    # Greedy: keep the *best* among J
+                    n_cand += 1
                     if (best_cand_score is None
                             or score_temp < best_cand_score):
-                        log_delta = (np.log(max(score_temp, _EPS))
-                                     - np.log(max(raw_score, _EPS)))
-                        best_cand_score   = score_temp
-                        best_cand_log_del = log_delta
-                        best_cand_swap    = (i_abs, j_abs, v)
-                        best_cand_X_new   = X_temp
+                        best_cand_score = score_temp
+                        best_cand_swap  = (i_abs, j_abs)
+                        best_cand_X_new = X_temp
 
                 n_total_iter += 1
 
-                # ── Metropolis acceptance on the best candidate ──
-                if best_cand_swap is not None:
-                    log_delta = best_cand_log_del
-                    if (log_delta < 0
-                            or rng.random() < np.exp(
-                                float(np.clip(-log_delta / max(T, _EPS),
-                                              -700, 0)))):
-                        i_abs, j_abs, v = best_cand_swap
-                        design[i_abs, v], design[j_abs, v] = (
-                            design[j_abs, v], design[i_abs, v])
-                        X_norm    = best_cand_X_new
-                        raw_score = best_cand_score
-                        n_total_accepted += 1
-                        if log_delta < 0:
+                # ── Threshold acceptance of the best candidate ──
+                if best_cand_swap is not None and (
+                        best_cand_score - raw_score
+                        <= T * rng.random()):
+                    i_abs, j_abs = best_cand_swap
+                    design[i_abs, v], design[j_abs, v] = (
+                        design[j_abs, v], design[i_abs, v])
+                    X_norm    = best_cand_X_new
+                    raw_score = best_cand_score
+                    n_total_accepted += 1
+                    n_acc_q          += 1
+
+                    # Track best with drift safeguard
+                    if (raw_score < best_score
+                            and raw_score > _CRIT_EPS):
+                        true_score = criterion.evaluate(X_norm, space)
+                        raw_score  = true_score
+                        if (true_score < best_score
+                                and true_score > _CRIT_EPS):
+                            best_score   = true_score
+                            best_design  = design.copy()
+                            best_reserv  = reserved.copy()
                             n_total_improved += 1
+                            n_imp_q          += 1
 
-                        # Track best with drift safeguard
-                        if (raw_score < best_score
-                                and raw_score > _CRIT_EPS):
-                            true_score = criterion.evaluate(X_norm, space)
-                            raw_score  = true_score
-                            if (true_score < best_score
-                                    and true_score > _CRIT_EPS):
-                                best_score   = true_score
-                                best_design  = design.copy()
-                                best_reserv  = reserved.copy()
-
-            # ── Outer step: adapt T (Jin et al. 2005) ──
-            # We adapt based on the acceptance and improvement counts
-            # *over the last outer iteration*. To keep state minimal we
-            # use the running counts since the last adaptation.
-            acc_ratio  = (n_total_accepted / max(1, n_total_iter))
-            imp_ratio  = (n_total_improved / max(1, n_total_iter))
+            # ── Outer step: adapt Th (Jin, Chen & Sudjianto 2005) ──
+            acc_ratio = n_acc_q / M
+            imp_ratio = n_imp_q / M
 
             T_old = T
-            if imp_ratio > 0.10:
-                # Lots of improvement → we are in exploitation.
-                # Cool slowly to keep exploiting.
-                T = T * self.alpha_cool
-            elif acc_ratio > self.accept_high:
-                # Many acceptances but no improvement → T too high;
-                # cool aggressively to focus.
-                T = T * self.alpha_cool * self.alpha_cool
-            elif acc_ratio < self.accept_low:
-                # Almost no acceptances → stuck; re-heat.
-                T = T / self.alpha_warm
+            if best_score < best_at_start:
+                # Improving process.
+                if acc_ratio > self.accept_low and imp_ratio < acc_ratio:
+                    T = T * self.alpha_cool
+                elif acc_ratio > self.accept_low and imp_ratio == acc_ratio:
+                    pass
+                else:
+                    T = T / self.alpha_cool
             else:
-                # Mild progress → modest cooling.
-                T = T * self.alpha_cool
+                # Exploration process: raise Th quickly until more than
+                # accept_high of the moves are accepted, then lower it
+                # slowly until fewer than accept_low are.
+                if raising and acc_ratio > self.accept_high:
+                    raising = False
+                elif not raising and acc_ratio < self.accept_low:
+                    raising = True
+                T = T / self.alpha_warm if raising else T * self.alpha_explore
 
             if verbose:
                 self._info(
-                    f"  outer {q+1}.{1}/{self.Q}  T={T_old:.3e}→{T:.3e}  "
+                    f"  outer {q+1}/{Q}  Th={T_old:.3e}→{T:.3e}  "
                     f"acc_ratio={acc_ratio:.2f}  "
                     f"imp_ratio={imp_ratio:.2f}  "
                     f"best log(score)={np.log(max(best_score, _EPS)):.3f}"
@@ -471,6 +512,7 @@ class ESEOptimizer(BaseOptimizer):
         space,
         seed:      int,
         r_idx:     int,
+        banned_pts: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, set]:
         """
         Restart kick: perform a few column-swaps so the new restart
@@ -500,7 +542,7 @@ class ESEOptimizer(BaseOptimizer):
                     continue
                 v = int(rng.integers(0, n_dims))
                 if np.isclose(design[i_abs, v], design[j_abs, v],
-                              rtol=1e-9, atol=1e-9):
+                              rtol=1e-9, atol=0.0):
                     continue
                 row_i = design[i_abs].copy()
                 row_j = design[j_abs].copy()
@@ -512,12 +554,15 @@ class ESEOptimizer(BaseOptimizer):
                             all(c(p_j) for c in constraints)):
                         continue
                 dup_i = np.all(np.isclose(design, row_i,
-                                          rtol=1e-9, atol=1e-9), axis=1)
+                                          rtol=1e-9, atol=0.0), axis=1)
                 dup_j = np.all(np.isclose(design, row_j,
-                                          rtol=1e-9, atol=1e-9), axis=1)
+                                          rtol=1e-9, atol=0.0), axis=1)
                 dup_i[i_abs] = dup_i[j_abs] = False
                 dup_j[i_abs] = dup_j[j_abs] = False
                 if dup_i.any() or dup_j.any():
+                    continue
+                if banned_pts is not None and (hits(banned_pts, row_i)
+                                               or hits(banned_pts, row_j)):
                     continue
                 design[i_abs, v], design[j_abs, v] = (
                     design[j_abs, v], design[i_abs, v])

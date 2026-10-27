@@ -75,7 +75,7 @@ def _fatal(msg: str) -> None:
 
 
 # ── Default resolution for continuous / integer log parameters ────────────
-_DEFAULT_RESOLUTION = 100   # overridden to max(n_samples*10, 100) at run time
+_DEFAULT_RESOLUTION = 100
 
 
 # ======================================================================
@@ -200,7 +200,10 @@ def _parse_parameter(
                 arr = np.unique(np.round(raw)).astype(float)
                 arr = arr[(arr >= lo) & (arr <= hi)]
             else:
-                arr = np.arange(int(round(lo)), int(round(hi)) + 1, dtype=float)
+                # Every integer in [min, max]; rounding the bounds
+                # would let (1.5, 3.7) produce 4.
+                arr = np.arange(int(np.ceil(lo - 1e-9)),
+                                int(np.floor(hi + 1e-9)) + 1, dtype=float)
 
         # Optional rounding of grid nodes to a fixed number of decimal
         # places. Real continuous factors are only adjustable to the
@@ -277,6 +280,18 @@ def _parse_parameter(
 # ParameterSpace
 # ======================================================================
 
+def _axis_tol(levels: np.ndarray) -> float:
+    """Matching tolerance for one axis; see ParameterSpace.grid_tol."""
+    v = np.unique(np.asarray(levels, dtype=float))
+    if len(v) == 0:
+        return 0.0
+    # Never below a few units in the last place of the largest level.
+    ulps = 4 * float(np.spacing(np.abs(v).max()))
+    if len(v) > 1:
+        return max(1e-6 * float(np.diff(v).min()), ulps)
+    return max(1e-9 * float(abs(v[0])), ulps)
+
+
 class ParameterSpace:
     """
     N-dimensional discrete parameter space for space-filling design.
@@ -314,6 +329,9 @@ class ParameterSpace:
         self._constraints:     List[Callable]        = []
         self._candidate_pool:  Optional[np.ndarray]  = None   # lazy cache
         self._resolution       = resolution
+        # Each parameter's spec and resolution override, so that
+        # set_resolution() can rebuild the grids that use the default.
+        self._specs: Dict[str, Tuple[object, Optional[int]]] = {}
 
         if parameters is not None:
             if not isinstance(parameters, dict):
@@ -383,6 +401,7 @@ class ParameterSpace:
         res              = resolution if resolution is not None else self._resolution
         arr, kind, labels = _parse_parameter(name, spec, resolution=res)
 
+        self._specs[name]        = (spec, resolution)
         self._parameters[name]   = arr
         self._param_types[name]  = kind
         if labels is not None:
@@ -434,6 +453,11 @@ class ParameterSpace:
         if resolution < 2:
             _fatal(f"Resolution must be >= 2, got {resolution}.")
         self._resolution = resolution
+        for name, (spec, override) in self._specs.items():
+            if override is None:
+                arr, _, _ = _parse_parameter(name, spec,
+                                             resolution=resolution)
+                self._parameters[name] = arr
         self._candidate_pool = None
         return self
 
@@ -460,6 +484,17 @@ class ParameterSpace:
     def n_levels(self) -> List[int]:
         """Number of grid levels for each parameter."""
         return [len(v) for v in self._parameters.values()]
+
+    @property
+    def grid_tol(self) -> np.ndarray:
+        """
+        Per-parameter tolerance for matching a value to a grid level.
+
+        A millionth of the smallest gap between neighbouring levels, so
+        it scales with the units of the parameter (an absolute tolerance
+        merged every level of a factor measured in 1e-12 units).
+        """
+        return np.array([_axis_tol(v) for v in self._parameters.values()])
 
     @property
     def bounds(self) -> List[tuple]:
@@ -559,20 +594,32 @@ class ParameterSpace:
             self._candidate_pool = self._build_pool()
         return self._candidate_pool
 
+    def _bounds_cache(self) -> Tuple[np.ndarray, np.ndarray]:
+        """(gmins, granges), recomputed only when the pool is rebuilt."""
+        pool   = self.candidate_pool
+        cached = getattr(self, '_gcache', None)
+        if cached is None or cached[0] is not pool:
+            lo = pool.min(axis=0)
+            r  = pool.max(axis=0) - lo
+            r[r == 0] = 1e-9
+            lo.flags.writeable = False
+            r.flags.writeable  = False
+            self._gcache = (pool, lo, r)
+            cached = self._gcache
+        return cached[1], cached[2]
+
     @property
     def gmins(self) -> np.ndarray:
-        """Per-dimension minimum of the feasible candidate pool."""
-        return self.candidate_pool.min(axis=0)
+        """Per-dimension minimum of the feasible candidate pool (read-only)."""
+        return self._bounds_cache()[0]
 
     @property
     def granges(self) -> np.ndarray:
         """
-        Per-dimension range of the feasible candidate pool.
+        Per-dimension range of the feasible candidate pool (read-only).
         Never zero (degenerate dimensions get range = 1e-9).
         """
-        r = self.candidate_pool.max(axis=0) - self.candidate_pool.min(axis=0)
-        r[r == 0] = 1e-9
-        return r
+        return self._bounds_cache()[1]
 
 
     @property
@@ -733,7 +780,7 @@ class ParameterSpace:
                 f"{self.n_parameters} parameter(s)."
             )
         pool    = self.candidate_pool
-        matches = np.where(np.all(np.isclose(pool, pt, rtol=1e-9, atol=1e-9),
+        matches = np.where(np.all(np.abs(pool - pt) <= self.grid_tol,
                                   axis=1))[0]
         return int(matches[0]) if len(matches) > 0 else -1
 
@@ -771,7 +818,10 @@ class ParameterSpace:
                 )
                 + "\n  Note: the point must match a grid node exactly."
             )
-        return pt
+        # The node itself, so that 0.3 becomes the grid's
+        # 0.30000000000000004 and later look-ups match exactly.
+        return np.array([vals[np.argmin(np.abs(vals - x))]
+                         for vals, x in zip(self._parameters.values(), pt)])
 
     # ------------------------------------------------------------------ #
     # GridSampler factory                                                  #
@@ -887,6 +937,10 @@ class GridSampler:
     Morris & Mitchell (1995), J. Statist. Plan. Infer. 43.
     """
 
+    #: Failed rejection draws after which random_point_excluding() lists
+    #: the free feasible points instead.
+    MAX_REJECTIONS: int = 1_000
+
     #: Grids with fewer candidates than this are iterated exactly in greedy.
     #: Above the threshold, random sampling is used (unbiased in expectation).
     FULL_GREEDY_THRESHOLD: int = 500_000
@@ -905,6 +959,20 @@ class GridSampler:
         self.n_candidates = int(np.prod(space.n_levels)) if space.n_levels else 0
         self.gmins        = space.gmins
         self.granges      = space.granges
+
+        # Sorted levels per axis for O(log L) value → level lookup
+        self._order  = [np.argsort(np.asarray(v, dtype=float), kind='stable')
+                        for v in self.values]
+        self._sorted = [np.asarray(v, dtype=float)[o]
+                        for v, o in zip(self.values, self._order)]
+        self._tol    = [_axis_tol(v) for v in self.values]
+        # Exact level values → level, the common case in level_of.
+        self._exact: List[Dict[float, int]] = []
+        for sv, o in zip(self._sorted, self._order):
+            exact: Dict[float, int] = {}
+            for k in range(len(sv)):
+                exact.setdefault(float(sv[k]), int(o[k]))
+            self._exact.append(exact)
 
         # Mixed-radix strides (precomputed for O(d) bijection)
         self._strides: List[int] = []
@@ -948,11 +1016,47 @@ class GridSampler:
         """
         idx = 0
         for d in range(self.n_dims):
-            li = np.where(np.isclose(self.values[d], point[d],
-                                     rtol=1e-9, atol=1e-9))[0]
-            if len(li) == 0:
+            li = self.level_of(d, point[d])
+            if li < 0:
                 return -1
-            idx += int(li[0]) * self._strides[d]
+            idx += li * self._strides[d]
+        return idx
+
+    def level_of(self, d: int, value: float) -> int:
+        """
+        Level index of *value* on axis *d*, or -1 if it is off the grid.
+
+        Matches within the per-axis tolerance of
+        :attr:`ParameterSpace.grid_tol`.
+        """
+        li = self._exact[d].get(float(value))
+        if li is not None:
+            return li
+        sv  = self._sorted[d]
+        pos = int(np.searchsorted(sv, value))
+        for k in (pos - 1, pos):
+            if 0 <= k < len(sv) and abs(sv[k] - value) <= self._tol[d]:
+                return int(self._order[d][k])
+        return -1
+
+    def pool_indices(self) -> np.ndarray:
+        """
+        Grid index of every row of ``space.candidate_pool``.
+
+        The pool is built from the same level values as the grid, so
+        each pool value matches its level exactly.
+
+        Returns
+        -------
+        np.ndarray of int64, shape (n_feasible,), in ascending order.
+        """
+        pool = self._space.candidate_pool
+        idx  = np.zeros(len(pool), dtype=np.int64)
+        for d in range(self.n_dims):
+            vals  = np.asarray(self.values[d], dtype=float)
+            order = np.argsort(vals, kind='stable')
+            level = order[np.searchsorted(vals[order], pool[:, d])]
+            idx  += level.astype(np.int64) * self._strides[d]
         return idx
 
     # ------------------------------------------------------------------ #
@@ -977,7 +1081,9 @@ class GridSampler:
         reserved  : set of int
             Indices to skip.
         max_tries : int, default 100000
-            Upper bound on rejection sampling attempts.
+            Upper bound on rejection sampling attempts. After
+            ``MAX_REJECTIONS`` failed attempts the free feasible points
+            are listed and one is drawn from them directly.
         rng : numpy.random.Generator, optional
             Random source. If ``None`` (default), Python's global
             ``random`` module is used for backward compatibility with
@@ -1001,7 +1107,7 @@ class GridSampler:
             def _draw():
                 return int(rng.integers(0, self.n_candidates))
 
-        for _ in range(max_tries):
+        for _ in range(min(max_tries, self.MAX_REJECTIONS)):
             idx = _draw()
             if idx in reserved:
                 continue
@@ -1012,7 +1118,17 @@ class GridSampler:
                     continue
             return pt, idx
 
-        return None, None
+        # Few free feasible points left: list them instead of drawing
+        # blindly, which could otherwise spin until max_tries per call.
+        free = self.pool_indices()
+        free = free[~np.isin(free, np.fromiter(reserved, dtype=np.int64,
+                                               count=len(reserved)))]
+        if len(free) == 0:
+            return None, None
+        k   = (int(rng.integers(0, len(free))) if rng is not None
+               else random.randrange(len(free)))
+        idx = int(free[k])
+        return self.index_to_point(idx), idx
 
     def greedy_maximin_seed(
         self,
@@ -1191,7 +1307,7 @@ class GridSampler:
             approach. *Journal of Quality Technology*, 50(4).
         Morris, M. D. & Mitchell, T. J. (1995).
             *J. Statist. Plan. Infer.*, 43, 381–402.
-        McKay, M. D., Conover, W. J. & Beckman, R. J. (1979).
+        McKay, M. D., Beckman, R. J. & Conover, W. J. (1979).
             *Technometrics*, 21(2), 239–245.
         """
         if rng is None:
@@ -1212,7 +1328,14 @@ class GridSampler:
             base  = n_total // L_v
             extra = n_total %  L_v                     # how many get base+1
             f     = np.full(L_v, base, dtype=int)
-            extra_levels = rng.permutation(L_v)[:extra]
+            # The levels used once more are spread like a Latin
+            # hypercube: one random level from each of ``extra`` equal
+            # strata of the axis (McKay et al. 1979), so a design with
+            # fewer points than levels still covers the whole range.
+            edges = (np.arange(extra + 1) * L_v) // max(extra, 1)
+            extra_levels = np.array(
+                [rng.integers(edges[k], edges[k + 1])
+                 for k in range(extra)], dtype=int)
             f[extra_levels] += 1
             target_freqs.append(f)
 
@@ -1222,10 +1345,9 @@ class GridSampler:
             f           = target_freqs[v].copy()
             fixed_usage = np.zeros(self.n_levels[v], dtype=int)
             for pt in selected:
-                li = np.where(np.isclose(self.values[v], pt[v],
-                                         rtol=1e-9, atol=1e-9))[0]
-                if len(li) > 0:
-                    fixed_usage[int(li[0])] += 1
+                li = self.level_of(v, pt[v])
+                if li >= 0:
+                    fixed_usage[li] += 1
 
             new_f = f - fixed_usage
             new_f = np.clip(new_f, 0, None)
@@ -1242,8 +1364,17 @@ class GridSampler:
                     lv = int(rng.choice(cands))
                 new_f[lv] += 1
 
+            # Trim where the anchors already cover the axis: among the
+            # most used levels, the one nearest an anchor's level, so
+            # the strata the anchors leave empty keep their level.
+            used = np.flatnonzero(fixed_usage)
             while int(new_f.sum()) > budget:
-                lv = int(np.argmax(new_f))
+                top = np.flatnonzero(new_f == new_f.max())
+                if len(used):
+                    gap = np.abs(top[:, None] - used[None, :]).min(axis=1)
+                    lv = int(top[np.argmin(gap)])
+                else:
+                    lv = int(top[0])
                 new_f[lv] -= 1
 
             remaining_freqs.append(new_f)
