@@ -72,9 +72,10 @@ mergen aims to be publication-quality software. For any new algorithm or metric:
 
 ## AI assistance
 
-AI assistants were used during development for debugging, code
-simplification, test design and documentation drafting. All
-AI-assisted output was reviewed, tested and validated by the author.
+Anthropic's Claude (via Claude Code) was used during development for
+code auditing, debugging, code and test generation, and documentation
+drafting. All AI-assisted output was reviewed, tested and validated by
+the maintainers, who take full responsibility for the code.
 
 ---
 

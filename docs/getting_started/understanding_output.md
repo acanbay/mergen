@@ -18,53 +18,69 @@ result.quality_report()
 ```
 
 ```text
-════════════════════════════════════════════════════════════════════
+════════════════════════════════════════════════════════════════════════
   MERGEN Design Metrics  (n=30, d=3)
-════════════════════════════════════════════════════════════════════
-  Metric                      Value    Baseline  Better when    Rank
-────────────────────────────────────────────────────────────────────
-  Min distance               0.0857      0.0505  higher      90th pct
-  Minimax distance           0.7013      0.5696  lower        5th pct *
-  Max |correlation|          0.3978      0.2386  lower        8th pct *
-  2D projection CD2          0.2488      0.1890  lower        6th pct *
-  CV distances               0.3908      0.4017  lower       72th pct
-  Mean distance              0.7159      0.7415  higher      26th pct
-────────────────────────────────────────────────────────────────────
+════════════════════════════════════════════════════════════════════════
+  Metric                      Value    Baseline  Better when        Rank
+────────────────────────────────────────────────────────────────────────
+  Min distance               0.1491      0.0505  higher         99th pct
+  Minimax distance           0.5151      0.5696  lower          77th pct  *
+  Max |correlation|          0.1601      0.2386  lower          77th pct  *
+  2D projection CD2          0.1305      0.1890  lower          99th pct  *
+  CV distances               0.3806      0.4017  lower          89th pct
+  Mean distance              0.7278      0.7415  higher         38th pct
+────────────────────────────────────────────────────────────────────────
   Criterion scores
-────────────────────────────────────────────────────────────────────
-  UMAXPRO                    8.7221e+15  1.2973e+22   100th pct  lower
-────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────
+  UMAXPRO                    7.9158e+14  1.2973e+22  99th pct  lower
+────────────────────────────────────────────────────────────────────────
   * = primarily optimised by 'umaxpro'
-  Baseline: 300 MC designs from feasible space
-════════════════════════════════════════════════════════════════════
+  For other priorities, see: mergen.criteria.list_criteria()
+────────────────────────────────────────────────────────────────────────
+  Baseline: 300 MC designs from feasible space  |  Rank = percentile among baseline designs
+════════════════════════════════════════════════════════════════════════
 ```
 
-Your numbers will differ in detail from run to run and from machine to
-machine; the structure is what matters.
+With the same seed and the same Mergen version you get exactly these
+numbers on any machine.
+
+The run itself also printed a warning: the best result was found by
+only one of the repeats before the work limit, so another seed may give
+a different design. `run()` repeats the optimisation until its best
+result has been found five times (`n_repeats='auto'`), lengthening the
+search when no repeat reproduces the best one. For `umaxpro` with
+simulated annealing on this space that does not happen within the
+limit. The design is still good, as the report shows, but if it must
+not depend on the seed, raise the budget with `set_optimizer()` or let
+`Sampler.compare()` find a criterion and algorithm that settle.
 
 ### The Monte Carlo baseline
 
 Before printing, Mergen generates 300 random designs of the same size
 from the same feasible space and computes every metric for each of
-them. This baseline is what turns raw numbers into evidence. A minimum
-distance of 0.0857 means nothing in isolation; knowing that 300 random
-attempts averaged 0.0505 quantifies what the optimisation gained.
+them. If your design has prescribed or focus points, every random
+design keeps them and only the rest is random; the quality metrics
+page explains this. This baseline is what turns raw numbers into
+evidence. A minimum
+distance of 0.1491 means nothing in isolation; knowing that 300 random
+attempts had a median of 0.0505 quantifies what the optimisation
+gained.
 
 ### Reading a row
 
 Each row has four parts.
 
-*Value* is the metric computed on your design. *Baseline* is the mean
-of the same metric over the 300 random designs. *Better when* tells
+*Value* is the metric computed on your design. *Baseline* is the
+median of the same metric over the 300 random designs. *Better when* tells
 you the direction: for minimum distance, higher is better (points far
 from their nearest neighbour); for discrepancy-type metrics, lower is
 better.
 
 *Rank* is direction-adjusted, so it always reads the same way: it is
 the share of baseline designs that your design beats on that metric.
-The 90th percentile min distance above outperforms 90 percent of the
-random designs; the 5th percentile minimax distance outperforms only
-5 percent of them. Higher rank is always better, whatever the metric's
+The 99th percentile min distance above outperforms almost every one of
+the random designs; the 77th percentile maximum correlation outperforms
+77 percent of them. Higher rank is always better, whatever the metric's
 direction, and the terminal colour coding follows the same rule.
 
 ### The asterisks
@@ -72,19 +88,19 @@ direction, and the terminal colour coding follows the same rule.
 The rows marked `*` flag the metrics most closely related to the
 chosen criterion, as a guide to which rows deserve your attention
 first. The example above also illustrates an honest and important
-point: a design can sit at the 100th percentile on the criterion it
+point: a design can sit at the 99th percentile on the criterion it
 optimised while ranking modestly on other classical metrics. A single
 criterion is one definition of a good design, not all of them. If the
 metrics you care about are not the ones your criterion serves, the fix
 is not more iterations but a different criterion; the
 choosing-a-criterion page in the explanation section maps goals to
-criteria, and `mergen.compare()` measures the trade-offs empirically.
+criteria, and `Sampler.compare()` measures the trade-offs empirically.
 
 ### The criterion row
 
 The final block reports the optimised criterion itself against the
 same baseline. This is the single most direct statement of
-optimisation success. The 100th percentile here reads: no random
+optimisation success. The 99th percentile here reads: no random
 design came anywhere near it. Note the scale: criterion values such as
 these are only meaningful relative to the baseline, never in absolute
 terms, which is why the report always prints both.
@@ -149,8 +165,8 @@ random cloud.
 For a paper's methods section, the report gives you everything needed
 for a sentence of the form: "A 30-run space-filling design was
 generated with Mergen (criterion uMaxPro, simulated annealing);
-the design's minimum inter-point distance ranked at the 90th
-percentile of 300 random reference designs." Every number in that
+the design's minimum inter-point distance exceeded that of all 300
+random reference designs." Every number in that
 sentence comes from the table above, and `result.to_latex()` exports
 the design itself for the appendix.
 
@@ -158,5 +174,5 @@ the design itself for the appendix.
 
 If the report says the design is not good enough, do not tune blindly:
 read the choosing-a-criterion and choosing-an-optimiser pages in the
-explanation section, or let `mergen.compare()` sweep the combinations
+explanation section, or let `Sampler.compare()` sweep the combinations
 for you (covered in the how-to guides).

@@ -7,10 +7,8 @@ Compose a reactor design from prescribed runs, a focus region and an exclusion z
 A pilot-scale continuous reactor is being mapped in temperature and
 pressure. Two runs from an earlier campaign are already available and
 must be reused as-is. The team also wants extra coverage around a
-suspected optimum, must keep the design away from the high-T /
-high-P corner for safety reasons, and considers temperature the more
-critical of the two factors, so separation along that axis should
-count for more.
+suspected optimum, and must not run the reactor at the high-T /
+high-P corner for safety reasons.
 
 Parameters
 ----------
@@ -25,23 +23,23 @@ What to look at
   the design is composed; two prescribed and four focus points
   should be present alongside the optimised runs.
 - ``quality_report()``: scores are computed on the union of all included
-  points, so the min_distance percentile still reflects overall
-  separation despite the placement constraints.
+  points, and every baseline design keeps the prescribed and focus
+  points, so the percentiles show what the optimised runs added
+  around them.
 - ``plot('pairplot')``: the two prescribed runs should appear at the
   requested coordinates, the neighbourhood of (300, 2.0) should be
-  visibly denser than elsewhere, and the corner around (500, 5.0)
-  should be empty.
+  visibly denser than elsewhere, and the excluded point (500, 5.0)
+  should not appear.
 
 Mergen features used
 --------------------
 - add_prescribed for runs already carried out.
 - add_focus to concentrate additional samples around a critical
   operating point.
-- add_exclusion to keep the design away from an unsafe region.
-- set_dimension_weights to make the temperature axis count more than
-  pressure when distances are computed.
+- add_exclusion to remove an unsafe operating point from the
+  candidates.
 
-Estimated runtime: a few seconds.
+Estimated runtime: under half a minute.
 """
 from mergen import ParameterSpace, Sampler
 
@@ -60,16 +58,13 @@ sampler = Sampler(space)
 sampler.add_prescribed([[200, 1.0], [400, 3.0]])
 
 # Focus region: extra samples clustered around a critical operating
-# point (T = 300 K, P = 2 bar). ``spread`` is the neighbourhood radius
-# in normalised coordinates.
-sampler.add_focus(point=[300, 2.0], spread=0.15, n_samples=4)
+# point (T = 300 K, P = 2 bar). ``spread`` is the width of the
+# neighbourhood in grid steps of each axis.
+sampler.add_focus(point=[300, 2.0], spread=1.0, n_samples=4)
 
-# Exclusion zone: keep the design away from the high-T / high-P corner.
-sampler.add_exclusion(point=[500, 5.0], spread=0.20)
-
-# Dimension weights: temperature matters twice as much as pressure
-# for separation. Values are relative and do not need to sum to one.
-sampler.set_dimension_weights({'temperature': 2.0, 'pressure': 1.0})
+# Exclusion: the high-T / high-P corner is never proposed. Only this
+# grid node is removed; a constraint would keep a whole region free.
+sampler.add_exclusion(point=[500, 5.0])
 
 # 3. Run and inspect.
 sampler.set_design(n_samples=20)

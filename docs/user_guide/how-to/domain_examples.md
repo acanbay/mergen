@@ -58,7 +58,7 @@ instrument-configuration problem. See
 | `11_wetlab_biology.py` | Enzyme assay with a nominal buffer factor |
 | `12_cfd_engineering.py` | Continuous CFD parameter study |
 | `13_ml_hyperparameters.py` | Log-ladder learning rate, nominal optimiser |
-| `14_bsm_2hdm_phenomenology.py` | Constrained high-dimensional physics scan |
+| `14_bsm_2hdm_phenomenology.py` | Five-dimensional physics scan on stepped grids |
 | `15_beamline_optics.py` | Instrument-configuration tuning |
 
 ## Running them

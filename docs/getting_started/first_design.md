@@ -80,9 +80,9 @@ print(result.samples.head())
 ```text
     temperature  pressure  catalyst point_type
 id
-0    417.171717  2.979798       0.5  Optimised
-1    304.040404  1.686869       0.1  Optimised
-2    491.919192  4.191919       0.2  Optimised
+0    304.040404  1.282828       1.0  Optimised
+1    308.080808  1.161616       0.5  Optimised
+2    308.080808  4.111111       0.2  Optimised
 ...
 ```
 
@@ -94,10 +94,12 @@ guides).
 
 You may notice the run banner also reported a small validation set.
 Mergen sets aside additional space-filling points (by default 20 % of
-`n_samples`, accessible as `result.validation`) that are maximally far
-from the design points. If you later fit a surrogate model to your
-results, these are honest test locations; if you do not need them,
-set `n_validation=0` in `set_design`.
+`n_samples`, accessible as `result.validation`) chosen as far as
+possible from the design points. If you later fit a surrogate model to
+your results, these test it where it is farthest from its data; if you
+do not need them, set `n_validation=0` in `set_design`. On this space
+the exact search for the farthest set is too large, so the run warns
+that it uses the best set found within the search limit.
 
 A quick visual check of what those 30 rows look like:
 

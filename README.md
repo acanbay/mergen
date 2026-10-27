@@ -40,8 +40,8 @@ that already exist, and zones that deserve extra attention.
 - **Factor types:** discrete, continuous (linear or log), integer,
   nominal and ordinal, freely mixed in one space, with feasibility
   constraints.
-- **Design control:** prescribed points, focus regions, exclusion
-  zones, named extra sets, and resuming from an existing design.
+- **Design control:** prescribed points, focus regions, excluded
+  points, named extra sets, and resuming from an existing design.
 - **Optimisation:** seven space-filling criteria (including recent
   developments such as uMaxPro and the stratified L2-discrepancy)
   and three optimisers over a discrete-grid Latin-hypercube

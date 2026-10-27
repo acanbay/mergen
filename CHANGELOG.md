@@ -18,10 +18,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   candidates, shared by `Sampler.compare()` and by `Sampler.run()`
   when it picks a repeat or an algorithm on a `priority`.
 - `selection`, `tol` and `rtol` arguments to `Sampler.compare()` and
-  `Sampler.run()`. `selection='lexicographic'` (default) applies the
-  `priority` metrics in order; `selection='pareto'` treats them as
-  unordered, competing objectives. `tol` and `rtol` set when two metric
-  values count as equal, for all metrics or per metric.
+  `Sampler.run()`. `selection='pareto'` (default) treats the `priority`
+  metrics as competing objectives and takes the non-dominated design
+  closest to the Utopia point; `selection='lexicographic'` applies them
+  in order. `tol` and `rtol` set when two metric values count as equal,
+  for all metrics or per metric.
+- `n_repeats='auto'`, the new default of `Sampler.run()`,
+  `Sampler.compare()` and the `sequential` functions. Repeats run in
+  rounds of 5 until the selected result has been found by 5 of them.
+  While no other repeat has reproduced
+  the best result, each round doubles the optimiser's search length,
+  unless it was set with `set_optimizer()`; a doubled round that
+  would pass the work limit runs at the current length. The work stops at 64
+  repeats, or earlier at the work of 32 repeats at the default search
+  length, with a warning that the result may still depend on the seed.
+  An integer `n_repeats` runs exactly that many repeats.
+- A `cd2` quality metric: the centred L2 discrepancy of the whole
+  design, so a `priority` such as `('minimax', 'cd2')` can name it.
+- `mergen.distances.maximin_subset()`: the set of candidate points
+  that, as a whole, lies farthest from a reference set and from itself.
 - `ComparisonResult.metrics` (raw metric values), `.ties`,
   `.decided_by`, `.front`, `.selection`, `.tol`, `.rtol`, and
   `ComparisonResult.reselect()` to choose again with another priority,
@@ -29,6 +44,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `Sampler.run()` and `Sampler.compare()` use every CPU by default
+  (`n_jobs=-1`). Results are the same for any `n_jobs`; `n_jobs=1`
+  runs on one core. Parallel work uses joblib's loky backend on every
+  platform.
+- Under `selection='pareto'` each metric is scaled over the Pareto
+  front only, so a dominated design can no longer change the winner.
+- Repeats with equal scores are now ordered by their designs, not by
+  the order in which they were found, and every delivered design is
+  given in one canonical form: its optimised rows sorted, and, along an
+  axis where the grid, the constraints and the fixed points are
+  symmetric, the mirror image that sorts first. Equally good designs
+  found from different seeds are then delivered identically.
+- Validation and extra sets are the maximin sets of the feasible pool
+  (`maximin_subset()`): the points are chosen as a whole, so the
+  smallest distance to the design and to each other is as large as
+  possible. Kennard-Stone, which adds one point at a time, gives the
+  starting bound. The exact search is limited by a count of candidate
+  checks, about two seconds on a current desktop; past it, the best set found is used, which is
+  never worse than the Kennard-Stone set, and a warning says the set is
+  not proven optimal. A holdout set larger than the free feasible points
+  is cut to them with a warning.
+- The CD2 criterion updates its score in O(n·d) when one point moves
+  instead of recomputing it, and grid look-ups are cached; SA runs
+  about 1.7 times faster and CD2 on designs of 100 points or more up to
+  200 times faster.
 - `ComparisonResult` takes the raw metric table as its second
   argument: `ComparisonResult(table, metrics, results, best, priority,
   ...)`. Code that builds one positionally must be updated.
@@ -44,9 +84,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `priority`, or an unknown or repeated metric name, is an error.
   0.1.0 ignored an empty `priority` and, with `n_repeats=1`, an unknown
   name.
+- `mean_distance` and `cv_distances` can no longer be `priority`
+  metrics: a design can raise its mean distance by crowding points into
+  the corners, and a regular lattice has a low CV whatever its spacing.
+  Both are still reported.
+- Percentile ranks count the design among the baseline designs (B + 1
+  values), so they lie strictly between 0 and 100; a NaN metric value
+  now gives a NaN rank instead of the 0th percentile.
+- `quality_report()` scores the run's criterion with the instance that
+  was optimised, so parameters such as `PhiP(p=5)` are respected (0.1.0
+  looked the criterion up by name and gave NaN for an instance). Its
+  Monte Carlo baseline uses the run's seed, as `compare()` does, instead
+  of a fixed 44.
+- The Markdown, LaTeX and HTML reports use the same 300 baseline
+  designs as `quality_report()` instead of 200. CSV, JSON and Excel
+  files keep every digit of the values.
+- `set_dimension_weights()` warns that the weights have no effect: no
+  criterion or metric reads them in this version.
+- `joblib>=1.3` is required (`return_as='generator'` needs it).
+- `MERGEN_SILENT=0`, `false`, `no` and `off` no longer silence the import
+  banner.
+- `compare()` with `n_repeats='auto'` lists every combination whose best
+  result was not found five times within the work limit.
+- `compare()` gives the cores that the combinations leave idle to their
+  repeats, chooses the holdout sets once (for `best_result`) instead of
+  once per combination, and `best_result` reuses the winner's repeats
+  from the sweep instead of optimising them again on one core. The
+  default sweep on a 9 x 16 grid with 20 points takes about 35 s
+  instead of 79 s on 16 cores (38 s instead of 89 s with 20 validation
+  points); the result is the same.
+- `run()` with `verbose=False` no longer prints its configuration and
+  final-design banners, also for a loaded design; warnings are still
+  printed.
+- `run()` no longer reseeds the global `random` and `numpy.random`
+  generators; focus neighbours are drawn from a generator seeded by the
+  run's seed.
+- `run()` refuses a list of several criteria; 0.1.0 used the first and
+  ignored the rest without a word. `compare()` tries several.
+- `set_design()` refuses a negative or non-integer `n_samples`,
+  `n_validation` or extra-set size, and an extra set named like a
+  built-in or an `add_set()` set (0.1.0 replaced that set).
+- Percentile ranks are printed between the 1st and the 99th, as the
+  estimator never reaches 0 or 100; 0.1.0 rounded 99.8 to "100th".
+- `plot('quality')` uses the same 300 baseline designs as
+  `quality_report()` instead of 200.
 
 ### Fixed
 
+- `Sampler.compare()` gave a tie on every priority metric to the
+  combination listed first, so reordering `criteria` or `algorithms`
+  could change the winner. Ties now go to the design that is better on
+  the other metrics that may serve as a priority, then to the
+  criterion and algorithm names. `run()` with several algorithms
+  breaks equal scores on the algorithm name in the same way.
+- The Monte Carlo baseline of `quality_report()` and `compare()` drew
+  every point of its random designs at random, also for designs with
+  prescribed or focus points. A dense focus region or clustered
+  prescribed points then pulled the rank down whatever the optimiser
+  did. Every baseline design now keeps the points the optimiser did
+  not choose and draws only the rest, from the candidates the
+  optimiser could use (without `add_set()` points and focus centres
+  with `include_center=False`, and without the reference points of
+  `sequential.fill_around`), and the report footer says so. Designs
+  without any of these points are not affected by this change.
+- `compare(seed=None)` drew its baseline from fresh entropy, so its
+  percentiles differed from `best_result.quality_report()`, which uses
+  seed 44. Both now use 44.
+- `quality_report()` on a `load_design()` result printed a criterion
+  row named "LOADED" with no values; it now has no criterion row.
+- `compare()` after `load_design()` failed with an `AttributeError`;
+  it now stops with a clear error.
+- With out-of-budget prescribed or focus points, the `compare()` table
+  left those points out while `quality_report()` counted them, so the
+  two showed different values for the same design. The table, the
+  choice of the winner and the choice among repeats now include them.
 - `Sampler.compare()` chose the winner on Monte Carlo percentile ranks,
   which saturate at 100 for well-optimised designs. Tied rows were then
   decided by the order of the `criteria` and `algorithms` lists, and a
@@ -55,7 +166,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   description.
 - The order of `priority` had no effect, although the documentation and
   `summary()` presented it as an order of importance. It now does under
-  the default lexicographic rule, and `summary()` states the rule used.
+  the lexicographic rule, and `summary()` states the rule used.
 - `ComparisonResult.best` could be reassigned without updating the
   table, the plot or `best_result`; it is now read-only.
 - `Sampler.run()` with several algorithms and a `priority` delivered
@@ -66,7 +177,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `compare()` rejects an empty or repeated `priority` with a clear
   error. `compare(verbose=False)` no longer prints the winner's run
   summary; warnings are still shown, including a note when a tie was
-  decided by the listing order and a warning when `best_result` no
+  broken and a warning when `best_result` no
   longer matches the compared design because the sampler was
   reconfigured.
 - The Monte Carlo baseline of `quality_report()` and `compare()` drew
@@ -81,27 +192,195 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   points for larger pools). `comparison()` now passes the space to
   every metric, so nominal factors are handled there as in
   `quality_report()`.
+- The validation set and the generated extra sets ignored constraints,
+  so they could contain infeasible points, and on grids above 500,000
+  points they were drawn with Python's global random generator. They
+  are now chosen deterministically over the feasible candidate pool
+  (see Changed), with a Kennard-Stone routine shared with
+  `sequential.subsample`, `run_order`, `k_fold_split` and `nested`. It
+  measures HEOM distance, so nominal factors count as unordered, and
+  gives a tie (distances equal to a relative 1e-9) to the lowest
+  candidate index. The reference set also includes the out-of-budget
+  prescribed and focus points and the sets added with `add_set()`.
+- `Sampler.run()` could deliver a point that violates the constraints:
+  without prescribed or focus points the optimisation starts from a
+  corner of the grid, which was used even when infeasible. It now
+  starts from the nearest free feasible candidate in that case.
+- SA and ESE column swaps could move a design point onto an exclusion
+  centre, a point of an `add_set()` set or an out-of-budget prescribed
+  point. Such swaps are now rejected.
+- On a small feasible pool that the design nearly fills, `run()` and
+  `compare()` could take minutes: every random replacement tried up to
+  100,000 grid draws. After 1,000 failed draws the free feasible
+  points are now listed and one is drawn from them.
+- Focus neighbours were drawn from the whole grid, so they could be
+  infeasible or an exclusion centre. They are now drawn from feasible
+  points that are not excluded.
+- With `in_optim` mixed between prescribed and focus points, the
+  `point_type` labels of those rows were swapped, and a focus region
+  that yielded fewer than `n_samples` points shifted the `in_optim`
+  flags onto the wrong rows.
+- The seed corner stayed reserved after the optimiser moved it, so the
+  validation and extra sets could never use that grid node.
+- SA never cooled. Its starting temperature was calibrated on raw
+  score changes while the acceptance test uses changes of log(score),
+  so the temperature came out near 1e20 and SA accepted almost every
+  move to the end. The temperature is now calibrated on log-score
+  changes (Ben-Ameur, 2004).
+- ESE did not follow Jin, Chen & Sudjianto (2005). It used a
+  Metropolis test on log(score) instead of the paper's threshold rule,
+  its starting threshold had the scale error described for SA, its
+  acceptance and improvement counts accumulated over the whole run
+  instead of the last outer iteration, its exploration phase had no
+  memory of whether it was raising or lowering the threshold, it drew
+  each candidate exchange from a random column, and with the default
+  `Q=1` the threshold never adapted. ESE now accepts a candidate when
+  its score change is at most `Th × U(0, 1)` with `Th0 = 0.005 ×` the
+  starting score, tries `J` distinct exchanges that change the design
+  in column `i mod d` at inner iteration `i`, raises the threshold in
+  exploration until more than 80 % of the moves are accepted and then
+  lowers it until fewer than 10 % are, and sizes `M` and `J` from the number of possible
+  exchanges as the paper does. `Q` defaults to enough outer iterations
+  for about 10,000 candidate exchanges. The paper itself could not be
+  consulted; the rules follow two sources that restate it.
+- SCE stopped its iterated local search at the first kick that did not
+  improve the design and kicked from the current design. It now stops
+  after `max_ils_kicks` failed kicks in a row and kicks from the best
+  design (Lourenço, Martin & Stützle, 2003).
+- SA and ESE scored a swap between two rows that differ only on the
+  swapped axis, which leaves the design unchanged, as a large
+  improvement: the two-step score update passed through a duplicate
+  point and the cancellation that followed gave a false value. ESE then
+  kept choosing such swaps and could stop improving. They are now
+  skipped.
+- SA passed the next restart the occupied grid nodes of its last
+  design instead of its best design, so some free nodes could not be
+  drawn as replacements.
+- A constraint written as a lambda failed with "Can't pickle local
+  object" when `run()` or `compare()` ran on several cores.
+- `add_focus()` documented `spread` in grid steps, the how-to guide in
+  normalised coordinates, and the code divided it by the mean of the
+  raw parameter ranges, so the neighbourhood depended on the units. It
+  also drew candidates from the whole grid, so on a fine grid the
+  "focus" points could land anywhere. `spread` is now the width of the
+  Gaussian kernel in grid steps of each axis, the neighbours come from
+  the grid nodes around the centre, a nominal factor keeps the centre's
+  category, and `spread` must be positive.
+- A prescribed point or a focus centre that is also a point of a set
+  added with `add_set()` is now an error; it was accepted although a
+  set point can never be in the design.
+- Percentile ranks were printed as "72th", "1th" and "22th"; they now
+  read 72nd, 1st and 22nd.
+- SCE drew its restart kicks from Python's global random generator, so
+  `run(n_jobs=...)` and `compare(n_jobs=...)` could give different SCE
+  designs for the same seed. It now uses the run's seeded generator.
+- Factors measured in very small units did not work. Grid values were
+  matched with an absolute tolerance of 1e-9, so for levels around
+  1e-12 every level matched the first one and duplicate and reservation
+  checks failed; the quality metrics treated a range below 1e-10 as
+  zero; SCE skipped levels closer than 1e-12. Matching now uses a
+  tolerance scaled to the gap between neighbouring levels (never below
+  a few units in the last place), and the design, score and metrics no
+  longer depend on the unit.
+- `sequential.extend()` failed with "appears in add_prescribed() more
+  than once" when the sampler had prescribed or focus points, and on a
+  sampler with a loaded design. It now adds the existing rows as the
+  only fixed points, keeps their `point_type` labels, and restores the
+  sampler afterwards, including its `extra_sets` (0.1.0 lost them after
+  `extend`, `fill_around` and `nested`). `sequential.fill_around()`
+  failed in the same cases; it now treats the sampler's prescribed
+  points as further reference points and returns exactly `n_new`
+  points.
+- With every feasible point taken, `run()` now raises a clear error
+  instead of starting from a point of a user-supplied set.
+- When a quality report failed during an export, `sys.stdout` stayed
+  redirected and all later output was lost; the error was hidden. The
+  export now continues without the table and warns.
+- JSON export wrote values with 10 decimal places, so 1e-12 became 0.0;
+  CSV and Excel kept 10 significant digits.
+- The documentation said an exclusion keeps the design `spread` away
+  from the excluded point. Only the point itself is removed, and
+  `spread` has no effect; the documentation and example 03 now say so
+  and show a constraint for excluding a region.
+- The Monte Carlo baseline warns when fewer feasible points are left
+  than the design has, and returns NaN when none are left.
+- The balanced Latin hypercube that starts every optimiser chose the
+  levels used once more at random. With fewer points than levels (for
+  example 20 points on a 100-level axis) the design could miss whole
+  parts of the range, and ESE, which only swaps levels, could never
+  reach them. The levels are now drawn one from each of equal strata of
+  the axis, as in a Latin hypercube (McKay, Beckman & Conover, 1979),
+  and where fixed points already use a level, the level given up is
+  the one nearest them, so no stratum is left empty.
+- ESE counted draws that could not change the design (the same row,
+  the same level, an infeasible or duplicate result) towards its `J`
+  candidate exchanges; it now evaluates `J` exchanges that change the
+  design, as the method describes.
+- SA with every row fixed returned an infinite score; it returns the
+  design's score. SA and SCE refuse `max_iter` below 1, and SA refuses
+  `T_start` ≤ 0 and `cooling`, `T_end_ratio` or `target_accept` outside
+  (0, 1); 0.1.0 accepted them or failed with a division by zero.
+- `('integer', 1.5, 3.7)` gave the levels 2, 3 and 4; an integer
+  parameter now holds exactly the integers between its bounds.
+- `ParameterSpace.set_resolution()` did not rebuild the grids it
+  promised to; parameters without their own `resolution` now get the
+  new one.
+- Prescribed, focus, exclusion, set and loaded points are stored as the
+  grid node they match, so `0.3` on a grid whose node is
+  `0.30000000000000004` no longer misses exact look-ups.
+- A focus region with fewer free neighbours than requested left the
+  design short (for example 17 of 20 rows); the missing slots now go to
+  the optimiser.
+- `sequential.extend()` generates the sampler's extra sets around the
+  extended design (0.1.0 returned none) and warns when a prescribed
+  point of the sampler is missing from `existing_design`. A row that is
+  an out-of-budget prescribed point of the sampler stays out of the
+  budget instead of taking a design slot, and the existing rows come
+  first in their input order.
+  `fill_around()` reports its true design size in the result metadata.
+- The `projection_cd2` metric cited Liu & Liu (2023); its definition is
+  that of Sun, Wang & Xu (2019), which average the squared discrepancy
+  where Mergen averages the discrepancy. The `cv_distances` reference
+  named the wrong journal. The quality report marks the metrics that
+  `maxproqq` and `qqd` target.
 
 ### Results-affecting changes
 
+- Every design changes. The SA, ESE and SCE fixes change the search,
+  `n_repeats='auto'` runs more repeats and may lengthen the search,
+  ties between repeats are broken by the design, and the delivered rows
+  are sorted and, where the problem is symmetric, mirrored. To repeat a
+  0.1.0 result, use Mergen 0.1.0.
 - `Sampler.compare()` may return a different winner than 0.1.0 for the
-  same seed, and `Sampler.run()` with a `priority` may return a
-  different repeat or algorithm. Designs from `run()` without
-  `priority` are unchanged.
-- `compare()` now picks the representative repeat of every combination
-  with the selection rule on raw values (0.1.0 used the Utopia distance
-  on min-max scaled values), so every row of `comparison.table` and
-  `comparison.results` may differ from 0.1.0, not only the winner.
-- `selection='pareto'` does not reproduce the 0.1.0 winner: 0.1.0
-  applied its Pareto rule to percentile ranks, the new rule works on
-  raw values with tolerances.
+  same seed, and every row of `comparison.table` and
+  `comparison.results` may differ: the representative repeat of each
+  combination is chosen on raw metric values, and the default rule is
+  now `'pareto'`. `selection='pareto'` does not reproduce the 0.1.0
+  winner either: 0.1.0 applied its Pareto rule to percentile ranks.
+- Percentile ranks change for designs with prescribed or focus points,
+  `add_set()` sets or focus centres with `include_center=False`, and
+  for `sequential.extend` and `fill_around` results. `compare(seed=None)`
+  percentiles no longer change from call to call. The
+  `compare()` winner does not change, as it is chosen on raw values.
+- With out-of-budget prescribed or focus points, `run()` with a
+  `priority` and `compare()` may select another repeat or winner, as
+  the priority metrics now include those points. Exact ties in
+  `compare()` may go to another combination.
 - `minimax` values can change for any design, and the baseline medians
   and percentiles change for constrained spaces and spaces with
-  exclusions. On unconstrained spaces without exclusions the baseline
-  draws the same random designs as 0.1.0. Because `compare()` selects
-  on these metrics, a `priority` that contains `minimax` may pick a
-  different winner. `comparison()` values change for spaces with
-  nominal factors.
+  exclusions. Because `compare()` selects on these metrics, a
+  `priority` that contains `minimax` may pick a different winner.
+  `comparison()` values change for spaces with nominal factors.
+- Validation and extra sets change wherever the maximin set differs
+  from the Kennard-Stone points, and for constrained spaces, spaces
+  with nominal factors, grids above 500,000 points, designs with
+  out-of-budget points or `add_set()` sets. `sequential` selections can
+  change where candidates tie.
+- Percentile ranks shift slightly (B + 1 estimator), and the baseline
+  of `quality_report()` changes for every run whose seed is not 44.
+- `run()`, `compare()` and the `sequential` functions take longer by
+  default, as they repeat until the result is settled; pass an integer
+  `n_repeats` for a fixed number of repeats.
 
 ## [0.1.0] - 2026-07-18
 

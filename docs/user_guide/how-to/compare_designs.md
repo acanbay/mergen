@@ -26,19 +26,36 @@ comparison = sampler.compare(
 
 With `criteria` left unset, `compare()` evaluates every criterion
 compatible with the space. Each combination is optimised several times
-(`n_repeats`, default 5), and is represented by the repeat that is
-best on the priority metrics.
+and is represented by the repeat that is best on the priority metrics.
+By default (`n_repeats='auto'`) the repeats continue until the best
+result has been found by five of them or a work limit is reached.
+When the limit is reached first, a warning says that another seed may
+give a different design for that combination. An integer `n_repeats` runs exactly that many.
 
-The winner is chosen on the raw values of the `priority` metrics, in
-order of importance: the first metric decides, and each later metric
-only decides among designs tied on the earlier ones. Two values count
-as tied when they differ by at most `tol`, which defaults to
-floating-point noise. Metrics are computed on normalised coordinates,
-so `tol={'min_distance': 0.01}` treats designs whose minimum distances
-differ by less than 1 % of the parameter range as equally good. Pass
-`selection='pareto'` to treat the metrics as unordered, competing
-objectives instead; when two designs share the shortest distance to
-the ideal, the priority order breaks the tie, and the summary says so.
+The winner is chosen on the raw values of the `priority` metrics. By
+default (`selection='pareto'`) they are competing objectives: designs
+beaten on every metric by another are set aside, and among the rest the
+one closest to the ideal (each metric at its best) wins; when two
+designs share the shortest distance to the ideal, the priority order
+breaks the tie, and the summary says so. With
+`selection='lexicographic'` the metrics are applied in order of
+importance: the first decides, and each later metric only decides among
+designs tied on the earlier ones. Two values count as tied when they
+differ by at most `tol`, which defaults to floating-point noise.
+Designs still tied go to the one that is better on the other metrics
+that may serve as a priority (compared exactly, in the order
+`min_distance`, `minimax`, `max_abs_correlation`, `projection_cd2`,
+`cd2`), then to the criterion and algorithm names, so the order of the
+`criteria` and `algorithms` lists does not change the winner.
+The metrics include out-of-budget prescribed and focus points, as in
+`quality_report()`. Closely spaced out-of-budget points can therefore set
+the same `min_distance` for every design, and the later priority
+metrics decide.
+Metrics are computed on normalised coordinates, so
+`tol={'min_distance': 0.01}` treats designs whose minimum distances
+differ by less than 1 % of the parameter range as equally good. With
+`selection='lexicographic'`, a priority such as `('minimax', 'cd2')`
+asks for the best coverage first and the most uniform design second.
 `comparison.reselect(...)` applies a different priority, rule or
 tolerance without re-running the sweep.
 
@@ -71,7 +88,8 @@ comparison.plot(save=True)
 A small sweep (three criteria, two optimisers, two repeats each) on a
 two-parameter space. Each cell is the percentile rank of that
 combination's design on that metric against random designs of the same
-size; the starred row won under the requested priority. The
+size (random completions of any prescribed or focus points); the
+starred row won under the requested priority. The
 percentiles are descriptive: the selection uses the raw metric values,
 available as `comparison.metrics`.
 ```
@@ -91,7 +109,7 @@ quality against runtime for your specific problem.
 
 ## Parallelism
 
-Comparisons repeat many optimisations, so they parallelise well. Pass
-`n_jobs=-1` to use all cores, or a specific count such as `n_jobs=4`;
-the result is identical to the single-core run, only faster. The
-default stays on one core.
+Comparisons repeat many optimisations, so they parallelise well. By
+default (`n_jobs=-1`) every core is used; pass a count such as
+`n_jobs=4`, or `n_jobs=1` for a single core. The result is identical
+for every setting, only the run time changes.

@@ -42,7 +42,7 @@ because distance between unordered labels is not Euclidean. If your
 space contains any nominal factor, use a criterion that supports
 qualitative factors, $\mathrm{MaxPro_{QQ}}$ (`'maxproqq'`) or QQD
 (`'qqd'`); the other five criteria are
-for purely numeric spaces. `mergen.nominal_supporting_criteria()`
+for purely numeric spaces. `mergen.criteria.nominal_supporting_criteria()`
 lists the compatible ones, and `Sampler.run` raises an informative
 error if the criterion and the space are incompatible.
 

@@ -16,10 +16,9 @@ result.to_excel('design.xlsx')       # spreadsheet users
 ```
 
 Each call writes under the result's output directory, creating it if
-needed; the directory is reported in the run banner and available as
-`result.output_dir`. The comparison object exposes the same interface,
-so `comparison.to_markdown(...)` saves the comparison table
-itself.
+needed; the directory is `result.output_dir` (`outputs` unless you set
+it). The comparison object has `to_markdown(...)` and
+`plot(save=True)`, which save the comparison table and its heat map.
 
 ## The printed quality summary
 
