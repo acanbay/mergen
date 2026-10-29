@@ -18,10 +18,12 @@ classical defence against local optima, which space-filling
 landscapes have in abundance.
 
 Mergen's implementation removes the traditional tuning burden: the
-initial temperature is calibrated automatically by probing the energy
-landscape and solving for a target acceptance rate (following the
-approach of Ben-Ameur, 2004), and the run is repeated from independent
-starts (`n_restarts`, default 5) with the best result kept.
+initial temperature is calibrated automatically: moves from the start
+design are scored, and the temperature is set so that uphill moves are
+accepted with a target mean probability (Ben-Ameur, 2004). The
+annealing runs `n_restarts` times (default 5): first from the start
+design, then each time from a perturbed copy of the best design so
+far, and the best result is kept.
 
 Use it as the default. It is the slowest of the three but the most
 robust across problem types, and its restart structure gives it the

@@ -267,15 +267,16 @@ class TestCompareSelection:
 
 
 class TestRunRepeatSelection:
-    def test_lexicographic_repeat(self, sampler):
+    @pytest.mark.parametrize('rule', ['lexicographic', 'pareto'])
+    def test_repeat_follows_the_selection_rule(self, sampler, rule):
         prio = ('min_distance', 'max_abs_correlation')
         r = sampler.run(criteria='cd2', seed=3, n_repeats=4,
-                        priority=prio, verbose=False)
+                        priority=prio, selection=rule, verbose=False)
         from mergen.sampler import _priority_values
         reps = r._repeats_by_alg['sa']
         vals = np.array([_priority_values(x.design, prio, sampler.space)
                          for x in reps])
-        w = select(vals, [True, False],
+        w = select(vals, [True, False], rule=rule,
                    tiebreak=[x.score for x in reps]).winner
         np.testing.assert_array_equal(r.algorithm_results['sa'].design,
                                       reps[w].design)

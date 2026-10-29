@@ -34,10 +34,11 @@ class TestMetricFunctionsBackwardCompat:
 
     def test_locked_values_numerical(self, num_result):
         rp = num_result.quality_report(verbose=False)
-        # locked pre-categorical values
-        assert np.isclose(rp['min_distance'], 0.141421, atol=1e-4)
-        # One pair of axes: the mean of CD2² is CD2² = 0.059619².
-        assert np.isclose(rp['projection_cd2'], 0.059619 ** 2, rtol=1e-4)
+        # Locked values of this SA run (since the 0.1.1 start-calibrated
+        # temperature).
+        assert np.isclose(rp['min_distance'], 0.1, atol=1e-4)
+        # One pair of axes: the mean of CD2² is CD2² = 0.061019².
+        assert np.isclose(rp['projection_cd2'], 0.061019 ** 2, rtol=1e-4)
 
 
 class TestMetricFunctionsWithSpace:

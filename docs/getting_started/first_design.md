@@ -80,9 +80,9 @@ print(result.samples.head())
 ```text
     temperature  pressure  catalyst point_type
 id
-0    300.000000  1.323232       1.0  Optimised
-1    302.020202  3.787879       0.5  Optimised
-2    324.242424  1.808081       1.0  Optimised
+0    302.020202  1.242424       0.2  Optimised
+1    312.121212  4.151515       1.0  Optimised
+2    318.181818  2.131313       0.2  Optimised
 ...
 ```
 

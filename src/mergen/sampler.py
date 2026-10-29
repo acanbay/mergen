@@ -316,6 +316,12 @@ def _select_repeat(reps, priority, space, selection='lexicographic',
     return reps[sel.winner]
 
 
+def _gap_text(info) -> str:
+    """'a median 2.1 %, at most 8.4 %' from repeat_info gaps."""
+    return (f"a median {100 * info.get('gap_median', 0.0):.1f} %, at most "
+            f"{100 * info.get('gap_max', 0.0):.1f} %")
+
+
 # n_repeats='auto' runs rounds of _AUTO_ROUND repeats until the selected
 # result has been found by _AUTO_HITS of them. This is Mergen's own
 # rule: a result that independent searches keep finding is unlikely to
@@ -1645,8 +1651,16 @@ class Sampler:
             set with :meth:`set_optimizer`.
             The work stops at 64 repeats, or earlier at the work of 32
             repeats at the default search length, with a warning that
-            the result may still depend on the seed. The limit counts work, not time,
-            so a seed gives the same design on every machine.
+            gives how far the other repeats' criterion scores lie from
+            the delivered one. The limit counts work, not time, so a
+            seed gives the same design on every machine. Independent
+            searches seldom find an identical design except on small
+            problems, so ``'auto'`` usually runs to the work limit:
+            on benchmark spaces of 15 to 30 runs (2 to 5 factors, all
+            criteria, three optimisers, repeats at the default length),
+            7 % of runs settled, and the best of 20 repeats varied
+            across seeds by a median 2.1 % of the criterion score (up
+            to 11 %).
         priority : tuple of str, optional
             Quality-metric names used to pick the representative repeat
             when ``n_repeats > 1``, and the delivered algorithm when
@@ -2245,9 +2259,16 @@ class Sampler:
                 algorithm_results[a] = win
                 k = next(i for i, r in enumerate(reps) if r is win)
                 hits = sum(_same_values(v, vals[k]) for v in vals)
+                # How far the other repeats' criterion scores lie from
+                # the delivered one, relative: the measured seed effect.
+                gaps = [abs(r.score / win.score - 1) for r in reps
+                        if r is not win and win.score > 0]
                 repeat_info[a] = dict(n_repeats=len(reps), hits=hits,
                                       budget_factor=factor[a],
-                                      converged=hits >= _AUTO_HITS)
+                                      converged=hits >= _AUTO_HITS,
+                                      gap_median=(float(np.median(gaps))
+                                                  if gaps else 0.0),
+                                      gap_max=max(gaps, default=0.0))
                 if not auto_repeats or hits >= _AUTO_HITS:
                     continue
                 # A best result no other repeat has reproduced means the
@@ -2285,10 +2306,12 @@ class Sampler:
                 if not info['converged']:
                     _warn(f"{alg_name}: the best result was found by "
                           f"{info['hits']} of {info['n_repeats']} repeats "
-                          f"before the work limit, so another seed may "
-                          f"give a different design. Raise the optimiser "
-                          f"budget with set_optimizer() for a result that "
-                          f"does not depend on the seed.")
+                          f"before the work limit; the other repeats' "
+                          f"criterion scores differ from it by "
+                          f"{_gap_text(info)}, so another seed may give "
+                          f"a different, better or worse design. "
+                          f"Raise the optimiser budget with "
+                          f"set_optimizer() to reduce this.")
 
         t_elapsed = time.perf_counter() - t_run_start
 
@@ -2699,8 +2722,9 @@ class Sampler:
             same as 44.
         n_repeats : int or 'auto', default 'auto'
             Number of independent optimiser runs per combination, as in
-            :meth:`run` (``'auto'`` repeats until the result is settled;
-            see there). Each
+            :meth:`run` (``'auto'`` repeats until the result is settled
+            or a work limit is reached, which is the common case; see
+            there). Each
             run uses a distinct seed derived from ``seed`` via
             NumPy's SeedSequence.spawn (independent, not consecutive
             integers). The representative repeat of each combination is
@@ -2876,7 +2900,8 @@ class Sampler:
                 job_results.append((key, reps))
                 settle[key] = info
         repeats = dict(job_results)
-        unsettled = [f"{cr} + {alg} ({i['hits']} of {i['n_repeats']})"
+        unsettled = [f"{cr} + {alg} ({i['hits']} of {i['n_repeats']}; "
+                     f"other repeats {_gap_text(i)})"
                      for (cr, alg), i in settle.items()
                      if n_repeats == 'auto' and not i['converged']]
         if unsettled:

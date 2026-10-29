@@ -95,6 +95,10 @@ class OptimisationResult:
         - ``"T_start"`` : float — initial temperature (SA, ESE)
         - ``"T_end"`` : float — final temperature
         - ``"acceptance_rate"`` : float — fraction of accepted moves
+        - ``"early_acceptance"`` : float — fraction of accepted moves in
+          the first 5 % of each restart, averaged over restarts (SA);
+          it counts every proposal, downhill and invalid ones included,
+          so it is not the uphill acceptance that ``target_accept`` sets
         - ``"algorithm"`` : str — algorithm name (e.g. 'sa', 'sce')
         - ``"params"`` : dict — hyperparameters used
 

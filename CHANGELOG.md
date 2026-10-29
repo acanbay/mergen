@@ -31,7 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unless it was set with `set_optimizer()`; a doubled round that
   would pass the work limit runs at the current length. The work stops at 64
   repeats, or earlier at the work of 32 repeats at the default search
-  length, with a warning that the result may still depend on the seed.
+  length, with a warning that the result may still depend on the seed
+  and how far the other repeats' criterion scores lie from the
+  delivered one. Except on small problems the limit is usually reached:
+  on benchmark spaces of 15 to 30 runs, 7 % of runs settled, and the
+  best of 20 repeats varied across seeds by a median 2.1 % (up to
+  11 %). Counting repeats as equal within a tolerance was tested and
+  rejected: at 0.1 to 5 %, 11 to 36 % of the runs it declared settled
+  were further than the tolerance from the best known score.
   An integer `n_repeats` runs exactly that many repeats.
 - A `cd2` quality metric: the centred L2 discrepancy of the whole
   design, so a `priority` such as `('minimax', 'cd2')` can name it.
@@ -347,7 +354,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   score changes while the acceptance test uses changes of log(score),
   so the temperature came out near 1e20 and SA accepted almost every
   move to the end. The temperature is now calibrated on log-score
-  changes (Ben-Ameur, 2004).
+  changes (Ben-Ameur, 2004), and on the moves the chain makes from its
+  actual start: the restart's start design with its frozen rows, the
+  same mix of swaps and replacements, and only free, feasible nodes.
+  0.1.0 probed a separate random design and also moves to reserved or
+  banned nodes, so the early acceptance missed the 0.80 target (0.25
+  to 0.49 in one test). On 37 benchmark combinations of space and
+  criterion with 10 seeds each, the final score is within the
+  seed-to-seed spread of the old calibration in 31, better in 2 and
+  worse in 4 (by 1.3 to 9.2 %). With a short user-set `max_iter` the
+  hotter start can cost more: four single-seed regression designs with
+  a few hundred iterations scored 1 to 22 % worse. A given `T_start`
+  now skips the probe. SA results carry `early_acceptance` in their
+  metadata: the share of accepted moves in the first 5 % of each
+  restart.
 - ESE did not follow Jin, Chen & Sudjianto (2005). It used a
   Metropolis test on log(score) instead of the paper's threshold rule,
   its starting threshold had the scale error described for SA, its

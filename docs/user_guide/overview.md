@@ -62,8 +62,9 @@ before `run()`:
   <explanation/choosing_algorithm>` explain when to pick which. By
   default the optimisation is repeated until its best result has been
   found five times or a work limit is reached, and the repeats run on
-  every core. When the limit is reached first, a warning says that
-  another seed may give a different design.
+  every core. Except on small problems the limit is usually reached
+  first; a warning then says how far the other repeats' scores lie from
+  the delivered one, since another seed may give a different design.
 
 `Sampler.compare(criteria, algorithms, n_repeats)`
 : When you are unsure, run several combinations under a shared

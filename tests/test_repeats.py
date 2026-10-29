@@ -275,3 +275,26 @@ def test_extra_set_names_must_be_strings():
     s = mergen.Sampler(mergen.ParameterSpace({'x': [0, 1, 2, 3]}))
     with pytest.raises(ValueError, match='must be strings'):
         s.set_design(n_samples=2, extra_sets={1: 2})
+
+
+def test_unsettled_warning_reports_the_gap_of_the_other_repeats(
+        monkeypatch, capsys):
+    # The warning states the measured seed effect: how far the other
+    # repeats' criterion scores lie from the delivered one.
+    import mergen.sampler as sampler_mod
+    monkeypatch.setattr(sampler_mod, '_same_values', lambda a, b: a is b)
+    monkeypatch.setattr(sampler_mod, '_AUTO_MAX_EFFORT', 5)
+    s = mergen.Sampler(mergen.ParameterSpace({'x': list(range(9)),
+                                              'y': list(range(16))}))
+    s.set_design(n_samples=12, n_validation=0)
+    s.set_optimizer('sa', max_iter=300)
+    r = s.run(criteria='phi_p', algorithm='sa', seed=44, n_jobs=1,
+              verbose=False)
+    info = r._repeat_info['sa']
+    scores = [x.score for x in r._repeats_by_alg['sa']]
+    gaps = [abs(x / r.best_score - 1) for x in scores
+            if x != r.best_score]
+    assert info['gap_max'] == pytest.approx(max(gaps))
+    assert info['gap_median'] == pytest.approx(np.median(gaps))
+    out = capsys.readouterr().out
+    assert f"at most {100 * max(gaps):.1f} %" in out

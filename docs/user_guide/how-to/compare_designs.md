@@ -28,9 +28,11 @@ With `criteria` left unset, `compare()` evaluates every criterion
 compatible with the space. Each combination is optimised several times
 and is represented by the repeat that is best on the priority metrics.
 By default (`n_repeats='auto'`) the repeats continue until the best
-result has been found by five of them or a work limit is reached. When
-the limit is reached first, a warning says that another seed may give
-a different design for that combination. An integer `n_repeats` runs
+result has been found by five of them or a work limit is reached.
+Except on small problems the limit is usually reached first; a warning
+then lists those combinations with how far their other repeats' scores
+lie from the delivered one, since another seed may give a different
+design for them. An integer `n_repeats` runs
 exactly that many.
 
 The winner is chosen on the raw values of the `priority` metrics. By
