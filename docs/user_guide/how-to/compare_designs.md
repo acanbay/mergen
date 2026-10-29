@@ -61,6 +61,50 @@ asks for the best coverage first and the most uniform design second.
 `comparison.reselect(...)` applies a different priority, rule or
 tolerance without re-running the sweep.
 
+### Polishing on the priority
+
+Each criterion optimises its own score, not the priority metrics, so
+the compared designs are usually some way from the best design for the
+priority. With `polish=True` (the default) `compare()` therefore moves
+the rows of every combination's design, one at a time, to the free
+feasible grid node that improves the priority most, until no single
+move helps. Prescribed and focus rows stay, exclusions stay free. A
+polished design is never worse than its start (beyond `tol`) on the
+first priority metric under `selection='lexicographic'`, and on every
+priority metric under `selection='pareto'`. A polished design that
+differs from its start joins the table as `'<algorithm>+polish'` and
+competes under the same rule. Under `'lexicographic'` the winner is
+therefore never worse on the priority than without polishing. Under
+`'pareto'` it is never dominated by the winner without polishing, but
+the added designs move the ideal point, so the choice can shift along
+the front. `best_result.summary()` names the combination a polished
+winner started from, and `run()` cannot reproduce a polished winner;
+`polish=False` gives winners that it does. `reselect()` polishes again
+for the new priority.
+
+The result is a local optimum. In tests on five spaces (5 seeds, four
+priority settings), the share of winners whose first priority metric
+lay within 1 % of the best known value rose from 5 % to 39 %. With
+`('minimax', 'cd2')` the median gap to the best known `minimax` value
+(proven optimal on three of the spaces) fell from 18 % to 0 % (at most
+10 %), and with `('cd2',)` from 5 % to under 1 %. `min_distance` is improved but not reliably to its best known
+value: under the default priority the median gap fell from 27 % to
+12 %, with up to 15 % left on continuous spaces and 41 % on a mixed
+one. A target set before the tests, within 1 % in 90 % of all cases,
+was not met by any setting. Polishing cost a median of under a second and at most 13 % of
+the sweep time. The cost grows with the candidate set and runs on one
+core: with three continuous factors at the default resolution of 100
+(a million candidates) and 30 runs, one pass over the rows took about
+30 s and over 1 GB of memory per combination, and a design may need
+several passes.
+
+`polish_kicks=k` adds k iterated-local-search kicks: three random rows
+are moved and the exchange runs again, and the result is kept only if
+it is better. Kicks follow the seed. With 10 kicks the cases within
+1 % rose to 52 % and the best known `minimax` value was reached in
+every case, but on a 3-factor space with 30 runs polishing took up to
+1.1 times as long as the sweep. `polish=False` compares the optimiser designs only.
+
 ## Reading and saving the result
 
 ```python

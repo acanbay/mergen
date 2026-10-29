@@ -48,6 +48,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.decided_by`, `.front`, `.selection`, `.tol`, `.rtol`, and
   `ComparisonResult.reselect()` to choose again with another priority,
   rule or tolerance without re-running the sweep.
+- Polishing in `Sampler.compare()` (`polish=True` by default,
+  `mergen.polish`): every combination's design is improved on the
+  priority metrics by point exchange on the feasible grid, keeping
+  prescribed and focus rows; improved designs join the table as
+  `'<algorithm>+polish'`, so the winner is never worse on the priority
+  under `'lexicographic'` and never dominated by the unpolished winner
+  under `'pareto'`. On five test spaces the winners within 1 % of the
+  best known first priority metric rose from 5 % to 39 %; the best
+  known `minimax` value was reached in 23 of 25 `('minimax', 'cd2')`
+  cases, while `min_distance` kept a median gap of 12 % under the
+  default priority.
+  A target set before the tests (90 % of all cases within 1 %) was not
+  met.
+  `polish_kicks` adds seeded iterated-local-search kicks (default 0).
 
 ### Changed
 
@@ -511,6 +525,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   splits covered better, and at most 3 on designs without repeated
   rows. A design of 1,000 rows takes a few seconds, up to about 15 s
   with 10 folds.
+- The algorithm guide gives the measured cost of ESE keeping the
+  levels of its starting design: a median 4 to 11 % above the best
+  design found on benchmark spaces (1 to 5 % for SA), and 47 % on an
+  axis with many more levels than runs.
 - Documentation that contradicted the code: the user guide said
   `fill_around` places new runs near the reference points (it places
   them away from them); the `nested` docstring gave wrong shapes and
@@ -554,6 +572,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ties between repeats are broken by the design, and the delivered rows
   are sorted and, where the problem is symmetric, mirrored. To repeat a
   0.1.0 result, use Mergen 0.1.0.
+- `compare()` polishes by default, so its winner usually changes and
+  its table gains `'+polish'` rows. Pass `polish=False` to compare the
+  optimiser designs only.
 - `Sampler.compare()` may return a different winner than 0.1.0 for the
   same seed, and every row of `comparison.table` and
   `comparison.results` may differ: the representative repeat of each

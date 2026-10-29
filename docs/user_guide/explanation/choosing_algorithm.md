@@ -64,6 +64,14 @@ for example a lattice that skips every other level of a coarse factor,
 ESE cannot get there however long it runs, and `sa` or `sce` will find
 better designs. `compare()` makes such cases visible.
 
+The same holds for which levels are used. When an axis has many more
+levels than the design has runs, the starting Latin hypercube draws one
+level from each stratum, and ESE keeps exactly those. On a 100-level
+axis with 6 runs, ESE designs scored a median 47 % worse than the best
+design found, against under 1 % for `sa`. On benchmark spaces of 15 to
+30 runs (2 to 5 factors, all criteria, 5 seeds) the median gap was 4
+to 11 % for ESE and 1 to 5 % for `sa`, with or without fixed points.
+
 One structural limitation follows directly from the move: with a
 single parameter ($d = 1$), swapping two values within the only column
 permutes the rows but leaves the design, as a set of points,

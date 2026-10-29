@@ -215,7 +215,7 @@ def test_compare_does_not_depend_on_n_jobs():
 def test_best_result_equals_a_fresh_run_of_the_winner():
     s = _hard_sampler()
     c = s.compare(criteria=['phi_p', 'cd2'], algorithms=['sa'],
-                  mc_samples=20, verbose=False)
+                  mc_samples=20, verbose=False, polish=False)
     cr, alg = c.best
     reps = c._context['repeats'][c.best]
     assert len({r.score for r in reps}) > 1

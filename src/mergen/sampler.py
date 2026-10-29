@@ -584,6 +584,9 @@ def _run_one_algorithm_task(
         from dataclasses import replace
         res = replace(res, design=np.delete(
             res.design, np.arange(n_frozen - visible_out, n_frozen), axis=0))
+    # Frozen rows at the top of the returned design (compare's polishing
+    # keeps them).
+    res.metadata['n_kept'] = n_frozen - visible_out
     return res
 
 
@@ -790,6 +793,10 @@ class SamplingResult:
                 print(f"  {'Best algorithm':<16}: {self.best_algorithm}")
             elif alg is not None:
                 print(f"  {'Algorithm':<16}: {alg}")
+            src = self._meta.get('polished_from')
+            if src:
+                print(f"  {'Polished':<16}: from {src[0]} + {src[1]} "
+                      f"(compare)")
 
         # Per-algorithm scores when multiple were run
         if len(self.algorithm_results) > 1:
@@ -933,9 +940,12 @@ class ComparisonResult:
         The raw metric values of each combination's representative
         design (normalised coordinates), on which the selection is made.
     results : dict
-        Maps ``(criterion, algorithm)`` to the representative
+        Maps ``(criterion, algorithm)``, or ``(criterion,
+        '<algorithm>+polish')`` for a polished design, to the representative
         :class:`~mergen.algorithms.base.OptimisationResult` (design,
-        criterion score and optimiser metadata) of that combination.
+        criterion score and optimiser metadata) of that combination. The
+        score of a polished design is NaN; ``best_result`` carries it
+        when that design wins.
     best : tuple of (str, str)
         The winning (criterion, algorithm) pair (read-only).
     priority : tuple of str
@@ -1056,7 +1066,8 @@ class ComparisonResult:
             selection=selection, tol=tol, rtol=rtol,
             baseline=ctx['baseline'], seed=ctx['seed'],
             n_repeats=ctx['n_repeats'], verbose=verbose,
-            extra_pts=ctx['extra_pts'])
+            extra_pts=ctx['extra_pts'], polish=ctx.get('polish', False),
+            polish_kicks=ctx.get('polish_kicks', 0))
 
     def summary(self) -> None:
         """Print the comparison table and how the winner was chosen."""
@@ -1674,7 +1685,10 @@ class Sampler:
             stable when near-optimal criterion scores correspond to
             different coverage trade-offs. Pass the same ``priority``,
             ``selection``, ``tol`` and ``rtol`` used in :meth:`compare`
-            to reproduce its ``best_result`` exactly. When several
+            to reproduce its ``best_result`` exactly, unless the winner
+            is a polished design (``'<algorithm>+polish'``), which
+            ``run()`` does not produce; ``compare(polish=False)`` gives
+            winners that ``run()`` reproduces. When several
             algorithms are run, the same rule also chooses which
             algorithm's design is delivered.
         n_jobs : int or None, default -1
@@ -2166,6 +2180,11 @@ class Sampler:
 
         def canonical(res):
             from dataclasses import replace
+            if not np.isfinite(res.score):
+                # A design handed over by compare()'s polishing: score it.
+                res = replace(res, score=float(criterion.evaluate(
+                    _normalised(np.vstack([np.asarray(res.design)[crit_start:],
+                                           visible_rows]), space), space)))
             D = _canonical_design(res.design, mirror_axes, gs, n_kept)
             s_new = float(criterion.evaluate(
                 _normalised(np.vstack([D[crit_start:], visible_rows]),
@@ -2678,6 +2697,8 @@ class Sampler:
         selection:  str = 'pareto',
         tol:        Union[float, Dict[str, float]] = 1e-9,
         rtol:       Union[float, Dict[str, float]] = 0.0,
+        polish:     bool = True,
+        polish_kicks: int = 0,
     ) -> "ComparisonResult":
         """
         Run a criterion/algorithm sweep and select the best design.
@@ -2754,6 +2775,33 @@ class Sampler:
             normalised coordinates, so ``tol={'min_distance': 0.01}``
             treats designs whose minimum distances differ by less than
             1 % of the parameter range as equally good.
+        polish : bool, default True
+            Polish the design of every combination on the priority
+            metrics before the selection (:mod:`mergen.polish`): rows
+            are moved one at a time to the free feasible grid node that
+            improves the priority most, until no single move helps.
+            Prescribed and focus rows stay. A polished design is never
+            worse than the design it started from (beyond ``tol``) on
+            the first priority metric under ``'lexicographic'``, and on
+            every priority metric under ``'pareto'``. A polished design
+            that differs from its start is added to the table as
+            ``'<algorithm>+polish'`` and competes under the same
+            selection rule. The winner is therefore never worse on the
+            priority than without polishing under ``'lexicographic'``;
+            under ``'pareto'`` it is never dominated by the winner
+            without polishing, though the added designs move the ideal
+            point and can shift the choice along the front. The
+            result is a local optimum, not a proven global one.
+            ``best_result.summary()`` names the combination a polished
+            winner started from. ``False`` compares the optimiser
+            designs only.
+        polish_kicks : int, default 0
+            Iterated-local-search kicks after the exchange: three random
+            rows are moved and the exchange runs again; the result is
+            kept only if it is better. Kicks follow the seed, so the
+            design does not depend on the machine, but each kick costs
+            about as much as the first exchange, which can be minutes
+            on large candidate sets.
 
         Returns
         -------
@@ -2763,6 +2811,11 @@ class Sampler:
             (percentile ranks), ``.ties``, ``.front`` and
             :meth:`~ComparisonResult.reselect`.
         """
+        if (isinstance(polish_kicks, bool)
+                or not isinstance(polish_kicks, (int, np.integer))
+                or polish_kicks < 0):
+            _fatal(f"polish_kicks must be a non-negative integer; got "
+                   f"{polish_kicks!r}")
         if self._loaded_design is not None:
             _fatal("compare() cannot run on a loaded design: load_design() "
                    "makes run() return the loaded points without "
@@ -2940,12 +2993,13 @@ class Sampler:
             priority=priority, selection=selection, tol=tol, rtol=rtol,
             baseline=baseline, seed=seed, n_repeats=n_repeats,
             verbose=verbose, reuse=True, n_jobs=n_jobs,
-            extra_pts=extra_pts)
+            extra_pts=extra_pts, polish=polish, polish_kicks=polish_kicks)
 
     def _finish_compare(self, repeats, crit_list, alg_list, priority,
                         selection, tol, rtol, baseline, seed, n_repeats,
                         verbose, reuse=False, n_jobs=-1,
-                        extra_pts=None) -> "ComparisonResult":
+                        extra_pts=None, polish=False,
+                        polish_kicks=0) -> "ComparisonResult":
         """
         Select the representative repeat of every combination, choose
         the winner and build the ComparisonResult. Shared by compare()
@@ -2995,6 +3049,56 @@ class Sampler:
                           if baseline is not None else np.nan)
             raw_rows.append(raw)
             pct_rows.append(pct)
+        # Polishing: each combination design, moved row by row on the
+        # feasible grid to improve the priority (mergen.polish). A
+        # polished design that differs from its start joins the
+        # candidates as '<algorithm>+polish'; the selection below is
+        # unchanged, so the winner is never lexicographically worse, or
+        # Pareto-dominated by, the winner without polishing.
+        polished: Dict[Tuple[str, str], Tuple[str, str]] = {}
+        if polish:
+            from dataclasses import replace
+            from .polish import polish as _polish
+            hb = [m in _m._HIGHER_BETTER for m in priority]
+            banned = ([ep.point for ep in self._exclusions]
+                      + self._baseline_reserved()
+                      + [pt for pt, _d, _o in self._prescribed])
+            for k, key in enumerate(list(combos)):
+                rep = results[key]
+                if verbose:
+                    print(f"  [COMPARE]  polishing {key[0]} + {key[1]} ...",
+                          flush=True)
+                rng = np.random.default_rng(np.random.SeedSequence(
+                    [44 if seed is None else int(seed), 7, k]))
+                D, info = _polish(
+                    rep.design, int(rep.metadata.get('n_kept', 0)),
+                    extra_pts, self.space, priority, hb, selection,
+                    tol_arr, rtol_arr, banned, rng,
+                    n_kicks=int(polish_kicks))
+                if not info['improved']:
+                    continue
+                pkey = (key[0], key[1] + '+polish')
+                combos.append(pkey)
+                polished[pkey] = key
+                results[pkey] = replace(
+                    rep, design=D, score=float('nan'),
+                    metadata=dict(rep.metadata, polished_from=key,
+                                  polish=info))
+                design = D
+                if extra_pts is not None and len(extra_pts):
+                    design = np.vstack([design, extra_pts])
+                Xn = _normalised(design, self.space)
+                designs_n.append(Xn)
+                raw = {'criterion': pkey[0], 'algorithm': pkey[1]}
+                pct = {'criterion': pkey[0], 'algorithm': pkey[1]}
+                for m in metric_names:
+                    val = _m._compute_metric(m, Xn, space=self.space)
+                    raw[m] = float(val)
+                    pct[m] = (float(_m._percentile_rank(
+                                  val, baseline[m], m in _m._HIGHER_BETTER))
+                              if baseline is not None else np.nan)
+                raw_rows.append(raw)
+                pct_rows.append(pct)
         metrics_df = pd.DataFrame(raw_rows)
         table      = pd.DataFrame(pct_rows)
 
@@ -3040,10 +3144,12 @@ class Sampler:
                             crit_list=crit_list, alg_list=alg_list,
                             baseline=baseline, seed=seed,
                             n_repeats=n_repeats, tol=tol, rtol=rtol,
-                            extra_pts=extra_pts)
+                            extra_pts=extra_pts, polish=polish,
+                            polish_kicks=polish_kicks)
 
         # best_result must be a full SamplingResult that matches a
-        # standalone run() exactly. Produce it by calling run() once for
+        # standalone run() exactly (a polished winner excepted: run()
+        # scores its design, handed over below). Produce it by calling run() once for
         # the winning combination with the same settings; the single
         # seed derivation guarantees identical optimisations. Right
         # after the sweep (reuse=True) the winner's stored repeats are
@@ -3052,10 +3158,16 @@ class Sampler:
         # reselect() (reuse=False) also hands over the stored repeats, all
         # of them: under a new priority, 'auto' could stop after a
         # different number of repeats than the table was built from.
-        _bc, _ba = best_key
+        _bc, _ba = polished.get(best_key, best_key)
         buf = io.StringIO()
-        self._reuse_repeats = {_ba: repeats[best_key]}
-        best_repeats = n_repeats if reuse else len(repeats[best_key])
+        if best_key in polished:
+            # The polished design is delivered as the only repeat; run()
+            # scores it and builds the validation and extra sets.
+            self._reuse_repeats = {_ba: [results[best_key]]}
+            best_repeats = 1
+        else:
+            self._reuse_repeats = {_ba: repeats[best_key]}
+            best_repeats = n_repeats if reuse else len(repeats[best_key])
         try:
             with contextlib.redirect_stdout(buf):
                 cmp._best_result = self.run(
@@ -3070,9 +3182,25 @@ class Sampler:
             if '[WARNING]' in line and not (
                     reuse and 'repeats before the work limit' in line):
                 print(line)
-        delivered = cmp._best_result.algorithm_results[_ba].design
-        if not np.array_equal(np.asarray(delivered),
-                              np.asarray(results[best_key].design)):
+        delivered = np.asarray(cmp._best_result.algorithm_results[_ba].design)
+        compared  = np.asarray(results[best_key].design)
+        if best_key in polished:
+            # run() delivers the design in canonical form: rows sorted
+            # and, where the problem is symmetric, possibly mirrored,
+            # which leaves every metric unchanged. The table keeps that
+            # form once the priority metrics are confirmed equal.
+            cmp._best_result._meta['polished_from'] = polished[best_key]
+            same = delivered.shape == compared.shape and bool(np.allclose(
+                _priority_values(delivered, priority, self.space, extra_pts),
+                _priority_values(compared, priority, self.space, extra_pts),
+                rtol=_SAME_RTOL, atol=1e-12))
+            if same:
+                from dataclasses import replace
+                results[best_key] = replace(results[best_key],
+                                            design=delivered.copy())
+        else:
+            same = np.array_equal(delivered, compared)
+        if not same:
             _warn("best_result differs from the compared design: the "
                   "sampler was reconfigured after compare(). Re-run "
                   "compare() to obtain a consistent result.")

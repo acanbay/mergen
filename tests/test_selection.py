@@ -187,7 +187,9 @@ class TestCompareSelection:
         starred = cmp.table[cmp.table.best.str.strip() == '*']
         assert len(starred) == 1
         assert tuple(starred.iloc[0][['criterion', 'algorithm']]) == cmp.best
-        bc, ba = cmp.best
+        # A polished winner is delivered under the algorithm it started
+        # from.
+        ba = cmp.best[1].removesuffix('+polish')
         np.testing.assert_array_equal(
             cmp.best_result.algorithm_results[ba].design,
             cmp.results[cmp.best].design)
@@ -226,7 +228,7 @@ class TestCompareSelection:
     def test_argument_handling(self, sampler):
         cmp = sampler.compare(criteria=['cd2'], algorithms=['SA'],
                               priority='min_distance', n_repeats=1,
-                              mc_samples=0, verbose=False)
+                              mc_samples=0, verbose=False, polish=False)
         assert cmp.best == ('cd2', 'sa') and cmp.priority == ('min_distance',)
         bad = [dict(priority=()),
                dict(priority=('min_distance', 'min_distance')),
@@ -243,14 +245,15 @@ class TestCompareSelection:
 
     def test_aliases_run_once(self, sampler, capsys):
         cmp = sampler.compare(criteria=['phi_p', 'phip'], n_repeats=1,
-                              mc_samples=0, verbose=False)
+                              mc_samples=0, verbose=False, polish=False)
         assert list(cmp.metrics.criterion) == ['phi_p']
         assert 'more than once' in capsys.readouterr().out
 
     def test_tolerance_changes_the_winner(self, sampler):
         prio = ('min_distance', 'max_abs_correlation')
         crit = ['cd2', 'phi_p', 'maxpro']
-        exact = sampler.compare(criteria=crit, priority=prio, **_KW)
+        exact = sampler.compare(criteria=crit, priority=prio,
+                                polish=False, **_KW)
         # A tolerance wider than any spread ties the first metric, so
         # the second one alone decides.
         loose = exact.reselect(tol={'min_distance': 10.0}, verbose=False)
