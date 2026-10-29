@@ -153,8 +153,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - φ_p's fast update lost most of its digits when one pair held most
     of the score (94 % error in one case), and with a large p a
     duplicate point overflowed to infinity. A dominant pair now
-    triggers a full recomputation, and the distance floor keeps the
-    power finite. MaxPro, uMaxPro and MaxProQQ use the same safeguard
+    triggers a full recomputation, also when the optimiser rejected an
+    earlier recomputed move and continued from an older design. `PhiP` accepts only 0 < p <= 30: there the
+    sum stays finite with a floor that only exact duplicates reach,
+    while a larger p would need a floor at which close pairs score like
+    duplicates. MaxPro, uMaxPro and MaxProQQ use the same safeguard
     when a near-duplicate pair is moved apart.
   - A parameter with a single feasible value changed the order of
     designs under CD2, stratified L2 and QQD (11 % of pairs in one
@@ -459,8 +462,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `projection_cd2` metric cited Liu & Liu (2023); its definition is
   that of Sun, Wang & Xu (2019), which average the squared discrepancy
   where Mergen averages the discrepancy. The `cv_distances` reference
-  named the wrong journal. The quality report marks the metrics that
-  `maxproqq` and `qqd` target.
+  named the wrong journal.
+- The quality report marked with `*` metrics that a criterion was said
+  to optimise (for example minimax and maximum correlation for
+  `umaxpro`), with no source; a default `umaxpro` design is no better
+  than a random one on correlation. A metric is now marked only when it
+  follows from the criterion's definition, which leaves the minimum
+  distance for `phi_p` (maximin as p grows; Morris & Mitchell 1995).
+- A prescribed or focus point outside the budget (`in_design=False`)
+  was never seen by the criterion, even with `in_optim=True`; only its
+  grid node was reserved, so new runs could sit right next to it. Such
+  points are now frozen rows the optimiser sees, and they are still
+  delivered after the budget rows. This also makes
+  `sequential.fill_around()` work as documented: its references were
+  ignored by the criterion, so moving a reference left the design
+  unchanged.
+- `sequential.fill_around()` refused a reference point that is not on
+  the parameter grid, although measured literature or pilot points are
+  its use case. A reference point now has to lie within the range of a
+  continuous parameter and on a level of a discrete or categorical one.
+- `sequential.k_fold_split()` said that each fold covers the space, but
+  its Kennard-Stone round-robin folds beat only 3 to 85 % of random
+  splits in coverage. The folds now minimise the largest fold coverage
+  radius (the largest distance from a design point to the nearest point
+  of the fold), then the sum of the radii, by pairwise swaps between
+  folds from several Kennard-Stone starts. On 240 test designs (2 to 5
+  factors, 20 to 300 rows, 2 to 10 folds), at most 11 of 200 random
+  splits covered better, and at most 3 on designs without repeated
+  rows. A design of 1,000 rows takes a few seconds, up to about 15 s
+  with 10 folds.
+- Documentation that contradicted the code: the user guide said
+  `fill_around` places new runs near the reference points (it places
+  them away from them); the `nested` docstring gave wrong shapes and
+  row order (and `nested` could pick an out-of-budget prescribed point,
+  which is never run, for the inner design; it now picks from the
+  budget rows only); the `sequential` module listed four of its six functions;
+  `get_criterion()` listed five of the seven criteria; the SA docstring
+  called random replacement the Morris-Mitchell move (their move swaps
+  two values within a column, as Joseph, Gul & Ba 2020 describe it); `list_optimizers()` was documented as
+  returning an empty list; the `Sampler` docstring named SCE as its
+  engine although SA is the default; `GridSampler` claimed 48 bytes for
+  a 10^10-point grid while a `Sampler` holds over 100 bytes per
+  feasible candidate; `maximin_subset()` returns sorted indices, not
+  the selection order of `kennard_stone()`. Tian & Xu are now cited as
+  2026 and Joseph, Gul & Ba (MaxProQQ) as 2020 throughout.
 
 ### Results-affecting changes
 
@@ -516,6 +561,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   change where candidates tie.
 - Percentile ranks shift slightly (B + 1 estimator), and the baseline
   of `quality_report()` changes for every run whose seed is not 44.
+- `sequential.k_fold_split()` assigns different rows to the folds.
+- Designs with prescribed or focus points outside the budget and
+  `in_optim=True` (the default) change, and so does every
+  `sequential.fill_around()` result. `PhiP` refuses a p that is not a
+  number in (0, 30].
 - `run()`, `compare()` and the `sequential` functions take longer by
   default, as they repeat until the result is settled; pass an integer
   `n_repeats` for a fixed number of repeats.

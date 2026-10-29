@@ -25,11 +25,16 @@ All criteria operate on **normalised** coordinates in [0, 1]^d.
 
 Available criteria
 ------------------
-    'umaxpro'     UMaxPro       — Vorechovsky & Masek (2026)  (default)
+    'umaxpro'     UMaxPro       — Vorechovsky & Masek (2026)
     'maxpro'      MaxPro        — Joseph, Gul & Ba (2015)
+    'maxproqq'    MaxProQQ      — Joseph, Gul & Ba (2020)
     'phi_p'       PhiP (p=15)   — Morris & Mitchell (1995)
     'cd2'         CD2           — Hickernell (1998)
-    'stratified'  StratifiedL2  — Tian & Xu (2025)
+    'qqd'         QQD           — Zhang, Yang & Zhou (2021)
+    'stratified'  StratifiedL2  — Tian & Xu (2026)
+
+The default (``mergen.sampler.default_criterion``) is 'maxproqq' when the space
+has a nominal or ordinal parameter and 'umaxpro' otherwise.
 
 Usage
 -----
@@ -87,7 +92,7 @@ _REGISTRY: dict = {
 # (terminal, CSV, Excel) keep the registry name. Notation follows the
 # source papers: phi_p (Morris & Mitchell 1995); MaxPro (Joseph, Gul &
 # Ba 2015); centered L2-discrepancy CD_2 (Hickernell 1998); stratified
-# L2-discrepancy SL_2 (Tian & Xu 2025).
+# L2-discrepancy SL_2 (Tian & Xu 2026).
 _CRITERION_LATEX = {
     'umaxpro'    : r'$\mathrm{UMaxPro}$',
     'maxpro'     : r'$\mathrm{MaxPro}$',
@@ -118,8 +123,9 @@ def get_criterion(name: str) -> BaseCriterion:
     Parameters
     ----------
     name : str
-        One of: ``'umaxpro'``, ``'maxpro'``, ``'phi_p'``, ``'cd2'``,
-        ``'stratified'`` (or ``'stratified_l2'``).
+        One of: ``'umaxpro'``, ``'maxpro'``, ``'maxproqq'`` (or
+        ``'maxpro_qq'``), ``'phi_p'`` (or ``'phip'``), ``'cd2'``,
+        ``'qqd'``, ``'stratified'`` (or ``'stratified_l2'``).
         Case-insensitive.
 
     Returns

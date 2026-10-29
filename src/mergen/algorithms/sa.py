@@ -3,17 +3,18 @@ mergen.algorithms.sa
 ====================
 Simulated Annealing for space-filling design optimisation.
 
-The implementation follows the classical Morris & Mitchell (1995)
-recipe of single-point coordinate exchange on a discrete grid, extended
-with three modern refinements:
+The implementation builds on the simulated annealing of Morris &
+Mitchell (1995), whose move exchanges two elements within a randomly
+chosen column of a Latin hypercube, and adds three refinements:
 
 * **Auto-tuned initial temperature** via Ben-Ameur (2004): a probe pass
   empirically estimates the criterion's log-delta magnitudes so the
   user does not need to set ``T_start`` manually.
 * **Hybrid moves**: each iteration picks one of two move types — a
-  *random replacement* (the original Morris–Mitchell move, fast escape
-  from local optima) or a *column swap* (preserves the per-axis level
-  frequency and is essential for Latin-Hypercube structure). The mix is
+  *random replacement* of one row by a free grid node (fast escape
+  from local optima) or a *column swap* of two rows on one axis (the
+  Morris–Mitchell move; preserves the per-axis level frequency and is
+  essential for Latin-Hypercube structure). The mix is
   controlled by the ``hybrid_ratio`` hyperparameter.
 * **Iterated Local Search restarts** (Lourenço, Martin & Stützle 2003):
   after each restart the best design so far is perturbed and reused as
@@ -91,7 +92,8 @@ class SAOptimizer(BaseOptimizer):
         (preserves LHS structure). The complement is the probability of
         a *random replacement* move (faster local-optimum escape but
         breaks LHS frequency balance). ``hybrid_ratio = 0.0`` → pure
-        Morris–Mitchell random replacement; ``1.0`` → pure column-swap.
+        random replacement; ``1.0`` → pure column-swap, the
+        Morris–Mitchell move.
     perturbation_size : int or None, default None
         Number of rows to perturb between restarts (ILS kick size).
         ``None`` activates ``max(1, n_optimised // 4)``.
@@ -532,7 +534,7 @@ class SAOptimizer(BaseOptimizer):
         T,           rng,
     ) -> Tuple[bool, float, np.ndarray, set]:
         """
-        Attempt a Morris–Mitchell random replacement of a single row.
+        Attempt a random replacement of a single row.
 
         Returns
         -------

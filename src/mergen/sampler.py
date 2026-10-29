@@ -1,7 +1,8 @@
 """
 mergen.sampler
 ==============
-Space-filling design via the Stochastic Coordinate Exchange (SCE) engine.
+Space-filling design construction: candidate pool, user points and
+the optimisers ``'sa'`` (default), ``'sce'`` and ``'ese'``.
 
 This module exposes four objects:
 
@@ -30,7 +31,9 @@ Quick start
 
 Algorithm
 ---------
-The optimisation is a Stochastic Coordinate Exchange (SCE) outer-inner loop:
+The default optimiser is simulated annealing (``algorithm='sa'``, see
+:mod:`mergen.algorithms`). The Stochastic Coordinate Exchange optimiser
+(``algorithm='sce'``) implemented in this module is an outer-inner loop:
 
   * **Inner loop** — for each restart, repeatedly pick one row of the
     design and propose new values along **one coordinate at a time**,
@@ -496,12 +499,17 @@ def _run_one_algorithm_task(
     seed:            int,
     verbose:         bool,
     budget_factor:   int = 1,
+    visible_out:     int = 0,
 ):
     """
     Run a single optimiser end-to-end (initial design + optimise).
 
     ``budget_factor`` multiplies the default search length of a built-in
     optimiser (see ``_BUDGET_PARAM``) unless ``params`` sets it.
+
+    The last ``visible_out`` anchor rows are criterion-visible points
+    outside the budget: the optimiser sees them as frozen rows, and
+    they are removed from the returned design.
 
     Top-level (module-scope) function so that joblib can serialise the
     task. Called sequentially
@@ -556,7 +564,7 @@ def _run_one_algorithm_task(
         else:
             setattr(optimiser, key, int(budget_factor * base))
 
-    return optimiser.optimize(
+    res = optimiser.optimize(
         initial_design = full_design,
         space          = space,
         criterion      = criterion,
@@ -566,6 +574,11 @@ def _run_one_algorithm_task(
         seed           = seed,
         verbose        = verbose,
     )
+    if visible_out:
+        from dataclasses import replace
+        res = replace(res, design=np.delete(
+            res.design, np.arange(n_frozen - visible_out, n_frozen), axis=0))
+    return res
 
 
 # ======================================================================
@@ -1118,7 +1131,8 @@ class ComparisonResult:
 
 class Sampler:
     """
-    Space-filling design sampler using Stochastic Coordinate Exchange (SCE).
+    Space-filling design sampler (default optimiser: simulated
+    annealing, ``'sa'``; also ``'sce'`` and ``'ese'``).
 
     The sampler is configured fluently — ``add_*`` methods register
     prescribed/focus/exclusion points, ``set_*`` methods set sizes and
@@ -1205,12 +1219,24 @@ class Sampler:
         return self._add_prescribed_codes(pts, in_design, in_optim)
 
     def _add_prescribed_codes(self, pts, in_design: bool = True,
-                              in_optim: bool = True) -> "Sampler":
-        """add_prescribed() for rows already on the grid encoding."""
+                              in_optim: bool = True,
+                              on_grid: bool = True) -> "Sampler":
+        """
+        add_prescribed() for rows already on the grid encoding. With
+        ``on_grid=False`` a row need only lie within the parameter
+        ranges (and on a level of each nominal or ordinal parameter):
+        sequential.fill_around takes references such as literature
+        points this way, out of the budget, so they are never
+        delivered.
+        """
         for row in np.asarray(pts, dtype=float).reshape(
                 -1, self.space.n_parameters):
-            validated = self.space.validate_point(row, label="Prescribed point",
-                                                  encoded=True)
+            if on_grid:
+                validated = self.space.validate_point(
+                    row, label="Prescribed point", encoded=True)
+            else:
+                validated = self.space.validate_reference(
+                    row, label="Reference point")
             self._prescribed.append((validated, bool(in_design), bool(in_optim)))
         return self
 
@@ -1841,7 +1867,7 @@ class Sampler:
             say("  [MERGEN]   Sampling focus / exclusion regions...",
                 flush=True)
         (focus_in_pts, focus_out_pts, focus_sa_pts, repel_weights, reserved,
-         focus_sa_in) = self._build_focus_exclusion(
+         focus_sa_in, focus_sa_out) = self._build_focus_exclusion(
             gs, gmins, granges, reserved,
             np.random.default_rng(seed if seed is not None else 44))
         # Delivered rows outside the optimised design; the priority
@@ -1885,6 +1911,14 @@ class Sampler:
         if focus_sa_in_design_sampled:
             anchor_parts.append(np.array(focus_sa_in_design_sampled,
                                          dtype=float))
+        # Criterion-visible points outside the budget (in_design=False,
+        # in_optim=True; fill_around's references) come last among the
+        # anchors: the optimiser sees them as frozen rows, and each task
+        # removes them from the design it returns.
+        visible_out = ([pt for pt, in_d, in_s in self._prescribed
+                        if not in_d and in_s] + focus_sa_out)
+        if visible_out:
+            anchor_parts.append(np.array(visible_out, dtype=float))
 
         _corner_used = False
         if anchor_parts:
@@ -1943,8 +1977,10 @@ class Sampler:
         # the dispatcher loop below, so each optimiser's natural
         # starting design is used.
 
-        # n_frozen: the optimiser must not move these rows
-        n_frozen = len(prescribed_in_pts) + len(focus_in_pts)
+        # n_frozen: the optimiser must not move these rows. The returned
+        # designs lack the visible out-of-budget rows (n_kept frozen).
+        n_kept   = len(prescribed_in_pts) + len(focus_in_pts)
+        n_frozen = n_kept + len(visible_out)
 
         # crit_start: first row visible to the criterion
         #   Rows are: [criterion-blind frozen | criterion-visible frozen | optimised]
@@ -2060,6 +2096,7 @@ class Sampler:
                 crit_start                  = crit_start,
                 seed                        = rep_seed,
                 budget_factor               = budget_factor,
+                visible_out                 = len(visible_out),
                 # In parallel mode, suppress per-task verbose output so
                 # worker streams do not interleave.
                 verbose                     = (verbose and not run_in_parallel
@@ -2105,18 +2142,24 @@ class Sampler:
         frozen_groups = [
             [p for p in prescribed_in_pts if tuple(p) not in sa_set],
             [p for p in focus_in_pts if tuple(p) not in foc_set],
-            in_design_sa_prescribed, focus_sa_in_design_sampled]
-        mirror_axes = _mirror_axes(space, gs, banned, frozen_groups)
+            in_design_sa_prescribed, focus_sa_in_design_sampled,
+            visible_out]
+        # A reference off the grid has no grid image: no mirroring then.
+        mirror_axes = ([] if any(gs.point_to_index(p) < 0
+                                 for p in visible_out)
+                       else _mirror_axes(space, gs, banned, frozen_groups))
+        visible_rows = np.asarray(visible_out, dtype=float).reshape(-1, n_dims)
 
         def canonical(res):
             from dataclasses import replace
-            D = _canonical_design(res.design, mirror_axes, gs, n_frozen)
+            D = _canonical_design(res.design, mirror_axes, gs, n_kept)
             s_new = float(criterion.evaluate(
-                _normalised(D[crit_start:], space), space))
+                _normalised(np.vstack([D[crit_start:], visible_rows]),
+                            space), space))
             if not _same_values([s_new], [res.score]):
                 # The criterion is not symmetric here: keep the design
                 # as found, rows sorted.
-                D = _canonical_design(res.design, [], gs, n_frozen)
+                D = _canonical_design(res.design, [], gs, n_kept)
             return replace(res, design=D)
 
         def values(res):
@@ -2136,7 +2179,7 @@ class Sampler:
         # Work of one repeat in units of a repeat at the default search
         # length, so the work limit means the same with a user budget.
         n_rows = (len(prescribed_in_pts) + len(focus_in_pts)
-                  + n_optimised_slots)
+                  + len(visible_out) + n_optimised_slots)
 
         def repeat_cost(alg_name):
             key = _BUDGET_PARAM.get(alg_name)
@@ -2282,7 +2325,7 @@ class Sampler:
             # The seed corner is an ordinary optimised row: once the
             # optimiser has moved it, its node is free again.
             best_reserved.discard(corner_idx)
-        for row in best_design[n_frozen:]:
+        for row in best_design[n_kept:]:
             idx = gs.point_to_index(row)
             if idx >= 0:
                 best_reserved.add(idx)
@@ -3193,6 +3236,8 @@ class Sampler:
         reserved      : updated set of reserved grid indices
         focus_sa_in   : list[np.ndarray]
             The ``focus_in_pts`` with ``in_optim=True``, in the same order.
+        focus_sa_out  : list[np.ndarray]
+            The ``focus_out_pts`` with ``in_optim=True``, in the same order.
         """
         focus_in_pts:  List[np.ndarray] = []
         focus_sa_in:   List[np.ndarray] = []
@@ -3200,6 +3245,7 @@ class Sampler:
         constraints, names = self.space._constraints, self.space.names
         focus_out_pts: List[np.ndarray] = []
         focus_sa_pts:  List[np.ndarray] = []
+        focus_sa_out:  List[np.ndarray] = []
         repel_weights: Dict[int, float] = {}
 
         mask = self.space.is_mask
@@ -3218,8 +3264,8 @@ class Sampler:
                         pt.copy())
                     if fp.in_optim:
                         focus_sa_pts.append(pt.copy())
-                        if fp.in_design:
-                            focus_sa_in.append(pt.copy())
+                        (focus_sa_in if fp.in_design
+                         else focus_sa_out).append(pt.copy())
                     n_draw = max(fp.n_samples - 1, 0)
                 # A centre already taken (e.g. as a neighbour of another
                 # focus region) does not count; all n_samples points
@@ -3284,8 +3330,8 @@ class Sampler:
                 (focus_in_pts if fp.in_design else focus_out_pts).append(cpt)
                 if fp.in_optim:
                     focus_sa_pts.append(cpt)
-                    if fp.in_design:
-                        focus_sa_in.append(cpt)
+                    (focus_sa_in if fp.in_design
+                     else focus_sa_out).append(cpt)
 
         # ── Exclusion points ──────────────────────────────────────────
         for ep in self._exclusions:
@@ -3297,7 +3343,7 @@ class Sampler:
 
 
         return (focus_in_pts, focus_out_pts, focus_sa_pts, repel_weights,
-                reserved, focus_sa_in)
+                reserved, focus_sa_in, focus_sa_out)
 
     # ------------------------------------------------------------------ #
     # Private: Stochastic Coordinate Exchange (SCE) core                   #

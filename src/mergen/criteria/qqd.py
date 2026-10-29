@@ -62,7 +62,7 @@ Hickernell, F. J. (1998). A generalized discrepancy and quadrature
 Hickernell, F. J. (1999). Goodness-of-fit statistics, discrepancies
     and robust designs. *Statistics & Probability Letters*, 44(1),
     73-78.
-Joseph, V. R., Gul, E. & Ba, S. (2019). Designing computer
+Joseph, V. R., Gul, E. & Ba, S. (2020). Designing computer
     experiments with multiple types of factors: The MaxPro approach.
     *Journal of Quality Technology*, 52(4), 343-354.
 """
@@ -100,7 +100,7 @@ def _split_columns(space: "ParameterSpace"):
     quantitative (everything else) index lists.
 
     Ordinal columns are classified as quantitative, in line with the
-    scoring approach of Joseph, Gul & Ba (2019) §3 that Mergen also
+    scoring approach of Joseph, Gul & Ba (2020) §3 that Mergen also
     applies in :class:`~mergen.criteria.MaxProQQ`.
     """
     types    = [space.param_types[n] for n in space.names]

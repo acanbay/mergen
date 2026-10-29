@@ -21,10 +21,9 @@ Examples
 --------
 >>> from mergen.algorithms import list_optimizers, get_optimizer
 >>> list_optimizers()
-[]   # algorithms are added in subsequent phases (SA, SCE, ESE)
->>> # Once SA is implemented:
->>> # SAOptimizer = get_optimizer('sa')
->>> # sa = SAOptimizer(n_restarts=5, max_iter=10000)
+['ese', 'sa', 'sce']
+>>> SAOptimizer = get_optimizer('sa')
+>>> sa = SAOptimizer(n_restarts=5, max_iter=10000)
 
 Registering a custom optimiser
 ------------------------------
@@ -130,7 +129,7 @@ def get_optimizer(name: str) -> Type[BaseOptimizer]:
 
     Examples
     --------
-    >>> SAOptimizer = get_optimizer('sa')   # after SA is implemented
+    >>> SAOptimizer = get_optimizer('sa')
     >>> sa = SAOptimizer(n_restarts=5)
     """
     if name not in _OPTIMIZER_REGISTRY:
@@ -141,9 +140,7 @@ def get_optimizer(name: str) -> Type[BaseOptimizer]:
                 f"Available optimisers: {available}."
             )
         raise KeyError(
-            f"Unknown optimiser {name!r}. "
-            f"No optimisers are registered yet "
-            f"(they will be added in later phases: SA, SCE, ESE)."
+            f"Unknown optimiser {name!r}. No optimisers are registered."
         )
     return _OPTIMIZER_REGISTRY[name]
 
@@ -160,7 +157,7 @@ def list_optimizers() -> List[str]:
     Examples
     --------
     >>> list_optimizers()
-    []   # empty until SA / SCE / ESE are added
+    ['ese', 'sa', 'sce']
     """
     return sorted(_OPTIMIZER_REGISTRY.keys())
 

@@ -24,9 +24,9 @@ result.quality_report()
   Metric                      Value    Baseline  Better when        Rank
 ────────────────────────────────────────────────────────────────────────
   Min distance               0.1644      0.0505  higher         99th pct
-  Minimax distance           0.5011      0.5696  lower          85th pct  *
-  Max |correlation|          0.2271      0.2386  lower          57th pct  *
-  2D projection CD2          0.0188      0.0395  lower          99th pct  *
+  Minimax distance           0.5011      0.5696  lower          85th pct
+  Max |correlation|          0.2271      0.2386  lower          57th pct
+  2D projection CD2          0.0188      0.0395  lower          99th pct
   CV distances               0.3678      0.4017  lower          98th pct
   Mean distance              0.7697      0.7415  higher         79th pct
 ────────────────────────────────────────────────────────────────────────
@@ -34,7 +34,6 @@ result.quality_report()
 ────────────────────────────────────────────────────────────────────────
   UMAXPRO                    6.4708e+06  6.0784e+13    99th pct  lower
 ────────────────────────────────────────────────────────────────────────
-  * = primarily optimised by 'umaxpro'
   For other priorities, see: mergen.criteria.list_criteria()
 ────────────────────────────────────────────────────────────────────────
   Baseline: 300 MC designs from feasible space  |  Rank = percentile among baseline designs
@@ -82,18 +81,23 @@ the random designs; the 57th percentile maximum correlation outperforms
 57 percent of them. Higher rank is always better, whatever the metric's
 direction, and the terminal colour coding follows the same rule.
 
-### The asterisks
+### Marked rows and the criterion
 
-The rows marked `*` flag the metrics most closely related to the
-chosen criterion, as a guide to which rows deserve your attention
-first. The example above also illustrates an honest and important
-point: a design can sit at the 99th percentile on the criterion it
-optimised while ranking modestly on other classical metrics. A single
-criterion is one definition of a good design, not all of them. If the
-metrics you care about are not the ones your criterion serves, the fix
-is not more iterations but a different criterion; the
-choosing-a-criterion page in the explanation section maps goals to
-criteria, and `Sampler.compare()` measures the trade-offs empirically.
+A row is marked `*` when its metric follows directly from the
+definition of the chosen criterion. Only `phi_p` has such a metric:
+as its exponent grows it approaches the maximin criterion, so a
+`phi_p` run marks the min distance row. No row is marked for
+`umaxpro`, because no metric in the table measures what it optimises
+(separation of the points in every projection).
+
+The example above also illustrates an honest and important point: a
+design can sit at the 99th percentile on the criterion it optimised
+while ranking modestly on other classical metrics. A single criterion
+is one definition of a good design, not all of them. If the metrics
+you care about are not the ones your criterion serves, the fix is not
+more iterations but a different criterion; the choosing-a-criterion
+page in the explanation section maps goals to criteria, and
+`Sampler.compare()` measures the trade-offs empirically.
 
 ### The criterion row
 

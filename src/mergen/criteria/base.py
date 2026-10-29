@@ -67,20 +67,56 @@ def _level_offsets(space, n: int, d: int) -> np.ndarray:
 
 class _PeakTracking:
     """
-    Bookkeeping for the recompute rule above. A full evaluation records
-    an exact sum; each fast update raises the peak to the sum it starts
-    from and asks whether its result fell too far below that peak.
-    Every optimisation starts with a full evaluation, so the decisions
-    of a run do not depend on earlier runs.
+    Bookkeeping for the recompute rule above.
+
+    Each design state the fast updates produce is remembered by its
+    score, with the peak its sum's error refers to: a fast update
+    passes on the larger of its start's peak and its start's sum, and
+    a recomputed result is exact, so its peak is its own sum. An update
+    looks up the state it starts from. The optimiser may reject a move
+    (also one scored as two chained updates) and continue from an
+    older state; that state keeps its own peak. A state not remembered
+    falls back to the largest sum since the last full evaluation, which
+    bounds the error of every state. Every optimisation starts with a
+    full evaluation, so the decisions of a run do not depend on earlier
+    runs.
     """
 
-    def _exact(self, total: float) -> None:
-        self._peak = total
+    _MAX_STATES = 256
 
-    def _too_far_below(self, start: float, total: float) -> bool:
-        peak = max(getattr(self, '_peak', start), start)
-        self._peak = peak
+    def _exact(self, total: float) -> None:
+        self._peak   = total
+        self._states = {}
+
+    def _trial_total(self, full):
+        """Run ``full()``, a full evaluation of a trial design, without
+        letting it reset the bookkeeping."""
+        saved = (getattr(self, '_peak', None), getattr(self, '_states', None))
+        total = full()
+        self._peak, self._states = saved
+        return total
+
+    def _too_far_below(self, start: float, total: float,
+                       current: float) -> bool:
+        states = getattr(self, '_states', None)
+        if states is None:
+            states = self._states = {}
+        overall = max(getattr(self, '_peak', start) or start, start)
+        self._peak = overall
+        known = states.get(float(current))
+        peak = max(known, start) if known is not None else overall
+        self._pending = peak
         return total < _RECOMPUTE_BELOW * peak
+
+    def _settle(self, score: float, exact_total=None) -> None:
+        """Remember the state an update produced (see the class
+        docstring); ``exact_total`` is its sum when it was recomputed."""
+        states = self._states
+        if len(states) >= self._MAX_STATES:
+            states.clear()
+        peak = exact_total if exact_total is not None else self._pending
+        key  = float(score)
+        states[key] = max(states.get(key, peak), peak)
 
 
 class BaseCriterion(ABC):

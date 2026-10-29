@@ -5,7 +5,7 @@ Stratified L2-Discrepancy criterion (SD).
 
 Reference
 ---------
-Tian, Y. & Xu, H. (2025). A stratified L2-discrepancy with
+Tian, Y. & Xu, H. (2026). A stratified L2-discrepancy with
     application to space-filling designs. *Journal of the Royal
     Statistical Society: Series B*, 88(2).
 """
@@ -21,7 +21,7 @@ from .base import BaseCriterion, _EPS, _active
 
 class StratifiedL2(BaseCriterion):
     """
-    Stratified L2-discrepancy (Tian & Xu 2025).
+    Stratified L2-discrepancy (Tian & Xu 2026).
 
     Measures uniformity by aggregating the L2-norm of the local
     discrepancy over a hierarchical family of stratified regions. For a
@@ -68,12 +68,13 @@ class StratifiedL2(BaseCriterion):
     -----
     Computational complexity is :math:`O(n^2 m p)` per evaluation. The
     base :meth:`incremental` falls back to full re-evaluation, which
-    keeps SA's cost at :math:`O(n^2 m p)` per move; this matches CD2
-    and is acceptable for ``n \\le 200``.
+    keeps SA's cost at :math:`O(n^2 m p)` per move. CD2 updates in
+    :math:`O(n m)` per move, so SL2 runs are slower; the cost is
+    acceptable for ``n \\le 200``.
 
     References
     ----------
-    Tian, Y. & Xu, H. (2025). A stratified L2-discrepancy with
+    Tian, Y. & Xu, H. (2026). A stratified L2-discrepancy with
         application to space-filling designs.
         *Journal of the Royal Statistical Society, Series B*, 88(2).
     """
@@ -167,7 +168,7 @@ class StratifiedL2(BaseCriterion):
         sd2 = term1 + term2
         return float(np.sqrt(max(sd2, 0.0)))
 
-    # ── incremental (full recompute, same as CD2) ────────────────────
+    # ── incremental (full recompute) ─────────────────────────────────
     def incremental(self, X, i, new_pt, space, current_score):
         X_new      = X.copy()
         X_new[i] = new_pt

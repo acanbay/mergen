@@ -13,10 +13,14 @@ Morris, M. D. & Mitchell, T. J. (1995). Exploratory designs for
 
 from __future__ import annotations
 
+import numbers
 
 import numpy as np
 
 from .base import BaseCriterion, _EPS, _PeakTracking
+
+# Largest p for which the duplicate floor _EPS keeps Σ d^(-p) finite.
+_P_MAX = 30
 
 
 class PhiP(_PeakTracking, BaseCriterion):
@@ -35,6 +39,12 @@ class PhiP(_PeakTracking, BaseCriterion):
     Parameters
     ----------
     p : int or float, default 15
+        Must satisfy ``0 < p <= 30``. The fast updates keep the raw sum
+        of ``d^(-p)``; for ``p <= 30`` it stays finite with a distance
+        floor of 1e-10, which only exact duplicates reach. A larger p
+        would need a larger floor, and close pairs would then score
+        like duplicates. For a maximin design, use the ``min_distance``
+        metric as a ``priority``.
 
     References
     ----------
@@ -43,11 +53,16 @@ class PhiP(_PeakTracking, BaseCriterion):
     """
 
     def __init__(self, p: float = 15) -> None:
+        if (isinstance(p, bool) or not isinstance(p, numbers.Real)
+                or not 0 < p <= _P_MAX):
+            raise ValueError(
+                f"PhiP needs 0 < p <= {_P_MAX:g}; got {p!r}. A larger p "
+                f"would need scaled sums; for a maximin design use the "
+                f"'min_distance' metric as a priority.")
         self.p = float(p)
-        # Distance floor: _EPS, raised where needed so that floor**(-p)
-        # stays a finite float (a duplicate point with p = 50 would
-        # otherwise give inf). For p <= 30 it is _EPS.
-        self._floor = max(_EPS, 10.0 ** (-300.0 / self.p))
+        # Distance floor for exact duplicates: _EPS**(-p) <= 1e300, so
+        # the sum stays finite for p <= _P_MAX.
+        self._floor = _EPS
 
     def _inner(self, X) -> float:
         n, total = len(X), 0.0
@@ -81,13 +96,16 @@ class PhiP(_PeakTracking, BaseCriterion):
         # Recover total inner sum from current phi_p score
         total_inner_old = max(current_score ** self.p, _EPS)
         total_inner_new = total_inner_old - old_inner + new_inner
-        if self._too_far_below(total_inner_old, total_inner_new):
+        recomputed = self._too_far_below(total_inner_old, total_inner_new,
+                                         current_score)
+        if recomputed:
             X_new = np.array(X, dtype=float)
             X_new[i] = new_pt
-            total_inner_new = self._inner(X_new)
+            total_inner_new = self._trial_total(lambda: self._inner(X_new))
         total_inner_new = max(total_inner_new, _EPS)
 
         new_score = total_inner_new ** (1.0 / self.p)
+        self._settle(new_score, total_inner_new if recomputed else None)
         log_delta = np.log(max(new_score, _EPS)) - np.log(max(current_score, _EPS))
         return float(log_delta), float(new_score)
 
@@ -153,13 +171,16 @@ class PhiP(_PeakTracking, BaseCriterion):
 
         new_i_inner = float(np.sum(new_contribs))
         new_total_inner = cache['total_inner'] - cache['i_inner'] + new_i_inner
-        if self._too_far_below(cache['total_inner'], new_total_inner):
+        recomputed = self._too_far_below(cache['total_inner'],
+                                         new_total_inner, cache['score'])
+        if recomputed:
             X_new = np.array(cache['X'], dtype=float)
             X_new[cache['i']] = cache['point']
             X_new[cache['i'], axis] = new_value
-            new_total_inner = self._inner(X_new)
+            new_total_inner = self._trial_total(lambda: self._inner(X_new))
         new_total_inner = max(new_total_inner, _EPS)
         new_score = new_total_inner ** (1.0 / self.p)
+        self._settle(new_score, new_total_inner if recomputed else None)
         log_delta = np.log(max(new_score, _EPS)) - np.log(max(cache['score'], _EPS))
 
         new_point        = cache['point'].copy()

@@ -542,3 +542,24 @@ def test_quality_report_plain_text_off_terminal_and_checks_mc_samples(capsys):
     assert 'CD2 +' in out and '+ evaluated after the run' in out
     with pytest.raises(ValueError, match='mc_samples'):
         r.quality_report(mc_samples=-1, verbose=False)
+
+
+@pytest.mark.parametrize('crit, marked', [('phi_p', True), ('umaxpro', False)])
+def test_quality_report_marks_only_definitional_metrics(num_space, capsys,
+                                                       crit, marked):
+    # Only phi_p has a report metric that follows from its definition
+    # (maximin, as p grows); no row is marked for the MaxPro family.
+    s = mergen.Sampler(num_space)
+    s.set_design(n_samples=6, n_validation=0)
+    s.set_optimizer('sa', n_restarts=1, max_iter=200)
+    r = s.run(criteria=crit, seed=1, verbose=False, n_repeats=1)
+    capsys.readouterr()
+    r.quality_report(mc_samples=5)
+    out = capsys.readouterr().out
+    rows = [ln for ln in out.splitlines() if ln.rstrip().endswith('*')]
+    if marked:
+        assert len(rows) == 1 and 'Min distance' in rows[0]
+        assert "* = targeted by 'phi_p'" in out
+    else:
+        assert rows == [] and '* =' not in out
+    assert 'list_criteria()' in out

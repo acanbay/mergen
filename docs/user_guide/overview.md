@@ -98,7 +98,8 @@ before `run()`:
 
 The {doc}`sequential module <../api/sequential>` extends finished
 designs: `extend` adds new well-placed runs, `fill_around`
-concentrates new runs near interesting points, `subsample` picks a
+places new runs away from points that already have results (from
+the literature or a pilot) and are not run again, `subsample` picks a
 representative pilot subset, `run_order` orders runs so early stops
 still leave a balanced design, `k_fold_split` builds
 cross-validation folds, and `nested` creates designs within designs.

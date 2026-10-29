@@ -372,3 +372,30 @@ def test_whole_float_counts_are_accepted_and_run(num_space):
     s.run(criteria='phi_p', algorithm='ese', n_repeats=1, verbose=False)
     s.set_optimizer('sa', n_restarts=1.0, max_iter=50)
     s.run(criteria='phi_p', algorithm='sa', n_repeats=1, verbose=False)
+
+
+@pytest.mark.parametrize('algorithm', ['sa', 'sce', 'ese'])
+@pytest.mark.parametrize('kind', ['prescribed', 'focus'])
+def test_out_of_budget_points_with_in_optim_are_seen(algorithm, kind):
+    # in_design=False only keeps a point out of the budget; with
+    # in_optim=True the optimiser must still place runs around it.
+    space = mergen.ParameterSpace({'x': list(range(21)),
+                                   'y': list(range(21))})
+
+    def gap(in_optim):
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=6, n_validation=0)
+        if kind == 'prescribed':
+            s.add_prescribed([[10, 10]], in_design=False, in_optim=in_optim)
+        else:
+            s.add_focus([10, 10], spread=1.0, n_samples=1,
+                        include_center=True, in_design=False,
+                        in_optim=in_optim)
+        r = s.run(criteria='phi_p', algorithm=algorithm, seed=1,
+                  verbose=False, n_repeats=1)
+        assert len(r.samples) == 7
+        opt = r.samples[r.samples['point_type'] == 'Optimised']
+        P = opt[['x', 'y']].to_numpy(dtype=float)
+        return np.sqrt(((P - 10.0) ** 2).sum(axis=1)).min()
+
+    assert gap(True) > 2 * gap(False)

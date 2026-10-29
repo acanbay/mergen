@@ -130,9 +130,25 @@ def test_phi_p_update_survives_a_dominant_pair():
     assert inc1 == pytest.approx(crit.evaluate(X3, space), rel=1e-9)
 
 
-def test_phi_p_with_a_large_p_stays_finite_on_a_duplicate():
+def test_phi_p_with_the_largest_p_stays_finite_on_a_duplicate():
     X = np.array([[0.0, 0.0], [0.0, 0.0], [1.0, 1.0]])
-    assert np.isfinite(PhiP(p=50).evaluate(X, None))
+    assert np.isfinite(PhiP(p=30).evaluate(X, None))
+
+
+@pytest.mark.parametrize('p', [31, 50, 0, -1, float('nan'), '15'])
+def test_phi_p_refuses_p_outside_its_range(p):
+    with pytest.raises(ValueError, match="0 < p <= 30"):
+        PhiP(p=p)
+
+
+def test_phi_p_at_the_largest_p_tells_close_pairs_from_duplicates():
+    base = np.array([[0.0, 0.0], [0.5, 0.5], [1.0, 1.0]])
+    scores = []
+    for gap in (0.0, 1e-3, 0.03):
+        X = np.vstack([base, base[0] + gap])
+        scores.append(PhiP(p=30).evaluate(X, None))
+    assert np.all(np.isfinite(scores))
+    assert scores[0] > scores[1] > scores[2]
 
 
 # ── A1-06: QQD level map (Zhang, Yang & Zhou 2021, p. 6) ─────────────
@@ -309,7 +325,7 @@ def test_a_cache_built_without_a_space_stays_consistent():
 
 
 @pytest.mark.parametrize('crit', [MaxPro(), UMaxPro(), MaxProQQ(),
-                                  PhiP(), PhiP(p=50)])
+                                  PhiP(), PhiP(p=30)])
 def test_chains_of_fast_updates_stay_accurate(crit):
     # Swaps that pass through ties on one or two axes, every result
     # adopted: the error must not build up between full evaluations.
@@ -385,3 +401,42 @@ def test_a_recomputed_fast_update_uses_the_cache_space():
         X2 = X.copy()
         X2[1, 0] = 0.2
         assert got == pytest.approx(ref.evaluate(X2, None), rel=1e-9)
+
+
+@pytest.mark.parametrize('crit, start, steps', [
+    (PhiP(), 1e-3, (2.1e-3, 4.6e-3, 1e-2, 2.1e-2, 4.6e-2)),
+    (MaxPro(), 1e-7, (1e-6, 1e-5, 1e-4, 1e-3, 1e-2)),
+])
+@pytest.mark.parametrize('chained', [False, True])
+def test_fast_updates_stay_accurate_after_rejected_recomputes(crit, start,
+                                                              steps, chained):
+    # A recomputed trial that the optimiser rejects must not reset the
+    # error bookkeeping: the current score still carries the error of
+    # the dominant pair's sum.
+    import copy
+    crit = copy.deepcopy(crit)
+    ref = copy.deepcopy(crit)
+    rng = np.random.default_rng(0)
+    X = rng.random((10, 2))
+    X[1] = X[0] + start
+    score = crit.evaluate(X, None)
+    for i in range(5, 10):                  # error ~ eps * the big sum
+        new = rng.random(2)
+        _, score = crit.incremental(X, i, new, None, score)
+        X[i] = new
+    worst = 0.0
+    for d in steps:
+        far = np.array([0.99, 0.99])
+        _, trial = crit.incremental(X, 1, far, None, score)
+        if chained:
+            # SA and ESE score a swap as two updates, the second from
+            # the first one's score; the whole move is then rejected.
+            Xt = X.copy()
+            Xt[1] = far
+            crit.incremental(Xt, 7, rng.random(2), None, trial)
+        new = X[0] + d
+        _, score = crit.incremental(X, 1, new, None, score)
+        X[1] = new
+        exact = ref.evaluate(X.copy(), None)
+        worst = max(worst, abs(score - exact) / exact)
+    assert worst < 1e-9

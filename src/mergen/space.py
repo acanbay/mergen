@@ -1078,6 +1078,27 @@ class ParameterSpace:
         return np.array([vals[np.argmin(np.abs(vals - x))]
                          for vals, x in zip(self._parameters.values(), pt)])
 
+    def validate_reference(self, point, label: str = "Point") -> np.ndarray:
+        """
+        A grid-encoded point that need not be a grid node: every
+        coordinate must lie within its parameter's range, and on one of
+        the levels of a nominal, ordinal or discrete parameter. Used for
+        reference points that shape a design without being part of it.
+        """
+        pt = self.encode_points(point, context=label, encoded=True).ravel()
+        for (name, vals), x, tol in zip(self._parameters.items(), pt,
+                                        self.grid_tol):
+            continuous = self._param_types.get(name) == 'continuous'
+            inside = vals.min() - tol <= x <= vals.max() + tol
+            on_level = bool(np.any(np.abs(vals - x) <= tol))
+            if not np.isfinite(x) or not inside or (
+                    not continuous and not on_level):
+                what = (f"within [{vals.min():.4g}, {vals.max():.4g}]"
+                        if continuous else "one of its levels")
+                _fatal(f"{label} {self._shown(pt)}: parameter '{name}' "
+                       f"must be {what}.")
+        return pt
+
     # ------------------------------------------------------------------ #
     # GridSampler factory                                                  #
     # ------------------------------------------------------------------ #
@@ -1182,8 +1203,11 @@ class GridSampler:
 
     Memory
     ------
-    O(d × max_levels) for the value arrays only.
-    A 10^10-point grid uses ~48 bytes vs ~800 GB for a full array.
+    This object stores only the per-parameter value arrays,
+    O(d × max_levels), however many points the grid has. A
+    :class:`~mergen.sampler.Sampler` still builds the full feasible
+    candidate pool in memory, over 100 bytes per candidate (about
+    110 with three parameters, so about 1 GB for 10^7 candidates).
 
     Parameters
     ----------

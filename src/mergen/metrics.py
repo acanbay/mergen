@@ -110,23 +110,25 @@ def metric_latex(name: str) -> str:
 # Higher is better for these
 _HIGHER_BETTER = {'min_distance', 'mean_distance'}
 
-# What each criterion primarily optimises — maps to metric keys
-# References:
-#   phi_p      : Morris & Mitchell (1995), Johnson et al. (1990)
-#   MaxPro     : Joseph, Gul & Ba (2015), Biometrika 102(2)
-#   uMaxPro    : Vorechovsky & Masek (2026), arxiv 2603.19778
-#   MaxProQQ   : Joseph, Gul & Ba (2020), J. Qual. Technol. 52(4)
-#   cd2        : Hickernell (1998)
-#   qqd        : Zhang, Yang & Zhou (2021); a discrepancy, like cd2
-#   stratified : Tian & Xu (2025), JRSS-B
+# Report metrics that follow directly from a criterion's definition;
+# the quality report marks them with '*'. Only phi_p has one: as p
+# grows, phi_p approaches the maximin criterion, i.e. the largest
+# minimum distance (Morris & Mitchell 1995; Johnson, Moore & Ylvisaker
+# 1990). The MaxPro family scores separation in every projection,
+# which no report metric measures; CD2, QQD and SL2 are discrepancies
+# whose own value is the criterion row, and minimising them does not
+# minimise any listed metric by definition.
 _CRIT_OPTIMISES = {
-    'umaxpro'    : {'projection_cd2', 'minimax', 'max_abs_correlation'},
-    'maxpro'     : {'projection_cd2', 'minimax', 'max_abs_correlation'},
-    'maxproqq'   : {'projection_cd2', 'minimax', 'max_abs_correlation'},
-    'phi_p'      : {'min_distance', 'mean_distance', 'cv_distances'},
-    'cd2'        : {'projection_cd2', 'cv_distances', 'minimax'},
-    'qqd'        : {'projection_cd2', 'cv_distances', 'minimax'},
-    'stratified' : {'projection_cd2', 'cv_distances'},
+    'umaxpro'    : set(),
+    'maxpro'     : set(),
+    'maxproqq'   : set(),
+    'phi_p'      : {'min_distance'},
+    'cd2'        : set(),
+    'qqd'        : set(),
+    'stratified' : set(),
+}
+_CRIT_TARGET_NOTE = {
+    'phi_p': 'as p grows it approaches maximin (Morris & Mitchell 1995)',
 }
 
 
@@ -849,9 +851,11 @@ def _print_table(
             print("  + evaluated after the run (not used for optimisation)")
 
     # Criterion note
-    if run_crit and run_crit in _CRIT_OPTIMISES:
+    if run_crit:
         print(sep)
-        print(f"  * = primarily optimised by '{run_crit}'")
+        if opt_metrics:
+            print(f"  * = targeted by '{run_crit}': "
+                  f"{_CRIT_TARGET_NOTE[run_crit]}")
         print("  For other priorities, see: mergen.criteria.list_criteria()")
 
     if has_mc:

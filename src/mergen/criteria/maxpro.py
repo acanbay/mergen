@@ -103,11 +103,14 @@ class MaxPro(_PeakTracking, BaseCriterion):
             self._sq(np.asarray(new_pt, dtype=float), others, s, c), axis=1))
 
         new_score = current_score - old_contrib + new_contrib
-        if self._too_far_below(current_score, new_score):
+        exact = None
+        if self._too_far_below(current_score, new_score, current_score):
             X_new = X.copy()
             X_new[i] = new_pt
-            new_score = self.evaluate(X_new, space)
+            new_score = exact = self._trial_total(
+                lambda: self.evaluate(X_new, space))
         new_score = max(new_score, _EPS)
+        self._settle(new_score, exact)
         log_delta = np.log(new_score) - np.log(max(current_score, _EPS))
         return float(log_delta), float(new_score)
 
@@ -158,11 +161,14 @@ class MaxPro(_PeakTracking, BaseCriterion):
         new_point = cache['point'].copy()
         new_point[axis] = new_value
         new_score = cache['score'] - old_sum + new_sum
-        if self._too_far_below(cache['score'], new_score):
+        exact = None
+        if self._too_far_below(cache['score'], new_score, cache['score']):
             X_new = cache['X'].copy()
             X_new[cache['i']] = new_point
-            new_score = self.evaluate(X_new, cache['space'])
+            new_score = exact = self._trial_total(
+                lambda: self.evaluate(X_new, cache['space']))
         new_score = max(new_score, _EPS)
+        self._settle(new_score, exact)
         log_delta = np.log(new_score) - np.log(max(cache['score'], _EPS))
 
         new_sq          = cache['sq'].copy()

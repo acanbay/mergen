@@ -14,7 +14,7 @@ factor types:
   contribution :math:`(|u_{ik}-u_{jk}| + 1/m_k)^{2}` where the
   :math:`1/m_k` term prevents the denominator from vanishing when two
   points fall on the same level.
-- **ordinal**: scored to a numeric grid (Joseph 2019 §3) and treated
+- **ordinal**: scored to a numeric grid (Joseph, Gul & Ba 2020, §3) and treated
   as discrete numeric with :math:`m_k = L_k` levels.
 - **nominal**: contribution
   :math:`(\\mathbb{1}(v_{ih}\\neq v_{jh}) + 1/L_h)^{2}` where
@@ -43,7 +43,7 @@ matches the dimensional homogeneity of MaxPro.
 
 References
 ----------
-Joseph, V. R., Gul, E. & Ba, S. (2019). Designing computer
+Joseph, V. R., Gul, E. & Ba, S. (2020). Designing computer
     experiments with multiple types of factors: The MaxPro approach.
     *Journal of Quality Technology*, 52(4), 343-354.
 Joseph, V. R., Gul, E. & Ba, S. (2015). Maximum projection designs
@@ -75,7 +75,7 @@ if TYPE_CHECKING:
 #
 # The Sampler hands us a ParameterSpace whose parameter types are one
 # of  {'continuous', 'discrete', 'integer', 'ordinal', 'nominal'}.
-# Following Joseph, Gul & Ba (2019) §3 we score ordinal factors as
+# Following Joseph, Gul & Ba (2020) §3 we score ordinal factors as
 # discrete numeric ones and merge all non-continuous non-nominal
 # columns into the single 'quantitative_discrete' bucket.
 
@@ -146,7 +146,7 @@ def _column_contribution(
 class MaxProQQ(_PeakTracking, BaseCriterion):
     """
     Maximum Projection criterion for quantitative and qualitative
-    factors (Joseph, Gul & Ba 2019).
+    factors (Joseph, Gul & Ba 2020).
 
     Extends :class:`~mergen.criteria.MaxPro` to spaces that mix
     continuous, discrete-numeric / integer / ordinal, and nominal
@@ -160,7 +160,7 @@ class MaxProQQ(_PeakTracking, BaseCriterion):
         division by zero when two rows share the same value on a
         continuous column (which does not happen for a valid LHD but
         can arise in constrained or coarse-grid searches). Joseph et
-        al. (2019) do not use a floor; the default of ``0.0``
+        al. (2020) do not use a floor; the default of ``0.0``
         reproduces the paper exactly. Set to a small positive value
         (e.g. ``1e-12``) for extra numerical safety.
 
@@ -231,7 +231,7 @@ class MaxProQQ(_PeakTracking, BaseCriterion):
                 \\frac{1}{\\prod_{k} c_k(x_{ik}, x_{jk}) + \\delta},
 
         where the per-column term :math:`c_k` follows Joseph, Gul &
-        Ba (2019) Eq. 9. The Mergen optimisers rank designs by
+        Ba (2020) Eq. 9. The Mergen optimisers rank designs by
         ``log(score)``, so the monotone :math:`1/d` power is
         redundant and would only shrink dynamic range for the SA/SCE
         acceptance rules. Users who want the paper's :math:`\\psi(D)`
@@ -346,12 +346,15 @@ class MaxProQQ(_PeakTracking, BaseCriterion):
         # Moving a near-duplicate apart leaves a score far below the
         # old one; it is then recomputed (see _RECOMPUTE_BELOW).
         new_score = current_score - old_contrib + new_contrib
-        if self._too_far_below(current_score, new_score):
+        exact = None
+        if self._too_far_below(current_score, new_score, current_score):
             X_new = np.array(X, dtype=float)
             X_new[i] = new_pt
-            new_score = self.evaluate(X_new, space)
+            new_score = exact = self._trial_total(
+                lambda: self.evaluate(X_new, space))
         if new_score <= 0.0:
             new_score = _EPS
+        self._settle(new_score, exact)
 
         log_delta = float(np.log(new_score) - np.log(max(current_score, _EPS)))
         return log_delta, new_score
