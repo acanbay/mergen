@@ -25,6 +25,64 @@ import numpy as np
 _EPS = 1e-10
 
 
+# The fast updates compute S_new = S_old - a + b. Its rounding error is
+# about machine epsilon times the largest sum reached since the last
+# full evaluation, since each step carries the error of the steps
+# before it. When S_new falls below this share of that peak (a dominant
+# pair was moved apart) the criterion recomputes S_new in full, which
+# also clears the carried error; above it, at least ten significant
+# digits remain.
+_RECOMPUTE_BELOW = 1e-6
+
+
+def _active(space, *arrays):
+    """
+    The arrays (designs of shape (n, d) or points of shape (d,)) without
+    the columns of parameters that have a single feasible level. Such a
+    column separates no rows, but in a product kernel (CD2, stratified
+    L2) it would still rescale the other coordinates.
+    """
+    if space is None or bool(np.all(space.active_mask)):
+        return arrays if len(arrays) > 1 else arrays[0]
+    keep = space.active_mask
+    out = tuple(np.asarray(a, dtype=float)[..., keep] for a in arrays)
+    return out if len(out) > 1 else out[0]
+
+
+def _level_offsets(space, n: int, d: int) -> np.ndarray:
+    """
+    Per-axis offset 1/m for an axis with m < n feasible levels, else 0.
+
+    A design of n runs on such an axis must repeat levels, and the
+    MaxPro product is then infinite. Joseph, Gul & Ba (2020, Eq. 9)
+    add 1/m to the distance on these axes; axes with at least n levels
+    keep the published form (offset 0). Without a space, every offset
+    is 0.
+    """
+    if space is None:
+        return np.zeros(d)
+    m = space.feasible_levels.astype(float)
+    return np.where(m < n, 1.0 / m, 0.0)
+
+
+class _PeakTracking:
+    """
+    Bookkeeping for the recompute rule above. A full evaluation records
+    an exact sum; each fast update raises the peak to the sum it starts
+    from and asks whether its result fell too far below that peak.
+    Every optimisation starts with a full evaluation, so the decisions
+    of a run do not depend on earlier runs.
+    """
+
+    def _exact(self, total: float) -> None:
+        self._peak = total
+
+    def _too_far_below(self, start: float, total: float) -> bool:
+        peak = max(getattr(self, '_peak', start), start)
+        self._peak = peak
+        return total < _RECOMPUTE_BELOW * peak
+
+
 class BaseCriterion(ABC):
     """
     Abstract base for space-filling design criteria.
@@ -99,6 +157,7 @@ class BaseCriterion(ABC):
         X:             np.ndarray,
         i:             int,
         current_score: float,
+        space=None,
     ):
         """
         Initialise a per-point cache for fast 1D coordinate-exchange updates.
@@ -120,6 +179,8 @@ class BaseCriterion(ABC):
         X             : np.ndarray, shape (n, d) — current normalised design
         i             : int — index of the point to be modified
         current_score : float — raw criterion score before any change
+        space         : ParameterSpace, optional — for criteria whose
+                        per-axis terms depend on the space
 
         Returns
         -------

@@ -14,6 +14,10 @@ allowed points:
 space.add_constraint(lambda p: p['flow_rate'] + p['n_stages'] <= 20)
 ```
 
+A nominal or ordinal parameter is passed by its label, so a rule such
+as `lambda p: p['solver'] != 'adam' or p['lr'] <= 1e-3` works as
+written.
+
 Only candidates satisfying every constraint enter the design, and the
 Monte Carlo baseline in the quality report is drawn from the same
 feasible region, so quality percentiles stay honest inside a

@@ -45,7 +45,7 @@ def test_nominal_axis_keeps_the_centre_category():
     r = s.run(criteria='maxproqq', algorithm='sce', seed=44, n_repeats=1,
               verbose=False)
     focus = r.samples[r.samples.point_type == 'Focus']
-    assert len(focus) >= 3 and set(focus['c']) == {1.0}   # code of 'B'
+    assert len(focus) >= 3 and set(focus['c']) == {'B'}
 
 
 @pytest.mark.parametrize('bad', [0, -1.0, 'wide'])
@@ -66,3 +66,19 @@ def test_a_short_focus_region_keeps_the_design_size():
     r = s.run(criteria='phi_p', algorithm='sce', seed=44, n_repeats=1,
               verbose=False)
     assert len(r.samples) == 20
+
+
+def test_overlapping_focus_regions_get_all_their_points():
+    # The second centre is already a point of the first region; the
+    # second region still gets its 3 points.
+    space = mergen.ParameterSpace({'x': list(range(12)),
+                                   'y': list(range(12))})
+    s = mergen.Sampler(space)
+    s.set_design(n_samples=20, n_validation=0)
+    # spread=0.25 keeps the first region to the 3x3 box around (5, 5),
+    # so its 9 points take the second centre (6, 5).
+    s.add_focus([5, 5], spread=0.25, n_samples=9)
+    s.add_focus([6, 5], spread=1.0, n_samples=3, include_center=True)
+    r = s.run(criteria='phi_p', algorithm='sce', seed=44, n_repeats=1,
+              verbose=False)
+    assert (r.samples.point_type == 'Focus').sum() == 12

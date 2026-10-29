@@ -220,3 +220,24 @@ def test_fill_around_report_uses_an_unconditioned_baseline():
     assert rep['baseline_fixed_points'] == 0
     assert res._meta['fixed_points'] == []
     assert len(res._meta['baseline_reserved']) == 6
+
+
+def test_default_extend_runs_on_a_nominal_space():
+    space = mergen.ParameterSpace({'x': list(range(6)),
+                                   'c': ('nominal', ['A', 'B', 'C'])})
+    s = mergen.Sampler(space)
+    s.set_design(n_samples=4, n_validation=0)
+    pilot = s.run(n_repeats=1, seed=1, verbose=False)
+    ext = mergen.sequential.extend(s, pilot.samples[space.names].to_numpy(),
+                                   n_new=2, verbose=False, n_repeats=1)
+    assert len(ext.samples) == 6 and ext._meta['criteria'] == 'maxproqq'
+
+
+@pytest.mark.parametrize('bad', [2.7, 0, True, 'two'])
+def test_sequential_counts_must_be_positive_integers(bad):
+    space = mergen.ParameterSpace({'x': list(range(6)), 'y': list(range(6))})
+    s = mergen.Sampler(space)
+    with pytest.raises(ValueError, match='positive integer'):
+        mergen.sequential.extend(s, [[0, 0]], n_new=bad, verbose=False)
+    with pytest.raises(ValueError, match='positive integer'):
+        mergen.sequential.nested(s, n_outer=6, n_inner=bad, verbose=False)

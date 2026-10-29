@@ -23,16 +23,16 @@ result.quality_report()
 ════════════════════════════════════════════════════════════════════════
   Metric                      Value    Baseline  Better when        Rank
 ────────────────────────────────────────────────────────────────────────
-  Min distance               0.1491      0.0505  higher         99th pct
-  Minimax distance           0.5151      0.5696  lower          77th pct  *
-  Max |correlation|          0.1601      0.2386  lower          77th pct  *
-  2D projection CD2          0.1305      0.1890  lower          99th pct  *
-  CV distances               0.3806      0.4017  lower          89th pct
-  Mean distance              0.7278      0.7415  higher         38th pct
+  Min distance               0.1644      0.0505  higher         99th pct
+  Minimax distance           0.5011      0.5696  lower          85th pct  *
+  Max |correlation|          0.2271      0.2386  lower          57th pct  *
+  2D projection CD2          0.0188      0.0395  lower          99th pct  *
+  CV distances               0.3678      0.4017  lower          98th pct
+  Mean distance              0.7697      0.7415  higher         79th pct
 ────────────────────────────────────────────────────────────────────────
   Criterion scores
 ────────────────────────────────────────────────────────────────────────
-  UMAXPRO                    7.9158e+14  1.2973e+22  99th pct  lower
+  UMAXPRO                    6.4708e+06  6.0784e+13    99th pct  lower
 ────────────────────────────────────────────────────────────────────────
   * = primarily optimised by 'umaxpro'
   For other priorities, see: mergen.criteria.list_criteria()
@@ -61,7 +61,7 @@ from the same feasible space and computes every metric for each of
 them. If your design has prescribed or focus points, every random
 design keeps them and only the rest is random; the quality metrics
 page explains this. This baseline is what turns raw numbers into
-evidence. A minimum distance of 0.1491 means nothing in isolation;
+evidence. A minimum distance of 0.1644 means nothing in isolation;
 knowing that 300 random attempts had a median of 0.0505 quantifies
 what the optimisation gained.
 
@@ -78,8 +78,8 @@ metrics, lower is better.
 *Rank* is direction-adjusted, so it always reads the same way: it is
 the share of baseline designs that your design beats on that metric.
 The 99th percentile min distance above outperforms almost every one of
-the random designs; the 77th percentile maximum correlation outperforms
-77 percent of them. Higher rank is always better, whatever the metric's
+the random designs; the 57th percentile maximum correlation outperforms
+57 percent of them. Higher rank is always better, whatever the metric's
 direction, and the terminal colour coding follows the same rule.
 
 ### The asterisks

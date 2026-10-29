@@ -44,6 +44,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from .. import _term
+
 from .base import BaseOptimizer, OptimisationResult, banned_points, hits
 
 if TYPE_CHECKING:
@@ -136,6 +138,20 @@ class SAOptimizer(BaseOptimizer):
     # ────────────────────────────────────────────────────────────────
     # Public: optimise                                                  #
     # ────────────────────────────────────────────────────────────────
+    def validate(self) -> None:
+        """Raise ValueError for an out-of-range hyperparameter."""
+        if not 0.0 <= self.hybrid_ratio <= 1.0:
+            raise ValueError(
+                f"hybrid_ratio must be in [0, 1]; got {self.hybrid_ratio}"
+            )
+        self._check_counts('n_restarts', 'max_iter', 'perturbation_size')
+        if self.T_start is not None and not self.T_start > 0:
+            raise ValueError(f"T_start must be > 0; got {self.T_start}")
+        for p_name in ('cooling', 'T_end_ratio', 'target_accept'):
+            val = getattr(self, p_name)
+            if val is not None and not 0.0 < val < 1.0:
+                raise ValueError(f"{p_name} must be in (0, 1); got {val}")
+
     def optimize(
         self,
         initial_design: np.ndarray,
@@ -158,24 +174,7 @@ class SAOptimizer(BaseOptimizer):
         eff_seed = int(seed) + int(self.seed_offset)
 
         # ── Validate hyperparameters at run time (sklearn pattern) ──
-        if not 0.0 <= self.hybrid_ratio <= 1.0:
-            raise ValueError(
-                f"hybrid_ratio must be in [0, 1]; got {self.hybrid_ratio}"
-            )
-        if self.n_restarts < 1:
-            raise ValueError(
-                f"n_restarts must be ≥ 1; got {self.n_restarts}"
-            )
-        for p_name in ('max_iter', 'perturbation_size'):
-            val = getattr(self, p_name)
-            if val is not None and val < 1:
-                raise ValueError(f"{p_name} must be ≥ 1; got {val}")
-        if self.T_start is not None and not self.T_start > 0:
-            raise ValueError(f"T_start must be > 0; got {self.T_start}")
-        for p_name in ('cooling', 'T_end_ratio', 'target_accept'):
-            val = getattr(self, p_name)
-            if val is not None and not 0.0 < val < 1.0:
-                raise ValueError(f"{p_name} must be in (0, 1); got {val}")
+        self.validate()
 
         # ── Set up grid + helpers ─────────────────────────────────
         gs            = space.grid_sampler()
@@ -744,4 +743,4 @@ class SAOptimizer(BaseOptimizer):
     @staticmethod
     def _info(msg: str) -> None:
         # ANSI green tag to match the Sampler's log style
-        print(f"  \033[1;32m[SA]\033[0m       {msg}", flush=True)
+        print(f"  {_term.GREEN_B}[SA]{_term.RESET}       {msg}", flush=True)

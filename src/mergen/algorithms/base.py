@@ -289,6 +289,26 @@ class BaseOptimizer(ABC):
         """
         return {k: getattr(self, k) for k in self.get_default_params()}
 
+    def validate(self) -> None:
+        """
+        Raise ValueError for an out-of-range hyperparameter. Called by
+        :meth:`optimize` and by ``Sampler.set_optimizer``; subclasses
+        override it.
+        """
+
+    def _check_counts(self, *names: str) -> None:
+        """Raise ValueError unless each named value is None or a
+        positive whole number."""
+        for n in names:
+            v = getattr(self, n)
+            if v is None:
+                continue
+            if (isinstance(v, (bool, np.bool_))
+                    or not isinstance(v, (int, np.integer, float, np.floating))
+                    or not float(v).is_integer() or v < 1):
+                raise ValueError(f"{n} must be a positive integer; got {v!r}")
+            setattr(self, n, int(v))
+
     # ── The actual work: subclasses implement this ───────────────────
     @abstractmethod
     def optimize(

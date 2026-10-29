@@ -55,7 +55,7 @@ from typing import TYPE_CHECKING, List, Tuple
 
 import numpy as np
 
-from .base import BaseCriterion, _EPS
+from .base import BaseCriterion, _EPS, _PeakTracking
 
 if TYPE_CHECKING:
     from ..space import ParameterSpace
@@ -143,7 +143,7 @@ def _column_contribution(
 # ─────────────────────────────────────────────────────────────────────
 # MaxProQQ
 # ─────────────────────────────────────────────────────────────────────
-class MaxProQQ(BaseCriterion):
+class MaxProQQ(_PeakTracking, BaseCriterion):
     """
     Maximum Projection criterion for quantitative and qualitative
     factors (Joseph, Gul & Ba 2019).
@@ -197,10 +197,22 @@ class MaxProQQ(BaseCriterion):
     def _column_info(
         self,
         space: "ParameterSpace",
+        n:     int,
     ) -> Tuple[List[str], List[int]]:
-        """Return per-column ``(kind, level_count)`` lists."""
-        kinds  = [_column_kind(space.param_types[n]) for n in space.names]
-        sizes  = list(space.n_levels)
+        """
+        Return per-column ``(kind, level_count)`` lists for a design of
+        *n* rows. A continuous column with fewer than *n* feasible
+        levels is scored as discrete numeric: Joseph, Gul & Ba (2020)
+        give it no 1/m term only because a continuous factor is assumed
+        to have n distinct levels, which a coarse grid cannot.
+        """
+        kinds  = [_column_kind(space.param_types[p]) for p in space.names]
+        # Level counts of the feasible pool: a constraint can leave a
+        # factor fewer levels than its grid has.
+        sizes  = [int(m) for m in space.feasible_levels]
+        for k, kind in enumerate(kinds):
+            if kind == 'continuous' and sizes[k] < n:
+                kinds[k] = 'quantitative_discrete'
         return kinds, sizes
 
     # ── evaluate ───────────────────────────────────────────────────
@@ -241,7 +253,7 @@ class MaxProQQ(BaseCriterion):
         if n < 2:
             return _EPS
 
-        kinds, sizes = self._column_info(space)
+        kinds, sizes = self._column_info(space, n)
 
         # Pairwise differences: (n, n, d)
         diff = X[:, None, :] - X[None, :, :]
@@ -263,7 +275,9 @@ class MaxProQQ(BaseCriterion):
         # even when two rows collide on every column. The optional
         # delta adds an extra safety cushion.
         denom = pair_prod + self.delta
-        return float(np.sum(1.0 / denom))
+        score = float(np.sum(1.0 / denom))
+        self._exact(score)
+        return score
 
     # ── incremental (single-point swap) ────────────────────────────
     def incremental(
@@ -301,7 +315,7 @@ class MaxProQQ(BaseCriterion):
         n, d = X.shape
         if n < 2:
             return 0.0, current_score
-        kinds, sizes = self._column_info(space)
+        kinds, sizes = self._column_info(space, n)
 
         # Pair contributions involving row i (old and prospective).
         others_mask       = np.arange(n) != i
@@ -329,7 +343,13 @@ class MaxProQQ(BaseCriterion):
         old_contrib = float(np.sum(1.0 / old_denom))
         new_contrib = float(np.sum(1.0 / new_denom))
 
+        # Moving a near-duplicate apart leaves a score far below the
+        # old one; it is then recomputed (see _RECOMPUTE_BELOW).
         new_score = current_score - old_contrib + new_contrib
+        if self._too_far_below(current_score, new_score):
+            X_new = np.array(X, dtype=float)
+            X_new[i] = new_pt
+            new_score = self.evaluate(X_new, space)
         if new_score <= 0.0:
             new_score = _EPS
 

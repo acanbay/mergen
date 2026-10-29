@@ -89,8 +89,10 @@ SCENARIOS = {
 def _snapshot(result):
     def frame(df):
         cols = [c for c in df.columns if c not in ('point_type', 'color')]
+        # Nominal columns hold labels; the snapshot keeps level indices.
+        num = result.space.encode_frame(df[cols])
         return {
-            'values': np.asarray(df[cols], dtype=float).tolist(),
+            'values': np.asarray(num, dtype=float).tolist(),
             'labels': (df['point_type'].tolist()
                        if 'point_type' in df.columns else []),
         }

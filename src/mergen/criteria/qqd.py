@@ -44,9 +44,13 @@ value that appears throughout the paper); optimisation drivers rank
 designs by ``log(score)``, and the discrepancy is strictly positive
 on any non-degenerate design.
 
-Ordinal columns are treated as quantitative and enter the WD-kernel
-product via their normalised level indices, matching the scoring
-approach used by Joseph, Gul & Ba (2019) §3 for MaxProQQ.
+Quantitative columns enter the kernel with their s levels at
+(2x + 1)/(2s), x = 0, ..., s - 1 (Zhang, Yang & Zhou 2021, p. 6), so
+the first and last level do not coincide in the wrap-around kernel;
+unequally spaced levels keep their relative spacing. Ordinal columns
+are treated as quantitative, matching the scoring approach used by
+Joseph, Gul & Ba (2020) §3 for MaxProQQ. A column with a single
+feasible level is left out.
 
 References
 ----------
@@ -100,11 +104,25 @@ def _split_columns(space: "ParameterSpace"):
     applies in :class:`~mergen.criteria.MaxProQQ`.
     """
     types    = [space.param_types[n] for n in space.names]
-    n_levels = space.n_levels
-    qual_idx  = [k for k, t in enumerate(types) if t == 'nominal']
-    quant_idx = [k for k, t in enumerate(types) if t in _QUANTITATIVE_TYPES]
-    qual_sizes = [n_levels[k] for k in qual_idx]
+    n_levels = space.feasible_levels
+    # A column with one feasible level separates no rows; left in, it
+    # would only rescale the kernel product.
+    active    = space.active_mask
+    qual_idx  = [k for k, t in enumerate(types)
+                 if t == 'nominal' and active[k]]
+    quant_idx = [k for k, t in enumerate(types)
+                 if t in _QUANTITATIVE_TYPES and active[k]]
+    qual_sizes = [int(n_levels[k]) for k in qual_idx]
     return qual_idx, quant_idx, qual_sizes
+
+
+def _midpoint_scale(space: "ParameterSpace") -> np.ndarray:
+    """
+    Per-axis factor (s - 1)/s: on the (2x + 1)/(2s) scale, which is
+    affine in the normalised coordinate, differences shrink by it.
+    """
+    m = space.feasible_levels.astype(float)
+    return (m - 1.0) / m
 
 
 def _constant_C(p_qual_sizes, q: int) -> float:
@@ -199,9 +217,14 @@ class QQD(BaseCriterion):
         qual_idx, quant_idx, qual_sizes = _split_columns(space)
         p, q = len(qual_idx), len(quant_idx)
 
-        # Sub-designs by kind
+        # Sub-designs by kind; quantitative levels sit at (2x+1)/(2s),
+        # the map of Zhang, Yang & Zhou (2021, p. 6), so the first and
+        # last level do not coincide in the wrap-around kernel.
         X_qual  = X[:, qual_idx]  if qual_idx  else np.empty((n, 0))
-        X_quant = X[:, quant_idx] if quant_idx else np.empty((n, 0))
+        # The map is affine, so only differences scaled by (s-1)/s enter.
+        scale   = _midpoint_scale(space)[quant_idx]
+        X_quant = (X[:, quant_idx] * scale if quant_idx
+                   else np.empty((n, 0)))
 
         # Coincidence count delta_{ij}: how many qualitative columns
         # rows i, j agree on. Nominal columns hold float-encoded
@@ -280,9 +303,12 @@ class QQD(BaseCriterion):
         C          = _constant_C(qual_sizes, q)
         cur_sum    = (current_score - C) * (n * n)
 
-        # Other rows and their coordinates in each factor group
+        # Other rows and their coordinates in each factor group; the
+        # quantitative ones on the (2x+1)/(2s) scale, as in evaluate.
         others_mask = np.arange(n) != i
         others_all  = X[others_mask]                                 # (n-1, d)
+        scale       = _midpoint_scale(space)[quant_idx]
+        others_q    = others_all[:, quant_idx] * scale
 
         # Row i contribution to the sum (both row and column of the
         # symmetric matrix): 2 * K(i, j) for j != i.
@@ -294,7 +320,8 @@ class QQD(BaseCriterion):
             else:
                 qual_term = np.full(n - 1, _FACTOR_5_4 ** 0)          # == 1
             if q > 0:
-                diff_q     = others_all[:, quant_idx] - pt[quant_idx] # (n-1, q)
+                pt_q       = pt[quant_idx] * scale
+                diff_q     = others_q - pt_q                          # (n-1, q)
                 kernel_col = _wd_kernel_columns(diff_q)               # (n-1, q)
                 quant_term = np.prod(kernel_col, axis=-1)             # (n-1,)
             else:

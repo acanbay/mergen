@@ -13,7 +13,7 @@ Each criterion exposes four methods:
         O(n*d) update when the entire point *i* is replaced by
         ``new_pt``. Used by single-point swap operators.
 
-    begin_1d(X, i, current_score)
+    begin_1d(X, i, current_score, space=None)
         Initialise a per-point cache for fast 1D coordinate-exchange
         trials.
 
@@ -41,6 +41,7 @@ Usage
 
 from __future__ import annotations
 
+from .. import _term
 from .base       import BaseCriterion, _EPS  # noqa: F401
 from .umaxpro    import UMaxPro
 from .maxpro     import MaxPro
@@ -144,7 +145,7 @@ def get_criterion(name: str) -> BaseCriterion:
             )
         )
         raise ValueError(
-            f"\n\033[0;31m[MERGEN ERROR]\033[0m  "
+            f"\n{_term.RED}[MERGEN ERROR]{_term.RESET}  "
             f"Unknown criterion '{name}'.\n"
             f"  Available: {available}"
         )

@@ -434,3 +434,21 @@ def test_run_algorithm_tie_does_not_depend_on_list_order():
         best.add(s.run(criteria='cd2', algorithm=algs, seed=1, n_repeats=1,
                        verbose=False).best_algorithm)
     assert best == {'sa'}
+
+
+def test_reselect_best_result_is_the_table_design():
+    # 'auto' under the new priority could stop after fewer repeats than
+    # the table was built from; best_result must still be its design.
+    space = mergen.ParameterSpace({'x': list(range(7)), 'y': list(range(7))})
+    s = mergen.Sampler(space)
+    s.set_design(n_samples=6, n_validation=0)
+    c = s.compare(criteria=['phi_p', 'cd2'], algorithms=['sa', 'sce'],
+                  mc_samples=0, verbose=False)
+    for prio in [('cd2',), ('projection_cd2', 'minimax')]:
+        r = c.reselect(priority=prio, verbose=False)
+        alg = r.best[1]
+        assert np.array_equal(
+            np.asarray(r.best_result.algorithm_results[alg].design),
+            np.asarray(r.results[r.best].design))
+        assert (r.best_result._repeat_info[alg]['n_repeats']
+                == len(r._context['repeats'][r.best]))

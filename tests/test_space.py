@@ -213,3 +213,235 @@ def test_a_validated_point_is_the_grid_node_itself():
         {'a': ('continuous', 0.0, 1.0, {'resolution': 11})})
     node = space.grid_sampler().values[0][3]
     assert space.validate_point([0.3])[0] == node
+
+
+class TestLabels:
+    """Nominal and ordinal levels go in and come out as labels."""
+
+    def _space(self):
+        return mergen.ParameterSpace({
+            'x': list(range(6)),
+            'opt': ('nominal', ['adam', 'sgd', 'rmsprop']),
+            'size': ('ordinal', ['small', 'medium', 'large'])})
+
+    def test_constraint_receives_labels(self):
+        space = self._space()
+        space.add_constraint(lambda p: p['opt'] != 'sgd'
+                             and p['size'] != 'large')
+        pool = space.candidate_pool
+        names = space.names
+        assert len(pool) == 6 * 2 * 2
+        assert not np.any(pool[:, names.index('opt')] == 1.0)
+        assert not np.any(pool[:, names.index('size')] == 2.0)
+
+    def test_samples_and_exports_show_labels(self, tmp_path):
+        import json
+        space = self._space()
+        s = mergen.Sampler(space)
+        s.add_prescribed([[0, 'rmsprop', 'small']])
+        s.add_focus([3, 'adam', 'medium'], spread=1.0, n_samples=2)
+        s.add_exclusion([5, 'sgd', 'large'])
+        s.set_design(n_samples=8, n_validation=2)
+        r = s.run(n_repeats=1, seed=1, verbose=False)
+        assert set(r.samples['opt']) <= {'adam', 'sgd', 'rmsprop'}
+        assert set(r.validation['size']) <= {'small', 'medium', 'large'}
+        assert ['0', 'rmsprop', 'small'] in [
+            [str(int(a)), b, c] for a, b, c
+            in r.samples[space.names].itertuples(index=False)]
+        r.output_dir = str(tmp_path)
+        r.to_json('d.json')
+        rows = json.loads((tmp_path / 'd.json').read_text())
+        assert {row['opt'] for row in rows} <= {'adam', 'sgd', 'rmsprop'}
+        r.quality_report(mc_samples=10, verbose=False)
+
+    def test_extend_accepts_the_labelled_samples(self):
+        space = self._space()
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=5, n_validation=0)
+        pilot = s.run(n_repeats=1, seed=1, verbose=False)
+        ext = mergen.sequential.extend(s, pilot.samples, n_new=2,
+                                       verbose=False, n_repeats=1)
+        assert ext.samples.iloc[:5][space.names].equals(
+            pilot.samples[space.names])
+
+    def test_codes_are_accepted_unless_labels_are_numbers(self):
+        space = self._space()
+        assert space.encode_points([[1, 2, 0]]).tolist() == [[1, 2, 0]]
+        with pytest.raises(ValueError, match='Valid levels'):
+            space.encode_points([[1, 'lion', 0]])
+        # A label that is a number is matched by value or by its text,
+        # never read as a level index.
+        num = mergen.ParameterSpace({'g': ('ordinal', [16, 32, 64])})
+        assert num.encode_points([[32], ['64'], [16.0]]).tolist() == [
+            [1.0], [2.0], [0.0]]
+        with pytest.raises(ValueError, match='Valid levels'):
+            num.encode_points([[1]])
+
+    def _numeric_labels(self):
+        space = mergen.ParameterSpace({'x': list(range(8)),
+                                       'bs': ('ordinal', [16, 32, 64])})
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=5, n_validation=0)
+        return space, s
+
+    def test_number_labels_round_trip(self, tmp_path):
+        import pandas as pd
+        space, s = self._numeric_labels()
+        space.add_constraint(lambda p: p['bs'] <= 32 or p['x'] < 4)
+        r = s.run(n_repeats=1, seed=1, verbose=False)
+        assert set(r.samples['bs']) <= {16, 32, 64}
+        assert all(row.bs <= 32 or row.x < 4
+                   for row in r.samples.itertuples())
+        r.output_dir = str(tmp_path)
+        r.to_csv('d.csv')
+        back = pd.read_csv(tmp_path / 'd.csv')
+        s2 = mergen.Sampler(space)
+        s2.load_design(back[space.names])
+        assert np.array_equal(s2._loaded_design[0],
+                              space.encode_frame(r.samples[space.names])
+                              .to_numpy(float))
+        order = mergen.sequential.run_order(s, back[space.names])
+        assert set(order['bs']) <= {16, 32, 64}
+
+    def test_extend_and_fill_around_with_number_labels(self):
+        space, s = self._numeric_labels()
+        pilot = s.run(n_repeats=1, seed=1, verbose=False)
+        ext = mergen.sequential.extend(s, pilot.samples, n_new=2,
+                                       verbose=False, n_repeats=1)
+        assert len(ext.samples) == 7
+        fill = mergen.sequential.fill_around(s, [[3, 32]], n_new=2,
+                                             verbose=False, n_repeats=1)
+        assert len(fill.samples) == 2
+
+    def test_point_functions_take_a_dataframe_by_column(self):
+        import pandas as pd
+        space, s = self._numeric_labels()
+        df = pd.DataFrame({'bs': [64, 16], 'x': [1, 6]})
+        s.add_prescribed(df)
+        s.add_set('ext', df.assign(x=[2, 7]))
+        assert [p[0].tolist() for p in s._prescribed] == [[1, 2], [6, 0]]
+
+    def test_run_order_of_an_array_returns_labels(self):
+        space = self._space()
+        s = mergen.Sampler(space)
+        out = mergen.sequential.run_order(s, [[0, 'adam', 'small'],
+                                              [5, 'sgd', 'large']])
+        assert set(out['opt']) == {'adam', 'sgd'}
+
+
+class TestSpecChecks:
+    def test_non_finite_values_are_refused(self):
+        with pytest.raises(ValueError, match='finite'):
+            mergen.ParameterSpace({'x': [1, float('nan'), 3]})
+
+    def test_generator_spec_survives_set_resolution(self):
+        sp = mergen.ParameterSpace({'x': (v for v in range(5)),
+                                    'y': ('continuous', 0, 1)})
+        sp.set_resolution(11)
+        assert sp.n_levels == [5, 11]
+
+    @pytest.mark.parametrize('res', [1, 0, 2.5, True])
+    def test_resolution_must_be_at_least_two(self, res):
+        with pytest.raises(ValueError, match='>= 2'):
+            mergen.ParameterSpace({'x': ('continuous', 0, 1)},
+                                  resolution=res)
+        with pytest.raises(ValueError, match='>= 2'):
+            mergen.ParameterSpace({'x': ('continuous', 0, 1,
+                                         {'resolution': res})})
+
+    def test_categorical_spec_with_extra_items_names_the_problem(self):
+        with pytest.raises(ValueError, match='exactly one list'):
+            mergen.ParameterSpace({'g': ('ordinal', ['a', 'b'], 'x')})
+
+    def test_infeasible_grid_point_names_the_constraint(self):
+        sp = mergen.ParameterSpace({'x': list(range(5)),
+                                    'y': list(range(5))})
+        sp.add_constraint(lambda p: p['x'] <= p['y'])
+        with pytest.raises(ValueError, match='violates a constraint'):
+            sp.validate_point([4, 0])
+        with pytest.raises(ValueError, match='not on the parameter grid'):
+            sp.validate_point([4.5, 0])
+
+
+def test_range_bounds_must_be_finite():
+    with pytest.raises(ValueError, match='finite'):
+        mergen.ParameterSpace({'x': ('continuous', float('nan'), 1)})
+
+
+class TestLabelEdges:
+    def test_labels_naming_the_same_number_are_refused(self):
+        for labels in ([1, 1.0], ['01', '1'], [0.1, '0.1']):
+            with pytest.raises(ValueError, match='duplicate'):
+                mergen.ParameterSpace({'g': ('nominal', labels)})
+
+    def test_subsample_of_an_array_returns_labels(self):
+        space = mergen.ParameterSpace({'x': list(range(4)),
+                                       'bs': ('ordinal', [16, 32, 64])})
+        s = mergen.Sampler(space)
+        out = mergen.sequential.subsample(
+            s, np.array([[0, 16], [3, 64], [1, 32]]), 2)
+        assert set(out[:, 1]) <= {16, 32, 64}
+
+    def test_messages_show_labels(self):
+        space = mergen.ParameterSpace({'x': list(range(4)),
+                                       'opt': ('nominal', ['adam', 'sgd'])})
+        space.add_constraint(lambda p: p['opt'] != 'sgd' or p['x'] < 2)
+        with pytest.raises(ValueError, match="'sgd'"):
+            space.validate_point([3, 'sgd'])
+
+    def test_report_range_lists_escaped_labels(self, tmp_path):
+        space = mergen.ParameterSpace({'x': list(range(6)),
+                                       'opt': ('nominal', ['rms_prop', 'a|b'])})
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=4, n_validation=0)
+        r = s.run(n_repeats=1, seed=1, verbose=False)
+        r.output_dir = str(tmp_path)
+        r.to_markdown('r.md')
+        r.to_latex('r.tex')
+        r.to_html('r.html')
+        assert r'rms\_prop, a\|b' in (tmp_path / 'r.md').read_text()
+        assert r'rms\_prop, a\textbar{}b' in (tmp_path / 'r.tex').read_text()
+        assert 'rms_prop, a|b' in (tmp_path / 'r.html').read_text()
+
+    def test_reports_escape_every_name(self, tmp_path):
+        space = mergen.ParameterSpace({'lr_x': list(range(6)),
+                                       'c|d': list(range(3)),
+                                       r'$\tan\beta$': [1, 2],
+                                       'opt': ('nominal', ['<b>', 'x&y',
+                                                           'a|b'])})
+        s = mergen.Sampler(space)
+        s.load_design([[0, 0, 1, '<b>'], [5, 2, 2, 'x&y'], [3, 1, 1, 'a|b']],
+                      name='old<design>#')
+        s.add_set('my_set&', [[1, 0, 2, 'x&y']])
+        r = s.run(verbose=False)
+        r.output_dir = str(tmp_path)
+        r.to_latex('r.tex')
+        r.to_html('r.html')
+        r.to_markdown('r.md')
+        tex, html, md = [(tmp_path / f).read_text()
+                         for f in ('r.tex', 'r.html', 'r.md')]
+        for raw in ('old<design>#', 'my_set&', 'lr_x &', 'x&y', 'a|b'):
+            assert raw not in tex
+        assert r'old\textless{}design\textgreater{}\#' in tex
+        assert r'my\_set\&' in tex and r'$\tan\beta$' in tex
+        assert '<h3>old&lt;design&gt;# (3 points)</h3>' in html
+        assert 'my_set&amp;' in html and '&lt;b&gt;' in html
+        assert r'### old\<design\># (3 points)' in md
+        assert r'- **old\<design\>#**: 3' in md
+        assert r'## my\_set\& (1 points)' in md
+        assert r'a\|b' in md and r'c\|d' in md and '| a|b ' not in md
+        assert r'$\tan\beta$' in md
+
+
+def test_nan_labels_are_refused_and_bool_labels_read_back():
+    for labels in ([float('nan'), 'x'], ['nan', 'NaN']):
+        with pytest.raises(ValueError, match='NaN'):
+            mergen.ParameterSpace({'g': ('nominal', labels)})
+    sp = mergen.ParameterSpace({'g': ('nominal', [True, 1])})
+    assert sp.encode_points([['True'], [1]]).tolist() == [[0.0], [1.0]]
+
+
+def test_a_number_label_is_found_however_it_is_written():
+    sp = mergen.ParameterSpace({'g': ('ordinal', [1, 2, 4])})
+    assert sp.encode_points([['1.0'], [2.0], ['4']]).tolist() == [
+        [0.0], [1.0], [2.0]]

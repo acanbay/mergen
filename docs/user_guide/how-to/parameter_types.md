@@ -35,6 +35,20 @@ ranking. *Ordinal* parameters, `('ordinal', [...])`, are categories
 with a meaningful order, and Mergen preserves that order when scoring
 distances.
 
+The levels come out of Mergen as the labels you gave, numbers staying
+numbers: in `result.samples`, in every export and report, on the plot
+axes, and in what a constraint receives. Wherever you pass points to
+Mergen (prescribed, focus and excluded points, sets, a loaded design,
+the `sequential` functions), give the label, for example
+`[300, 'adam']`; a label read back from a CSV file as text, such as
+`'32'` for the label 32, is recognised too. A level's position in the
+label list (0 for the first) is accepted as well, unless one of the
+labels is itself a number, which would make it ambiguous. Two labels
+that name the same number (`1` and `1.0`, or `'01'` and `'1'`) are
+refused. A label that a CSV reader changes, such as empty or `'NA'`
+text, or text with a leading zero like `'01'`, cannot be recognised
+after a CSV round trip; give such levels other names.
+
 ## Criterion compatibility
 
 Nominal and ordinal factors change how the design must be scored,
@@ -44,7 +58,9 @@ qualitative factors, $\mathrm{MaxPro_{QQ}}$ (`'maxproqq'`) or QQD
 (`'qqd'`); the other five criteria are
 for purely numeric spaces. `mergen.criteria.nominal_supporting_criteria()`
 lists the compatible ones, and `Sampler.run` raises an informative
-error if the criterion and the space are incompatible.
+error if the criterion and the space are incompatible. Without a
+`criteria` argument, `Sampler.run` uses MaxPro$_{\mathrm{QQ}}$ on a
+space with a nominal or ordinal parameter and uMaxPro otherwise.
 
 For a logarithmically spaced parameter, such as a learning rate or a
 concentration spanning orders of magnitude, append the `'log'` flag to

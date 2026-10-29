@@ -100,11 +100,8 @@ from .criteria import (
 )
 
 # ── Terminal colours ──────────────────────────────────────────────────────
-_RED    = "\033[0;31m"
-_GREEN  = "\033[0;32m"
-_YELLOW = "\033[1;33m"
-_CYAN   = "\033[0;36m"
-_RESET  = "\033[0m"
+from ._term import RED as _RED, GREEN as _GREEN, YELLOW as _YELLOW, \
+    CYAN as _CYAN, RESET as _RESET
 
 # Small numerical floor used to avoid log(0) in score reporting only.
 _EPS = 1e-300
@@ -195,6 +192,18 @@ _NOT_PRIORITY = {
 }
 _PRIORITY_METRICS = ('min_distance', 'minimax', 'max_abs_correlation',
                      'projection_cd2', 'cd2')
+
+
+def default_criterion(space) -> str:
+    """
+    The criterion ``run()`` uses when none is given: ``'maxproqq'`` for
+    a space with a nominal or ordinal parameter (MaxPro for
+    quantitative and qualitative factors; Joseph, Gul & Ba 2020), and
+    ``'umaxpro'`` otherwise.
+    """
+    if any(space.is_categorical(p) for p in space.names):
+        return 'maxproqq'
+    return 'umaxpro'
 
 
 def _check_priority(priority, allow_none: bool):
@@ -675,7 +684,8 @@ class SamplingResult:
     sets       : dict[str, pd.DataFrame]
         Extra named sets (e.g. ``{'test': df, 'holdout': df}``).
     designs    : dict[str, pd.DataFrame]
-        Designs per criterion when multiple criteria are run.
+        The design under the name of its criterion (one entry, since
+        ``run()`` optimises one criterion).
     space      : ParameterSpace
     """
 
@@ -690,8 +700,10 @@ class SamplingResult:
         validation: pd.DataFrame,
         space:      ParameterSpace,
     ) -> None:
-        self.samples        = samples
-        self.validation     = validation
+        # Nominal and ordinal columns hold their labels; library code
+        # that needs numbers uses space.encode_frame().
+        self.samples        = space.decode_frame(samples)
+        self.validation     = space.decode_frame(validation)
         self.space          = space
         self.sets:    Dict[str, pd.DataFrame] = {}
         self.designs: Dict[str, pd.DataFrame] = {}
@@ -817,8 +829,9 @@ class SamplingResult:
 
     def comparison(self) -> pd.DataFrame:
         """
-        Compare quality metrics across all criteria in ``self.designs``.
-        Returns a DataFrame (criteria × metrics).
+        The standard quality metrics of the design, as a one-row
+        DataFrame indexed by its criterion (``run()`` optimises one
+        criterion). To compare criteria, use :meth:`Sampler.compare`.
         """
         from . import metrics as _metrics
         return _metrics.comparison(self)
@@ -830,7 +843,8 @@ class SamplingResult:
         Parameters
         ----------
         kind : ``'pairplot'`` | ``'1d'`` | ``'2d'`` | ``'distances'``
-               | ``'quality'`` | ``'all'``
+               | ``'correlation'`` | ``'quality'`` | ``'comparison'``
+               | ``'all'`` (see :func:`mergen.output.plot`)
         """
         from . import output as _output
         _output.plot(self, kind=kind, **kwargs)
@@ -954,7 +968,9 @@ class ComparisonResult:
     def best_result(self) -> "SamplingResult":
         """The full SamplingResult of the winning combination, identical
         to calling run() for that combination with the same seed,
-        n_repeats, priority, selection and tolerances."""
+        n_repeats, priority, selection and tolerances. After
+        :meth:`reselect` it is built from all the stored repeats, as
+        ``n_repeats`` equal to their number."""
         return self._best_result
 
     def selection_text(self) -> str:
@@ -988,9 +1004,10 @@ class ComparisonResult:
         The stored repeats of every combination are reused; only the
         representative repeats, the metrics and the winner are
         recomputed. Arguments left as None keep their current value.
-        ``best_result`` is rebuilt by running the winning combination
-        through the sampler that produced this comparison, so the
-        sampler must not have been reconfigured in between.
+        ``best_result`` is rebuilt from the winning combination's stored
+        repeats through the sampler that produced this comparison, so
+        it holds the design the table describes; the sampler must not
+        have been reconfigured in between.
 
         Returns
         -------
@@ -1157,7 +1174,7 @@ class Sampler:
         self,
         points:    Union[Sequence, np.ndarray],
         in_design: bool = True,
-        in_optim:     bool = False,
+        in_optim:  bool = True,
     ) -> "Sampler":
         """
         Add one or more prescribed (fixed) points.
@@ -1175,8 +1192,8 @@ class Sampler:
             ``False`` → added on top of ``n_samples`` (the total
             design size grows accordingly).
         in_optim : bool
-            ``True``  → the optimiser sees these points and pushes
-            optimised points away from them.
+            ``True`` (default) → the optimiser sees these points and
+            places the optimised points to complement them.
             ``False`` → the optimiser ignores them (the points are
             only reserved against being re-selected).
 
@@ -1184,53 +1201,22 @@ class Sampler:
         -------
         self
         """
-        pts = np.asarray(points, dtype=float)
-        if pts.ndim == 1:
-            pts = pts[np.newaxis, :]
-        if pts.ndim != 2 or pts.shape[1] != self.space.n_parameters:
-            _fatal(
-                f"Each prescribed point must have {self.space.n_parameters} "
-                f"coordinates, got shape {pts.shape}."
-            )
-        for row in pts:
-            validated = self.space.validate_point(row, label="Prescribed point")
+        pts = self.space.encode_points(points, context="Prescribed point")
+        return self._add_prescribed_codes(pts, in_design, in_optim)
+
+    def _add_prescribed_codes(self, pts, in_design: bool = True,
+                              in_optim: bool = True) -> "Sampler":
+        """add_prescribed() for rows already on the grid encoding."""
+        for row in np.asarray(pts, dtype=float).reshape(
+                -1, self.space.n_parameters):
+            validated = self.space.validate_point(row, label="Prescribed point",
+                                                  encoded=True)
             self._prescribed.append((validated, bool(in_design), bool(in_optim)))
         return self
 
     def _encode_points(self, points, context: str) -> np.ndarray:
-        """
-        Convert a list/array of points to the numeric grid encoding.
-
-        Nominal factors are stored internally as integer category
-        indices, so string category labels (e.g. 'adam') are mapped to
-        their index before the array is built. Numeric factors pass
-        through unchanged. Accepts a single point or a list of points.
-        """
-        rows = list(points)
-        if len(rows) and np.ndim(rows[0]) == 0:
-            rows = [rows]                      # a single point
-        names = self.space.names
-        encoded = []
-        for row in rows:
-            if len(row) != len(names):
-                _fatal(
-                    f"{context}: each point must have {len(names)} "
-                    f"coordinates, got {len(row)}."
-                )
-            vals = []
-            for name, v in zip(names, row):
-                if self.space.is_nominal(name) and isinstance(v, str):
-                    labels = self.space.category_labels(name)
-                    if v not in labels:
-                        _fatal(
-                            f"{context}: '{v}' is not a level of nominal "
-                            f"factor '{name}'. Valid levels: {labels}."
-                        )
-                    vals.append(float(labels.index(v)))
-                else:
-                    vals.append(float(v))
-            encoded.append(vals)
-        return np.asarray(encoded, dtype=float)
+        """Points as grid-encoded floats; see ParameterSpace.encode_points."""
+        return self.space.encode_points(points, context=context)
 
     def add_set(
         self,
@@ -1258,7 +1244,7 @@ class Sampler:
             must lie on the parameter grid.
         color : str, optional
             Matplotlib colour used for this set in plots
-            (e.g. ``'#3a86ff'``). If omitted, a neutral fallback colour
+            (e.g. ``'#3a86ff'``). If omitted, a fallback colour
             is assigned by the plotting layer.
 
         Returns
@@ -1267,11 +1253,14 @@ class Sampler:
         """
         builtin = {"Optimised", "Validation", "Prescribed", "Focus"}
         taken   = builtin | set(self._user_sets) | set(self._extra_sets or {})
+        if self._loaded_design is not None:
+            taken.add(self._loaded_design[1])
         if name in taken:
             _fatal(f"Set name '{name}' is already in use.")
         pts = self._encode_points(points, context=f"Set '{name}'")
         validated = np.vstack([
-            self.space.validate_point(row, label=f"Set '{name}' point")
+            self.space.validate_point(row, label=f"Set '{name}' point",
+                                      encoded=True)
             for row in pts
         ])
         self._user_sets[name] = (validated, color)
@@ -1327,8 +1316,14 @@ class Sampler:
                 f"load_design: each point must have "
                 f"{self.space.n_parameters} coordinates, got shape {pts.shape}."
             )
+        if str(name) in {"Validation", "Prescribed", "Focus",
+                         "Optimised"} | set(self._user_sets) | set(
+                self._extra_sets or {}):
+            _fatal(f"load_design: the label '{name}' is already used by "
+                   f"another set of points.")
         validated = np.vstack([
-            self.space.validate_point(row, label="Loaded design point")
+            self.space.validate_point(row, label="Loaded design point",
+                                      encoded=True)
             for row in pts
         ])
         self._loaded_design = (validated, str(name), color)
@@ -1506,8 +1501,9 @@ class Sampler:
         opt_cls = get_optimizer(name)
 
         # Validate kwargs against the optimiser's parameter schema by
-        # instantiating it; this raises ValueError on unknown keys.
-        opt_cls(**kwargs)
+        # instantiating it (ValueError on unknown keys), and their
+        # values (ValueError when out of range).
+        opt_cls(**kwargs).validate()
 
         # Store the hyperparameters
         self._optimizer_params[name] = dict(kwargs)
@@ -1537,11 +1533,19 @@ class Sampler:
             w = np.array([weights.get(n, 1.0) for n in names], dtype=float)
         else:
             w = np.asarray(weights, dtype=float)
+        if isinstance(weights, dict):
+            unknown = [k for k in weights if k not in names]
+            if unknown:
+                _fatal(f"set_dimension_weights: unknown parameter(s) "
+                       f"{unknown}. Parameters: {names}.")
         if len(w) != self.space.n_parameters:
             _fatal(
                 f"dimension_weights length ({len(w)}) must match "
                 f"n_parameters ({self.space.n_parameters})."
             )
+        if not np.all(np.isfinite(w)) or np.any(w < 0) or not w.sum() > 0:
+            _fatal(f"set_dimension_weights: weights must be finite, "
+                   f"non-negative and not all zero; got {w.tolist()}.")
         self._dim_weights = w / w.sum()
         warnings.warn(
             "set_dimension_weights() has no effect in this version: no "
@@ -1564,7 +1568,7 @@ class Sampler:
 
     def run(
         self,
-        criteria:  Union[str, List[str], BaseCriterion] = 'umaxpro',
+        criteria:  Union[str, List[str], BaseCriterion, None] = None,
         algorithm: Union[str, List[str]]                = 'sa',
         seed:      Optional[int]                        = 44,
         n_repeats: Union[int, str]                      = 'auto',
@@ -1580,12 +1584,15 @@ class Sampler:
 
         Parameters
         ----------
-        criteria : str or BaseCriterion instance
+        criteria : str, BaseCriterion instance or None
             Optimisation criterion (a one-element list is accepted; use
             :meth:`compare` to try several).
             Available built-in names: ``'umaxpro'``, ``'maxpro'``,
-            ``'phi_p'``, ``'cd2'``, ``'stratified'``.  Default
-            ``'umaxpro'``.
+            ``'maxproqq'``, ``'phi_p'``, ``'cd2'``, ``'qqd'``,
+            ``'stratified'``. ``None`` (default) chooses
+            ``'maxproqq'`` when the space has a nominal or ordinal
+            parameter and ``'umaxpro'`` otherwise (see
+            :func:`default_criterion`).
         algorithm : str or list of str, optional
             Name of the optimiser (or list of names) to run. Each name
             must be a registered optimiser
@@ -1594,7 +1601,8 @@ class Sampler:
             collected in :attr:`SamplingResult.algorithm_results`.
             Default ``'sa'``.
         seed : int or None
-            Random seed for reproducibility (default 44).
+            Random seed for reproducibility (default 44). ``None`` is
+            the same as 44: a run is always reproducible.
         n_repeats : int or 'auto', default 'auto'
             Number of independent optimisation repeats. Repeat seeds are
             derived from ``seed`` via NumPy's SeedSequence.spawn; the
@@ -1694,6 +1702,8 @@ class Sampler:
             )
 
         # Resolve criterion(ia)
+        if criteria is None:
+            criteria = default_criterion(self.space)
         if isinstance(criteria, str):
             crit_list  = [get_criterion(criteria)]
             crit_names = [criteria]
@@ -2390,8 +2400,9 @@ class Sampler:
         say("═" * 60)
 
         result                    = SamplingResult(df_samples, df_val, space)
-        result.sets               = extra_dfs
-        result.designs            = {crit_name: df_samples}
+        result.sets               = {k: space.decode_frame(v)
+                                     for k, v in extra_dfs.items()}
+        result.designs            = {crit_name: result.samples}
         result.algorithm_results  = algorithm_results
         result.best_algorithm     = best_algorithm
         # All repeat results per algorithm (spawn order), so compare()
@@ -2407,6 +2418,7 @@ class Sampler:
             'algorithm'       : (algorithm_names[0] if len(algorithm_names) == 1
                                  else algorithm_names),
             'best_algorithm'  : best_algorithm,
+            'n_repeats'       : n_repeats,
             'n_parameters'    : n_dims,
             'n_candidates'    : space.n_candidates,
             'n_design'        : len(df_samples),
@@ -2449,6 +2461,7 @@ class Sampler:
                 "design size is fixed by the loaded points. Use "
                 "mergen.sequential.extend to grow a design."
             )
+        self._check_conflicts()
 
         t_start = time.perf_counter()
         space   = self.space
@@ -2553,8 +2566,9 @@ class Sampler:
         say("═" * 60)
 
         result                    = SamplingResult(df_samples, df_val, space)
-        result.sets               = extra_dfs
-        result.designs            = {'loaded': df_samples}
+        result.sets               = {k: space.decode_frame(v)
+                                     for k, v in extra_dfs.items()}
+        result.designs            = {'loaded': result.samples}
         result.algorithm_results  = {}
         result.best_algorithm     = 'loaded'
         result._meta              = {
@@ -2638,7 +2652,8 @@ class Sampler:
         seed : int, default 44
             Base seed. All randomness (the repeats and the Monte Carlo
             baseline) is derived from it, so the whole comparison
-            reproduces exactly from this one number.
+            reproduces exactly from this one number. ``None`` is the
+            same as 44.
         n_repeats : int or 'auto', default 'auto'
             Number of independent optimiser runs per combination, as in
             :meth:`run` (``'auto'`` repeats until the result is settled;
@@ -2966,15 +2981,18 @@ class Sampler:
         # after the sweep (reuse=True) the winner's stored repeats are
         # handed to run() instead of being optimised again. Its run
         # banner is hidden; its warnings are passed on.
+        # reselect() (reuse=False) also hands over the stored repeats, all
+        # of them: under a new priority, 'auto' could stop after a
+        # different number of repeats than the table was built from.
         _bc, _ba = best_key
         buf = io.StringIO()
-        if reuse:
-            self._reuse_repeats = {_ba: repeats[best_key]}
+        self._reuse_repeats = {_ba: repeats[best_key]}
+        best_repeats = n_repeats if reuse else len(repeats[best_key])
         try:
             with contextlib.redirect_stdout(buf):
                 cmp._best_result = self.run(
                     criteria=_bc, algorithm=_ba, seed=seed,
-                    n_repeats=n_repeats, priority=priority,
+                    n_repeats=best_repeats, priority=priority,
                     selection=selection, tol=cmp.tol, rtol=cmp.rtol,
                     n_jobs=n_jobs, verbose=False)
         finally:
@@ -3111,6 +3129,11 @@ class Sampler:
                     _fatal(f"Point {np.asarray(u).tolist()} is both a "
                            f"focus centre and in the set '{sname}' added "
                            f"with add_set().")
+                if _overlap(u, e_pts):
+                    _fatal(f"Point {np.asarray(u).tolist()} is both "
+                           f"excluded and in the set '{sname}' added with "
+                           f"add_set(); an excluded point cannot be in "
+                           f"any set.")
 
         # Within-role duplicates
         def _check_dupes(pts: List[np.ndarray], label: str) -> None:
@@ -3124,6 +3147,17 @@ class Sampler:
         _check_dupes(p_pts, "add_prescribed()")
         _check_dupes(f_pts, "add_focus()")
         _check_dupes(e_pts, "add_exclusion()")
+        _check_dupes([u for upts, _c in self._user_sets.values()
+                      for u in upts], "the sets added with add_set()")
+        if self._loaded_design is not None:
+            loaded = list(self._loaded_design[0])
+            _check_dupes(loaded, "load_design()")
+            for sname, (upts, _ucolor) in self._user_sets.items():
+                for u in upts:
+                    if _overlap(u, loaded):
+                        _fatal(f"Point {np.asarray(u).tolist()} is both in "
+                               f"the loaded design and in the set "
+                               f"'{sname}' added with add_set().")
 
     # ------------------------------------------------------------------ #
     # Private: focus / exclusion sampling                                  #
@@ -3186,7 +3220,10 @@ class Sampler:
                         focus_sa_pts.append(pt.copy())
                         if fp.in_design:
                             focus_sa_in.append(pt.copy())
-                n_draw = max(fp.n_samples - 1, 0)
+                    n_draw = max(fp.n_samples - 1, 0)
+                # A centre already taken (e.g. as a neighbour of another
+                # focus region) does not count; all n_samples points
+                # are drawn from its neighbourhood.
             elif fp.include_center is False:
                 # Centre is never selected
                 if self_idx >= 0 and self_idx not in reserved:

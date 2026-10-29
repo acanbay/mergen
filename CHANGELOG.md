@@ -131,6 +131,124 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Criteria that departed from their published definitions:
+  - uMaxPro normalised each axis so that its lowest and highest level
+    were the same point on the periodic scale, so every design had a
+    clamped tie on each axis and the score was not invariant under
+    cyclic shifts. The levels now sit at their stratum midpoints,
+    level k of m at (k + 1/2)/m (Vorechovsky & Masek).
+  - MaxPro and uMaxPro clamped a coordinate tie at 1e-10; on an axis
+    with fewer levels than runs, where ties are forced, these ties made
+    up more than 99.99 % of the score. Such an axis now contributes
+    (|Δ| + 1/m)², the form of Joseph, Gul & Ba (2020, Eq. 9); axes with
+    at least n levels keep the published term. MaxProQQ applies the
+    same rule to a continuous column whose grid has fewer than n
+    levels. MaxProQQ and QQD also count a factor's levels in the
+    feasible pool, as MaxPro and uMaxPro do, so a constraint that
+    removes a level changes the 1/m weight and QQD's constant.
+  - QQD placed quantitative levels at the ends of [0, 1], so the first
+    and last level coincided in its wrap-around kernel. They now sit
+    at (2x + 1)/(2s), as in Zhang, Yang & Zhou (2021); the paper's
+    example value QQD² = 0.0213 is reproduced.
+  - φ_p's fast update lost most of its digits when one pair held most
+    of the score (94 % error in one case), and with a large p a
+    duplicate point overflowed to infinity. A dominant pair now
+    triggers a full recomputation, and the distance floor keeps the
+    power finite. MaxPro, uMaxPro and MaxProQQ use the same safeguard
+    when a near-duplicate pair is moved apart.
+  - A parameter with a single feasible value changed the order of
+    designs under CD2, stratified L2 and QQD (11 % of pairs in one
+    test), although Mergen warns that it does not contribute. It is
+    now left out of every criterion and quality metric.
+- The `projection_cd2` metric averaged CD2 over the 2D projections;
+  Sun, Wang & Xu (2019) define the uniform projection criterion as the
+  mean of CD2². It now follows the paper.
+- Nominal and ordinal levels came out of Mergen as level indices
+  (0, 1, 2) in `result.samples`, every export, the report tables and
+  the plot axes, although the labels are kept for round-tripping. They
+  now come out as the labels, kept as given: a label 32 stays the
+  number 32 instead of becoming the text '32'. Every function that
+  takes points (`add_prescribed`, `add_focus`, `add_exclusion`,
+  `add_set`, `load_design` and the `sequential` functions) accepts the
+  labels, also as text read back from a CSV file, and a DataFrame by
+  column name; `run_order` and `subsample` return the labels too; `add_prescribed`, `add_focus` and `add_exclusion`
+  rejected labels, and ordinal labels were rejected everywhere. A
+  level index is still accepted unless a label of that parameter is
+  itself a number. Two labels naming the same number (`1` and `1.0`),
+  and NaN or infinite labels, are refused; a number label is found
+  however it is written (`'1.0'` for 1). Labels, parameter names, set
+  names and the label of a loaded design are escaped in the LaTeX,
+  Markdown and HTML reports, in their tables as well. A `$...$` span
+  that matplotlib reads as math, such as `$\tan\beta$`, stays math in
+  the reports as in the plots; any other `$` is shown literally, and in
+  plots no longer makes them fail.
+- A constraint received the level index of a nominal or ordinal
+  parameter, so `lambda p: p['solver'] != 'adam'` silently removed
+  nothing. Constraints now receive the label.
+- `add_prescribed()` hid the prescribed points from the criterion by
+  default (`in_optim=False`), although the documentation says they are
+  visible, so optimised runs could be placed one grid step from an
+  existing run. The default is now `in_optim=True`.
+- A point excluded with `add_exclusion()` could stay in a set added
+  with `add_set()`. A point that appears twice among the `add_set()`
+  sets or in a loaded design, or in both a loaded design and a set,
+  was accepted; `load_design(name='Validation')` was too. All are now
+  refused with a clear error.
+- Two overlapping focus regions could deliver fewer points than
+  requested, without a warning, when a centre with
+  `include_center=True` had already been drawn by the other region.
+- `set_optimizer()` accepted out-of-range values such as
+  `max_iter=-5` or `n_restarts=2.5`; some failed only when `run()`
+  started, others not at all. They are now refused at once.
+  `k_fold_split` and `subsample` cut a count such as 2.7; they now
+  refuse it. `set_dimension_weights()` accepted negative,
+  non-finite or all-zero weights and unknown names.
+- A discrete parameter accepted `nan` values, and a range `nan`
+  bounds. A generator used as a
+  parameter's values broke `set_resolution()`. A resolution below 2
+  was accepted by the constructor and refused by `set_resolution()`.
+  An ordinal or nominal spec with an extra item was reported as an
+  unknown type, and a grid point that violates a constraint as "not
+  on the parameter grid". All now give the right check and message.
+- `run(seed=None)` and `compare(seed=None)` use seed 44, as before;
+  the docstrings now say so.
+- Sets added with `add_set()` without a colour, and every set from
+  `set_design(extra_sets=...)`, were left out of the plots and their
+  legends. Every set is now drawn, with a fallback colour when it has
+  none.
+- The Markdown, LaTeX and HTML reports of a loaded design had no table
+  of its points; they now have one under the design's label. Every
+  report printed "Restarts: ?"; it now gives the number of repeats.
+  The LaTeX report left `_` and other special characters in parameter
+  names unescaped, and its summary left out the extra sets. CSV and
+  Excel exports had an unnamed index column; it is now `id`.
+- Mergen's messages, warnings and errors, and `quality_report()`,
+  wrote terminal colour codes into redirected output and logs; colours
+  are now used only on a terminal and in Jupyter. `quality_report()`
+  also shifted its Rank column by the width of the colour codes,
+  marked both the criterion's own metrics and the criteria
+  evaluated after the run with `*` (the latter now `+`), and treated
+  `mc_samples=-1` as 0; it now refuses a negative count.
+- `plot('2d')` on a one-parameter space failed with a
+  `ZeroDivisionError`, and an unknown parameter name with a
+  `KeyError`; both now raise a clear `ValueError`. The
+  `SamplingResult.plot` docstring now lists every plot kind.
+- `SamplingResult.comparison()` and `designs` were described as
+  covering several criteria, although `run()` optimises one.
+- `Sampler.run()` failed with its default criterion on a space with a
+  nominal parameter, since uMaxPro does not support one. The default
+  is now `criteria=None`: MaxProQQ when the space has a nominal or
+  ordinal parameter, uMaxPro otherwise (`mergen.sampler.default_criterion`).
+- `sequential.extend`, `fill_around` and `nested` defaulted to `cd2`,
+  although their docstrings said the defaults match `run()`. They now
+  use the same default criterion as `run()`; `extend` and
+  `fill_around` still add no validation points, and say so. A count
+  such as `n_new=2.7` is refused instead of being cut to 2.
+- `ComparisonResult.reselect()` with `n_repeats='auto'` built
+  `best_result` from fewer repeats than the table under the new
+  priority, so the two could hold different designs, and it warned
+  that the sampler had been reconfigured. `best_result` now uses all
+  the stored repeats, and holds the design the table describes.
 - `Sampler.compare()` gave a tie on every priority metric to the
   combination listed first, so reordering `criteria` or `algorithms`
   could change the winner. Ties now go to the design that is better on
@@ -346,6 +464,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Results-affecting changes
 
+- uMaxPro and QQD designs change on every space; MaxPro designs change
+  on spaces with an axis of fewer levels than runs, MaxProQQ designs on
+  spaces with a continuous grid coarser than the design. CD2,
+  stratified L2 and QQD results change on spaces with a single-valued
+  parameter. `projection_cd2` values are now squared discrepancies, so
+  their scale changes, and its percentile ranks can change.
+- Prescribed points are now seen by the criterion by default: every
+  run that uses `add_prescribed()` with default arguments gives a
+  different design. Pass `in_optim=False` for the previous behaviour.
+- Constraints on nominal or ordinal parameters now receive labels. A
+  constraint written against level indices (`p['solver'] != 0`)
+  changes meaning; rewrite it with the label.
+- Nominal and ordinal columns of `result.samples`, `validation`, `sets`
+  and every export hold labels instead of numbers, and
+  `ParameterSpace.category_labels()` returns the labels as given
+  instead of as text.
+- The default criterion of `run()` on a space with an ordinal
+  parameter is now MaxProQQ instead of uMaxPro. Default calls of
+  `sequential.extend`, `fill_around` and `nested` use uMaxPro (or
+  MaxProQQ) instead of CD2.
 - Every design changes. The SA, ESE and SCE fixes change the search,
   `n_repeats='auto'` runs more repeats and may lengthen the search,
   ties between repeats are broken by the design, and the delivered rows

@@ -97,17 +97,28 @@ def _coerce_design(
                 f"DataFrame is missing parameter column(s): {missing}.\n"
                 f"  Expected columns: {space.names}"
             )
-        arr = design[space.names].to_numpy(dtype=float, copy=True)
+        # Nominal and ordinal columns may hold labels, as in
+        # result.samples.
+        arr = space.encode_frame(design[space.names]).to_numpy(
+            dtype=float, copy=True)
         return arr, design
-    if isinstance(design, (list, tuple)):
-        design = np.asarray(design, dtype=float)
-    arr = np.asarray(design, dtype=float)
+    arr = space.encode_points(design, context="design")
     if arr.ndim != 2 or arr.shape[1] != space.n_parameters:
         _fatal(
             f"design must have shape (n, {space.n_parameters}); "
             f"got {arr.shape}."
         )
     return arr, None
+
+
+def _count(name: str, value) -> int:
+    """A positive integer argument; 2.7 or True is refused, not cut."""
+    ok = (not isinstance(value, (bool, np.bool_))
+          and isinstance(value, (int, np.integer, float, np.floating))
+          and float(value).is_integer() and value >= 1)
+    if not ok:
+        _fatal(f"{name} must be a positive integer; got {value!r}.")
+    return int(value)
 
 
 def _kennard_stone_array(
@@ -163,7 +174,7 @@ def _kennard_stone_array(
     gmins, granges = space.gmins, space.granges
     norm_pool      = (pool - gmins) / granges
     N              = len(pool)
-    n_select       = int(n_select)
+    n_select       = _count('n_select', n_select)
 
     # When the space has any nominal factor the ordinary Euclidean
     # distance mixes ordered and unordered dimensions, which is not
@@ -237,7 +248,7 @@ def extend(
     sampler:         "Sampler",
     existing_design: Union[np.ndarray, pd.DataFrame, list, tuple],
     n_new:           int,
-    criteria:        str  = 'cd2',
+    criteria:        Optional[str] = None,
     algorithm:       Union[str, List[str]] = 'sa',
     n_validation:    int  = 0,
     seed:            Optional[int] = 44,
@@ -275,8 +286,9 @@ def extend(
     n_new : int
         Number of new points to add.
     criteria, algorithm, n_validation, seed, verbose, n_repeats
-        Passed through to :meth:`Sampler.run`. Defaults match the
-        one-shot workflow.
+        Passed through to :meth:`Sampler.run`. Defaults match
+        :meth:`Sampler.run`, except that no validation points are added
+        (``n_validation=0``): the call adds exactly ``n_new`` runs.
 
     Returns
     -------
@@ -288,8 +300,7 @@ def extend(
     Qian, P. Z. G. (2009). *Biometrika*, 96(4).
     """
     arr, df = _coerce_design(sampler, existing_design)
-    if int(n_new) < 1:
-        _fatal(f"n_new must be ≥ 1; got {n_new}.")
+    n_new = _count('n_new', n_new)
 
     tol = sampler.space.grid_tol
     missing = [pt.tolist() for pt, _, _ in sampler._prescribed
@@ -311,8 +322,8 @@ def extend(
         out = [any(not in_d and np.all(np.abs(row - pt) <= tol)
                    for pt, in_d, _ in snap['prescribed']) for row in arr]
         for row, is_out in zip(arr, out):
-            sampler.add_prescribed([row.tolist()],
-                                   in_design=not is_out, in_optim=True)
+            sampler._add_prescribed_codes(row, in_design=not is_out,
+                                          in_optim=True)
         sampler.set_design(
             n_samples    = len(arr) - sum(out) + int(n_new),
             n_validation = int(n_validation),
@@ -326,7 +337,8 @@ def extend(
 
     # The existing rows first, in their input order (an out-of-budget
     # row is otherwise placed after the new ones), then the new rows.
-    P = result.samples[sampler.space.names].to_numpy()
+    P = sampler.space.encode_frame(
+        result.samples[sampler.space.names]).to_numpy(dtype=float)
     first = [int(np.flatnonzero(np.all(np.abs(P - row) <= tol, axis=1))[0])
              for row in arr]
     rest = [i for i in range(len(P)) if i not in set(first)]
@@ -345,7 +357,7 @@ def fill_around(
     sampler:          "Sampler",
     reference_points: Union[np.ndarray, pd.DataFrame, list, tuple],
     n_new:            int,
-    criteria:         str  = 'cd2',
+    criteria:         Optional[str] = None,
     algorithm:        Union[str, List[str]] = 'sa',
     n_validation:     int  = 0,
     seed:             Optional[int] = 44,
@@ -375,7 +387,8 @@ def fill_around(
     n_new : int
         Number of new points to generate.
     criteria, algorithm, n_validation, seed, verbose, n_repeats
-        See :meth:`Sampler.run`.
+        See :meth:`Sampler.run`. Defaults match it, except that no
+        validation points are added (``n_validation=0``).
 
     Returns
     -------
@@ -383,8 +396,7 @@ def fill_around(
         Contains exactly ``n_new`` design points.
     """
     arr, _ = _coerce_design(sampler, reference_points)
-    if int(n_new) < 1:
-        _fatal(f"n_new must be ≥ 1; got {n_new}.")
+    n_new = _count('n_new', n_new)
 
     # The sampler's own prescribed points are references too; each
     # point is added once.
@@ -401,8 +413,8 @@ def fill_around(
         sampler._focus.clear()
         sampler._loaded_design = None
         for row in arr:
-            sampler.add_prescribed([row.tolist()],
-                                   in_design=False, in_optim=True)
+            sampler._add_prescribed_codes(row, in_design=False,
+                                          in_optim=True)
         sampler.set_design(
             n_samples    = int(n_new),
             n_validation = int(n_validation),
@@ -417,7 +429,8 @@ def fill_around(
     # result.samples (with point_type 'Prescribed'). Drop them so the
     # caller receives exactly ``n_new`` rows — the new points whose
     # coordinates do not match any reference row.
-    sample_pts = result.samples[sampler.space.names].to_numpy()
+    sample_pts = sampler.space.encode_frame(
+        result.samples[sampler.space.names]).to_numpy(dtype=float)
     keep       = np.ones(len(sample_pts), dtype=bool)
     for ref in arr:
         keep &= ~np.all(np.abs(sample_pts - ref) <= sampler.space.grid_tol,
@@ -476,7 +489,14 @@ def subsample(
     idx     = _kennard_stone_array(sampler, arr, n_select, anchor=anchor)
     if df is not None:
         return df.iloc[idx].copy()
-    return arr[idx].copy()
+    rows = arr[idx].copy()
+    space = sampler.space
+    if any(space.is_categorical(n) for n in space.names):
+        # Nominal and ordinal levels come back as their labels, so the
+        # rows are an object array.
+        rows = space.decode_frame(
+            pd.DataFrame(rows, columns=space.names)).to_numpy(dtype=object)
+    return rows
 
 
 def run_order(
@@ -530,7 +550,8 @@ def run_order(
     arr, df = _coerce_design(sampler, design)
     order   = _kennard_stone_array(sampler, arr, len(arr), anchor=anchor)
     if df is None:
-        out = pd.DataFrame(arr[order], columns=sampler.space.names)
+        out = sampler.space.decode_frame(
+            pd.DataFrame(arr[order], columns=sampler.space.names))
     else:
         out = df.iloc[order].copy()
     out[column] = range(len(out))
@@ -597,7 +618,7 @@ def k_fold_split(
     """
     arr, _ = _coerce_design(sampler, design)
     n      = len(arr)
-    k      = int(k)
+    k      = _count('k', k)
     if k < 2:
         _fatal(f"k must be ≥ 2; got {k}.")
     if k > n:
@@ -622,7 +643,7 @@ def nested(
     sampler:   "Sampler",
     n_outer:   int,
     n_inner:   int,
-    criteria:  str  = 'cd2',
+    criteria:  Optional[str] = None,
     algorithm: Union[str, List[str]] = 'sa',
     seed:      Optional[int] = 44,
     verbose:   bool = True,
@@ -682,10 +703,8 @@ def nested(
     Qian, P. Z. G. (2009). Nested Latin hypercube designs.
         *Biometrika*, 96(4), 957-970.
     """
-    n_outer = int(n_outer)
-    n_inner = int(n_inner)
-    if n_inner < 1:
-        _fatal(f"n_inner must be ≥ 1; got {n_inner}.")
+    n_outer = _count('n_outer', n_outer)
+    n_inner = _count('n_inner', n_inner)
     if n_outer <= n_inner:
         _fatal(
             f"n_outer ({n_outer}) must be strictly greater than "
@@ -703,7 +722,8 @@ def nested(
         sampler._restore_state(snap)
 
     outer = outer_result.samples.copy()
-    pts   = outer[sampler.space.names].to_numpy()
+    pts   = sampler.space.encode_frame(
+        outer[sampler.space.names]).to_numpy(dtype=float)
 
     # ── Step 2: inner = maximin KS subsample of outer ───────────────
     inner_pos = _kennard_stone_array(sampler, pts, n_inner, anchor='maximin')

@@ -80,9 +80,10 @@ keeps them separable.
 
 ## 2D projection discrepancy ($\mathrm{CD}_2^{\mathrm{proj}}$)
 
-The centred $L_2$-discrepancy (Hickernell, 1998) averaged over all
-$\binom{d}{2}$ two-dimensional projections of the design (lower is
-better). Full-dimensional uniformity does not guarantee that pairs of
+The squared centred $L_2$-discrepancy (Hickernell, 1998) averaged
+over all $\binom{d}{2}$ two-dimensional projections of the design
+(lower is better), the uniform projection criterion of Sun, Wang &
+Xu (2019). Full-dimensional uniformity does not guarantee that pairs of
 inputs look uniform together; this metric checks exactly that, and it
 is the geometric face of what the projection-based criteria optimise.
 

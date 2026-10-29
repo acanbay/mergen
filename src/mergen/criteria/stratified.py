@@ -16,7 +16,7 @@ from typing import Optional, Union
 
 import numpy as np
 
-from .base import BaseCriterion, _EPS
+from .base import BaseCriterion, _EPS, _active
 
 
 class StratifiedL2(BaseCriterion):
@@ -139,7 +139,7 @@ class StratifiedL2(BaseCriterion):
 
     # ── evaluate ─────────────────────────────────────────────────────
     def evaluate(self, X: np.ndarray, space) -> float:
-        X    = np.asarray(X, dtype=float)
+        X    = _active(space, np.asarray(X, dtype=float))
         n, m = X.shape
         s    = self.s
         p    = self._resolve_p(n)

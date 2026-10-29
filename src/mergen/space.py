@@ -56,11 +56,10 @@ import warnings
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+import pandas as pd
 
 # ── Terminal colours (degrades gracefully on plain terminals) ─────────────
-_RED    = "\033[0;31m"
-_YELLOW = "\033[1;33m"
-_RESET  = "\033[0m"
+from ._term import RED as _RED, YELLOW as _YELLOW, RESET as _RESET
 
 
 def _warn(msg: str) -> None:
@@ -122,10 +121,19 @@ def _parse_parameter(
                 f"non-empty list of level labels, got {labels!r}."
             )
 
-        # Every label to string for uniform handling
-        labels = [str(lab) for lab in labels]
+        # Labels are kept as given (16 stays the number 16), so they
+        # come out of Mergen exactly as they went in; two labels with
+        # the same text are refused.
+        labels = list(labels)
 
-        if len(set(labels)) < len(labels):
+        if any(_is_number(lab) and not np.isfinite(float(lab))
+               for lab in labels):
+            _fatal(
+                f"Parameter '{name}' ({kind}): a label cannot be NaN or "
+                f"infinite (it could not be told apart after a CSV round "
+                f"trip); got {labels}."
+            )
+        if len({_label_key(lab) for lab in labels}) < len(labels):
             _fatal(
                 f"Parameter '{name}' ({kind}): duplicate labels are not "
                 f"allowed; got {labels}."
@@ -144,6 +152,12 @@ def _parse_parameter(
     if isinstance(spec, tuple) and len(spec) >= 2 and isinstance(spec[0], str):
         kind = spec[0].lower().strip()
 
+        if kind in ('nominal', 'ordinal'):
+            _fatal(
+                f"Parameter '{name}': a {kind} spec is ('{kind}', [labels]) "
+                f"with exactly one list of labels; got {spec!r}."
+            )
+
         if kind not in ('continuous', 'integer'):
             _fatal(
                 f"Parameter '{name}': unknown type '{spec[0]}'. "
@@ -159,6 +173,9 @@ def _parse_parameter(
 
         lo, hi = float(spec[1]), float(spec[2])
 
+        if not (np.isfinite(lo) and np.isfinite(hi)):
+            _fatal(f"Parameter '{name}': min and max must be finite "
+                   f"numbers; got {spec[1]!r}, {spec[2]!r}.")
         if lo >= hi:
             _fatal(
                 f"Parameter '{name}': min ({lo}) must be strictly less than "
@@ -179,8 +196,9 @@ def _parse_parameter(
                         f"Use 'log' for logarithmic spacing."
                     )
             elif isinstance(item, dict):
-                res = int(item.get('resolution', res))
+                res = item.get('resolution', res)
                 rnd = item.get('round', rnd)
+        res = _check_resolution(res, f"Parameter '{name}': resolution")
 
         if lo <= 0 and scale == 'log':
             _fatal(
@@ -257,6 +275,9 @@ def _parse_parameter(
 
     if len(arr) == 0:
         _fatal(f"Parameter '{name}': values must not be empty.")
+    if not np.all(np.isfinite(arr)):
+        _fatal(f"Parameter '{name}': values must be finite numbers; "
+               f"got {arr.tolist()}.")
 
     # Deduplicate and sort
     arr_unique = np.unique(arr)
@@ -279,6 +300,74 @@ def _parse_parameter(
 # ======================================================================
 # ParameterSpace
 # ======================================================================
+
+class _LabelledConstraint:
+    """A user constraint called with labels for nominal/ordinal values."""
+
+    def __init__(self, fn: Callable, space: "ParameterSpace") -> None:
+        self.fn     = fn
+        self._space = space
+
+    def __call__(self, p: dict) -> bool:
+        labels = self._space._category_labels
+        q = {}
+        for k, v in p.items():
+            lv = labels.get(k)
+            if lv and not isinstance(v, str):
+                v = lv[int(round(float(v)))]
+            q[k] = v
+        return self.fn(q)
+
+    def __repr__(self) -> str:
+        return f"<constraint {self.fn!r}>"
+
+
+def _check_resolution(res, what: str) -> int:
+    """A grid resolution: a whole number of at least 2."""
+    ok = (not isinstance(res, (bool, np.bool_))
+          and isinstance(res, (int, np.integer, float, np.floating))
+          and float(res).is_integer() and res >= 2)
+    if not ok:
+        _fatal(f"{what} must be an integer >= 2; got {res!r}.")
+    return int(res)
+
+
+def _label_key(label):
+    """What two labels must not share: the same number (1, 1.0, '01')
+    or, for other labels, the same text (True, 'True')."""
+    if _is_number(label):
+        return ('number', float(label))
+    return ('text', str(label))
+
+
+def _same_label(value, label) -> bool:
+    """Whether *value* names *label*, as itself or by its text. A bool
+    and a number never match by value (True == 1 in Python)."""
+    vb = isinstance(value, (bool, np.bool_))
+    lb = isinstance(label, (bool, np.bool_))
+    if vb == lb or not (_is_number(value) or _is_number(label)):
+        try:
+            if value == label:
+                return True
+        except Exception:
+            pass
+    # The same number written differently ('1.0' for the label 1, as a
+    # CSV reader may give it back).
+    if not (vb or lb) and _is_number(value) and _is_number(label):
+        return float(value) == float(label)
+    return str(value) == str(label)
+
+
+def _is_number(value) -> bool:
+    """Whether *value* is a number or a string that reads as one."""
+    if isinstance(value, (bool, np.bool_)):
+        return False
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
 
 def _axis_tol(levels: np.ndarray) -> float:
     """Matching tolerance for one axis; see ParameterSpace.grid_tol."""
@@ -328,7 +417,7 @@ class ParameterSpace:
         self._category_labels: Dict[str, List[str]]  = {}  # nominal/ordinal
         self._constraints:     List[Callable]        = []
         self._candidate_pool:  Optional[np.ndarray]  = None   # lazy cache
-        self._resolution       = resolution
+        self._resolution       = _check_resolution(resolution, "Resolution")
         # Each parameter's spec and resolution override, so that
         # set_resolution() can rebuild the grids that use the default.
         self._specs: Dict[str, Tuple[object, Optional[int]]] = {}
@@ -398,6 +487,13 @@ class ParameterSpace:
                 f"Use a different name or create a new ParameterSpace."
             )
 
+        # A generator or other one-shot iterable is read once and kept
+        # as a list, so set_resolution() can parse the spec again.
+        if not isinstance(spec, (list, tuple, range, np.ndarray, str, dict)):
+            try:
+                spec = list(spec)
+            except TypeError:
+                pass
         res              = resolution if resolution is not None else self._resolution
         arr, kind, labels = _parse_parameter(name, spec, resolution=res)
 
@@ -415,6 +511,7 @@ class ParameterSpace:
 
         The callable receives a single dict mapping parameter names to
         their current values and must return ``True`` for feasible points.
+        Nominal and ordinal parameters are passed as their labels.
 
         Parameters
         ----------
@@ -426,6 +523,7 @@ class ParameterSpace:
                 lambda p: p['x'] + p['y'] <= 10
                 lambda p: p['pressure'] * p['temperature'] < 1000
                 lambda p: p['lr'] < 1e-2 or p['n_layers'] <= 3
+                lambda p: p['solver'] != 'adam' or p['lr'] <= 1e-3
 
         Returns
         -------
@@ -433,7 +531,10 @@ class ParameterSpace:
         """
         if not callable(fn):
             _fatal("Constraint must be callable: lambda p: p['x'] + p['y'] <= 10.")
-        self._constraints.append(fn)
+        # The library evaluates constraints on grid values, where a
+        # nominal or ordinal level is its index; the user's callable
+        # sees the label.
+        self._constraints.append(_LabelledConstraint(fn, self))
         self._candidate_pool = None
         return self
 
@@ -450,8 +551,7 @@ class ParameterSpace:
         resolution : int
             New default resolution (>= 2).
         """
-        if resolution < 2:
-            _fatal(f"Resolution must be >= 2, got {resolution}.")
+        resolution = _check_resolution(resolution, "Resolution")
         self._resolution = resolution
         for name, (spec, override) in self._specs.items():
             if override is None:
@@ -534,6 +634,114 @@ class ParameterSpace:
         """
         return list(self._category_labels.get(name, []))
 
+    # ── Labels in and out ──────────────────────────────────────────────
+    def encode_value(self, name: str, value, context: str = "Point"):
+        """
+        The numeric grid value of *value* on parameter *name*.
+
+        For a nominal or ordinal parameter, a value equal to a label (or
+        with the same text, as read back from a CSV file) maps to that
+        label's level index. A level index given as a number is also
+        accepted, unless a label of that parameter is itself a number,
+        which would make it ambiguous; anything else is an error listing
+        the labels. Values of numeric parameters pass through.
+        """
+        if not self.is_categorical(name):
+            return value
+        labels = self.category_labels(name)
+        for i, lb in enumerate(labels):
+            if _same_label(value, lb):
+                return float(i)
+        if (not any(_is_number(lb) for lb in labels)
+                and isinstance(value, (int, float, np.integer, np.floating))
+                and not isinstance(value, (bool, np.bool_))
+                and float(value).is_integer() and 0 <= value < len(labels)):
+            return float(value)
+        _fatal(f"{context}: {value!r} is not a level of {self.param_types[name]} "
+               f"parameter '{name}'. Valid levels: {labels}.")
+
+    def encode_points(self, points, context: str = "Point",
+                      encoded: bool = False) -> np.ndarray:
+        """
+        Points as an ``(n, d)`` float array on the grid encoding.
+
+        Accepts a single point, a list or array of points, or a
+        DataFrame with one column per parameter. Values are numbers or,
+        for nominal and ordinal parameters, labels (see
+        :meth:`encode_value`). With ``encoded=True`` the values are
+        already level indices and are only converted to float. The
+        points are not checked against the grid.
+        """
+        names = self.names
+        if hasattr(points, 'columns'):                 # a DataFrame
+            missing = [n for n in names if n not in points.columns]
+            if missing:
+                _fatal(f"{context}: missing parameter column(s) {missing}.")
+            rows = points[names].to_numpy(dtype=object)
+        else:
+            rows = np.asarray(points, dtype=object)
+            if rows.ndim == 1:
+                rows = rows[np.newaxis, :]             # a single point
+        if rows.ndim != 2 or (rows.size and rows.shape[1] != len(names)):
+            _fatal(f"{context}: each point must have {len(names)} "
+                   f"coordinates, got shape {rows.shape}.")
+        out = np.empty(rows.shape, dtype=float)
+        for j, name in enumerate(names):
+            col = rows[:, j]
+            if self.is_categorical(name) and not encoded:
+                col = [self.encode_value(name, v, context) for v in col]
+            try:
+                out[:, j] = np.asarray(col, dtype=float)
+            except (TypeError, ValueError):
+                bad = next(v for v in col if not _is_number(v))
+                _fatal(f"{context}: {bad!r} is not a number "
+                       f"(parameter '{name}').")
+        return out.reshape(-1, len(names))
+
+    def _shown(self, pt) -> list:
+        """A grid-encoded point as the user wrote it, for messages."""
+        out = []
+        for n, v in zip(self.names, pt):
+            labels = self.category_labels(n)
+            k = int(round(v)) if np.isfinite(v) else -1
+            out.append(labels[k] if labels and 0 <= k < len(labels)
+                       and k == v else float(v))
+        return out
+
+    def decode_frame(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        A copy of *df* whose nominal and ordinal columns, which hold
+        level indices, hold the labels instead. Without such columns,
+        *df* itself is returned.
+        """
+        cols = [n for n in self.names
+                if self.is_categorical(n) and n in df.columns]
+        if not cols:
+            return df
+        out = df.copy()
+        for n in cols:
+            labels = np.empty(len(self.category_labels(n)), dtype=object)
+            labels[:] = self.category_labels(n)
+            codes = np.rint(out[n].to_numpy(dtype=float)).astype(int)
+            out[n] = labels[codes]
+        return out
+
+    def encode_frame(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        The inverse of :meth:`decode_frame`: the labels in nominal and
+        ordinal columns become level indices (see :meth:`encode_value`).
+        A frame without such columns is returned unchanged.
+        """
+        cols = [n for n in self.names
+                if self.is_categorical(n) and n in df.columns]
+        if not cols:
+            return df
+        out = df.copy()
+        for n in cols:
+            out[n] = [self.encode_value(n, v, 'Design') for v in out[n]]
+            out[n] = out[n].astype(float)
+        return out
+
     @property
     def nominal_names(self) -> List[str]:
         """Names of all nominal parameters, in insertion order."""
@@ -607,6 +815,44 @@ class ParameterSpace:
             self._gcache = (pool, lo, r)
             cached = self._gcache
         return cached[1], cached[2]
+
+    @property
+    def feasible_levels(self) -> np.ndarray:
+        """
+        Number of distinct values each parameter takes in the feasible
+        candidate pool (read-only). A constraint can leave fewer than
+        the grid has.
+        """
+        pool   = self.candidate_pool
+        cached = getattr(self, '_lcache', None)
+        if cached is None or cached[0] is not pool:
+            m = np.array([len(np.unique(pool[:, j]))
+                          for j in range(pool.shape[1])])
+            m.flags.writeable = False
+            self._lcache = (pool, m)
+            cached = self._lcache
+        return cached[1]
+
+    @property
+    def active_mask(self) -> np.ndarray:
+        """
+        Which parameters vary in the feasible pool. A parameter with a
+        single feasible value cannot separate design points; criteria
+        and quality metrics leave it out.
+        """
+        return self.feasible_levels > 1
+
+    def periodic_embed(self, X: np.ndarray) -> np.ndarray:
+        """
+        Place normalised coordinates on the unit circle at stratum
+        midpoints: the k-th of m equally spaced levels goes to
+        (k + 1/2) / m, so the lowest and highest level are 1/m apart
+        rather than coinciding (Vorechovsky & Masek; Zhang, Yang &
+        Zhou 2021). Unequal spacing is kept, with a wrap gap equal to
+        the mean spacing. Used by the periodic criteria (uMaxPro, QQD).
+        """
+        m = self.feasible_levels.astype(float)
+        return (np.asarray(X, dtype=float) * (m - 1.0) + 0.5) / m
 
     @property
     def gmins(self) -> np.ndarray:
@@ -788,6 +1034,7 @@ class ParameterSpace:
         self,
         point: Sequence[float],
         label: str = "Point",
+        encoded: bool = False,
     ) -> np.ndarray:
         """
         Assert that *point* lies on the grid.
@@ -805,17 +1052,25 @@ class ParameterSpace:
         ------
         ValueError if the point is not on the grid.
         """
-        pt = np.asarray(point, dtype=float).ravel()
-        if self.on_grid(pt) < 0:
-            lo = [f"{v.min():.4g}" for v in self._parameters.values()]
-            hi = [f"{v.max():.4g}" for v in self._parameters.values()]
+        pt = self.encode_points(point, context=label,
+                                encoded=encoded).ravel()
+        found = self.on_grid(pt)
+        shown = self._shown(pt)
+        if found < 0 and self._constraints and all(
+                np.any(np.abs(v - x) <= t) for v, x, t
+                in zip(self._parameters.values(), pt, self.grid_tol)):
+            _fatal(f"{label} {shown} is on the parameter grid but "
+                   f"violates a constraint added with add_constraint().")
+        if found < 0:
+            def levels(n, v):
+                if self.is_categorical(n):
+                    return f"{n}={self.category_labels(n)}"
+                return f"{n}=[{v.min():.4g}, {v.max():.4g}]"
             _fatal(
-                f"{label} {pt.tolist()} is not on the parameter grid.\n"
+                f"{label} {shown} is not on the parameter grid.\n"
                 f"  Parameter bounds: "
-                + ", ".join(
-                    f"{n}=[{a}, {b}]"
-                    for n, a, b in zip(self.names, lo, hi)
-                )
+                + ", ".join(levels(n, v)
+                            for n, v in self._parameters.items())
                 + "\n  Note: the point must match a grid node exactly."
             )
         # The node itself, so that 0.3 becomes the grid's
@@ -876,11 +1131,13 @@ class ParameterSpace:
                 try:
                     mask[i] = all(c(p) for c in self._constraints)
                 except TypeError as exc:
+                    shown = self.decode_frame(
+                        pd.DataFrame([row], columns=names)).iloc[0].to_dict()
                     _fatal(
-                        f"Constraint raised a TypeError for point {row.tolist()}.\n"
-                        f"  Constraint must accept a single dict argument:\n"
-                        f"    lambda p: p['param'] > value\n"
-                        f"  Parameter names: {names}\n"
+                        f"Constraint raised a TypeError for point {shown}.\n"
+                        f"  A constraint receives one dict mapping parameter "
+                        f"names to values (labels for nominal and ordinal "
+                        f"parameters), e.g. lambda p: p['param'] > value\n"
                         f"  Original error: {exc}"
                     )
             pool = pool[mask]

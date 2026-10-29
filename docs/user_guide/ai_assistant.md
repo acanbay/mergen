@@ -108,8 +108,9 @@ API CONTRACT (use exactly this, nothing else)
   tol={'min_distance': 0.01} makes differences below 0.01 a tie.
 
 MERGEN'S DECISION RULES (follow these)
-- Criteria: 'umaxpro' is the default for numeric spaces and
-  optimises all lower-dimensional projections; 'maxpro' is its
+- Criteria: 'umaxpro' is the default for numeric spaces ('maxproqq'
+  when there is a nominal or ordinal parameter) and optimises all
+  lower-dimensional projections; 'maxpro' is its
   classical predecessor; 'phi_p' approximates maximin distance and
   gives the most even point separation; 'cd2' and 'stratified'
   target uniformity in the discrepancy sense. With any nominal
