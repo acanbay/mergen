@@ -47,7 +47,7 @@ Mergen features used
 - ``Sampler.set_optimizer()``: a modest, shared compute budget so the two
   runs finish quickly for a demonstration.
 
-Estimated runtime: a minute or two (two designs).
+Estimated runtime: under a minute (two designs).
 """
 from mergen import ParameterSpace, Sampler
 

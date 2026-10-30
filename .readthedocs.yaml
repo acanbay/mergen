@@ -1,13 +1,15 @@
 # ReadTheDocs configuration — https://docs.readthedocs.io/en/stable/config-file/v2.html
 #
-# ReadTheDocs does not execute the examples. The pre_build job
-# downloads the gallery already built by the docs-gallery workflow
-# (stored on the dedicated docs-gallery branch), and the
-# sphinx-gallery MD5 cache recognises the pages as current, so the
-# build assembles the site without running any script and stays
-# inside the time limit. If an example changes without the gallery
-# being regenerated, the MD5 no longer matches and the build fails
-# loudly instead of publishing a stale page.
+# ReadTheDocs does not execute the examples. Right after the checkout,
+# docs/fetch_gallery.sh downloads the gallery already built by the
+# docs-gallery workflow (stored on the dedicated docs-gallery branch)
+# and checks that it was built from this commit's examples, source and
+# gallery configuration. If it was not, the build is cancelled and the
+# pages already online stay; the workflow starts the build again when
+# the gallery is ready. The sphinx-gallery MD5 cache then recognises the
+# pages as current, so the build assembles the site without running any
+# script and stays inside the time limit; docs/conf.py stops the build
+# if any example would still have to run.
 version: 2
 
 build:
@@ -15,10 +17,8 @@ build:
   tools:
     python: "3.12"
   jobs:
-    pre_build:
-      - mkdir -p docs/auto_examples
-      - curl -fL -o gallery.tar.gz https://github.com/acanbay/mergen/archive/refs/heads/docs-gallery.tar.gz
-      - tar xzf gallery.tar.gz -C docs/auto_examples --strip-components=1
+    post_checkout:
+      - bash docs/fetch_gallery.sh
 
 python:
   install:
@@ -30,3 +30,7 @@ python:
 sphinx:
   configuration: docs/conf.py
   fail_on_warning: true
+
+# Every version can also be downloaded as a zipped copy of its HTML.
+formats:
+  - htmlzip

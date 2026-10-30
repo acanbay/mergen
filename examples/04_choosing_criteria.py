@@ -63,9 +63,9 @@ Mergen features used
   design saved as a pairplot (PNG) and a CSV. ``quality_report()`` stays
   in the terminal.
 
-Estimated runtime: one to two minutes. compare() uses every core by
-default (n_jobs=-1); pass n_jobs=1 to stay on one core. The result is
-the same for any n_jobs.
+Estimated runtime: about two minutes on four cores. compare() uses
+every core by default (n_jobs=-1); pass n_jobs=1 to stay on one
+core. The result is the same for any n_jobs.
 """
 from mergen import ParameterSpace, Sampler
 

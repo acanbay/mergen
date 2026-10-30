@@ -52,9 +52,9 @@ Mergen features used
   max_abs_correlation.
 - ComparisonResult.best_result and its saved table.
 
-Estimated runtime: under a minute. compare() uses every core
-by default (n_jobs=-1); pass n_jobs=1 to stay on one core. The result
-is the same for any n_jobs.
+Estimated runtime: about seven minutes on four cores. compare()
+uses every core by default (n_jobs=-1); pass n_jobs=1 to stay on
+one core. The result is the same for any n_jobs.
 """
 from mergen import ParameterSpace, Sampler
 

@@ -58,6 +58,23 @@ All tests must pass before submitting a pull request.
 4. Update `CHANGELOG.md` under an `[Unreleased]` section
 5. Open a pull request with a clear description of the changes
 
+### Releasing (maintainers)
+
+1. On a branch, set the version in `src/mergen/__init__.py`, move the
+   `CHANGELOG.md` entries from `[Unreleased]` to the new version with
+   the release date, and update `version` and `date-released` in
+   `CITATION.cff`. Merge it into `main` through a pull request.
+2. Wait until the `docs-gallery` workflow for that merge has finished
+   successfully: it rebuilds the example gallery from the new code,
+   and the documentation of a release is built from that gallery.
+3. Publish a GitHub release from the latest commit of `main`, with the
+   tag `vX.Y.Z` matching the version. This uploads the package to PyPI
+   (`publish.yml`), archives the release on Zenodo, and Read the Docs
+   builds the documentation of the new version.
+4. When the conda-forge bot opens its pull request on the
+   `mergen-doe-feedstock`, check that the dependencies in its recipe
+   match `pyproject.toml`, then merge it.
+
 ---
 
 ## Scientific Standards

@@ -9,8 +9,10 @@
 #   nothing here relies on version-specific Sphinx behaviour.
 from __future__ import annotations
 
+import os
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
+from pathlib import Path
 
 # ── Project information ─────────────────────────────────────────────
 project = "Mergen"
@@ -138,8 +140,9 @@ suppress_warnings = ["config.cache"]
 sphinx_gallery_conf = {
     "examples_dirs": "../examples",
     "gallery_dirs": "auto_examples",
-    # Every example executes on every documentation build, so each
-    # page shows the full output of the code it displays.
+    # Every example executes when the gallery is built (locally and in
+    # the docs-gallery workflow), so each page shows the full output of
+    # the code it displays. Read the Docs reuses that gallery instead.
     "filename_pattern": r"/\d{2}_",
     "within_subsection_order": "FileNameSortKey",
     "image_scrapers": ("matplotlib", _mergen_png_scraper),
@@ -151,6 +154,26 @@ sphinx_gallery_conf = {
     # string and trigger a type warning under Sphinx 9.
     "abort_on_example_error": True,
 }
+
+# Read the Docs must never execute an example: the gallery takes longer
+# than its build time limit. docs/fetch_gallery.sh has already checked
+# that the downloaded gallery matches this commit; this stops the build
+# at once, naming the examples, if any of them would still have to run.
+if os.environ.get("READTHEDOCS") == "True":
+    from sphinx_gallery.utils import get_md5sum
+
+    _docs = Path(__file__).resolve().parent
+    _stale = []
+    for _src in sorted((_docs.parent / "examples").glob("[0-9][0-9]_*.py")):
+        _md5 = _docs / "auto_examples" / f"{_src.name}.md5"
+        if not _md5.is_file() or _md5.read_text().strip() != get_md5sum(
+                _src, mode="t"):
+            _stale.append(_src.name)
+    if _stale:
+        raise RuntimeError(
+            "The downloaded gallery is missing or out of date for "
+            + ", ".join(_stale) + "; Read the Docs does not execute "
+            "examples. Run the docs-gallery workflow for this commit.")
 
 # ── autodoc / autosummary / napoleon ────────────────────────────────
 autosummary_generate = True
