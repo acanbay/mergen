@@ -77,14 +77,15 @@ API CONTRACT (use exactly this, nothing else)
         # 'sa' and 'sce': n_restarts, max_iter;
         # 'ese': n_restarts, M, J, Q
         # leave these unset unless runtime matters: run() then
-        # lengthens the search itself when results do not settle
+        # lengthens the search itself when no repeat reproduces the best
   Points are lists of numbers in parameter order and must lie on the
   grid. Give a nominal or ordinal level as its position in the level
   list: 0 for the first level, 1 for the second, and so on.
 - Run and result:
     result = sampler.run(criteria='umaxpro', algorithm='sa', seed=44)
-        # n_repeats='auto' (default) repeats until the best result is
-        # found five times or a work limit is reached (then it warns);
+        # n_repeats='auto' (default) repeats up to a work limit, stopping
+        # early if the best result is found five times (rare; else it
+        # warns with the seed spread, also in result.repeat_info);
         # n_jobs=-1 (default) uses every core
     result.summary(); result.quality_report()
     result.plot(kind, save=True)  # kinds: 'pairplot', '1d', '2d',

@@ -27,13 +27,13 @@ comparison = sampler.compare(
 With `criteria` left unset, `compare()` evaluates every criterion
 compatible with the space. Each combination is optimised several times
 and is represented by the repeat that is best on the priority metrics.
-By default (`n_repeats='auto'`) the repeats continue until the best
-result has been found by five of them or a work limit is reached.
-Except on small problems the limit is usually reached first; a warning
-then lists those combinations with how far their other repeats' scores
+By default (`n_repeats='auto'`) the repeats run up to a work limit and
+stop earlier only if the best result has been found by five of them.
+Except on small problems the limit is reached, so the result can still
+depend on the seed; a warning then lists those combinations with how far their other repeats' scores
 lie from the delivered one, since another seed may give a different
-design for them. An integer `n_repeats` runs
-exactly that many.
+design for them, and `comparison.repeat_info` gives the same figures
+per combination. An integer `n_repeats` runs exactly that many.
 
 The winner is chosen on the raw values of the `priority` metrics. By
 default (`selection='pareto'`) they are competing objectives: designs
@@ -82,28 +82,49 @@ winner started from, and `run()` cannot reproduce a polished winner;
 `polish=False` gives winners that it does. `reselect()` polishes again
 for the new priority.
 
-The result is a local optimum. In tests on five spaces (5 seeds, four
-priority settings), the share of winners whose first priority metric
-lay within 1 % of the best known value rose from 5 % to 39 %. With
-`('minimax', 'cd2')` the median gap to the best known `minimax` value
-(proven optimal on three of the spaces) fell from 18 % to 0 % (at most
-10 %), and with `('cd2',)` from 5 % to under 1 %. `min_distance` is improved but not reliably to its best known
-value: under the default priority the median gap fell from 27 % to
-12 %, with up to 15 % left on continuous spaces and 41 % on a mixed
-one. A target set before the tests, within 1 % in 90 % of all cases,
-was not met by any setting. Polishing cost a median of under a second and at most 13 % of
-the sweep time. The cost grows with the candidate set and runs on one
-core: with three continuous factors at the default resolution of 100
-(a million candidates) and 30 runs, one pass over the rows took about
-30 s and over 1 GB of memory per combination, and a design may need
-several passes.
+With `min_distance` among the priority metrics, the exchange alternates
+with moves that lower the Morris-Mitchell $\phi_p$ ($p = 50$) of the
+design without making the priority worse, which spreads the closest
+pairs where single exchanges stall. They help when `min_distance`
+comes first under `'lexicographic'`; under the default Pareto priority
+they changed no winner in the tests, because a polished design may not
+get worse on `max_abs_correlation`.
+
+The result is a local optimum. In tests on five spaces (seeds 5 to 9,
+four priority settings), the share of winners whose first priority
+metric lay within 1 % of the best known value rose from 5 % to 41 %.
+The gap of the winner's first priority metric to the best known value
+(proven optimal where marked) was, without and with polishing:
+
+| Priority | Median | Largest |
+|---|---|---|
+| `('minimax', 'cd2')`, lexicographic (proven on three spaces) | 18 % → 0 % | 34 % → 11 % |
+| `('cd2',)`, lexicographic | 5 % → 1 % | 30 % → 5 % |
+| `('min_distance',)`, lexicographic (proven on four spaces) | 13 % → 3 % | 38 % → 12 % |
+| default, `'pareto'`, on `min_distance` | 15 % → 10 % | 38 % → 38 % |
+
+`minimax` reached its best known value in 21 of 25 cases; `cd2` came
+within 1 % in 13 of 25 cases and within 5.1 % in all. `min_distance` is the known limit of this
+release: under the default priority the winner lay up to 17 % below the
+best known value on continuous and constrained spaces and 38 % on a
+mixed one, because a polished design may not get worse on
+`max_abs_correlation`, and `compare()` warns whenever `min_distance` is
+a priority metric. Two targets set before the tests were not met:
+within 1 % in 90 % of all cases, and for `min_distance` a median gap
+of at most 2 % with none above 10 %. Polishing cost a median of about
+half a second and at most 12 % of the sweep time. The cost grows with
+the candidate set and runs on one core: with three continuous factors
+at the default resolution of 100 (a million candidates) and 30 runs,
+one exchange pass over the rows took about 30 s and over 1 GB of memory
+per combination, a design may need several passes, and the $\phi_p$
+moves add to this.
 
 `polish_kicks=k` adds k iterated-local-search kicks: three random rows
-are moved and the exchange runs again, and the result is kept only if
-it is better. Kicks follow the seed. With 10 kicks the cases within
-1 % rose to 52 % and the best known `minimax` value was reached in
-every case, but on a 3-factor space with 30 runs polishing took up to
-1.1 times as long as the sweep. `polish=False` compares the optimiser designs only.
+are moved and the search runs again, and the result is kept only if it
+is better. Kicks follow the seed. In an earlier test of the exchange
+alone (seeds 1 to 5), 10 kicks raised the cases within 1 % from 39 %
+to 46 % and reached the best known `minimax` value in every case, but on a 3-factor space with
+30 runs polishing took up to 1.1 times as long as the sweep. `polish=False` compares the optimiser designs only.
 
 ## Reading and saving the result
 

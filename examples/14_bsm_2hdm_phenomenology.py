@@ -53,8 +53,8 @@ Mergen features used
   plot axes and in the CSV header.
 - ``Sampler.compare()``: all factors are numeric, so criteria=None sweeps
   the numeric criteria and compares them on coverage metrics. Each
-  combination is repeated from reproducible seeds until its best
-  result has been found five times or a work limit is reached, and
+  combination is repeated from reproducible seeds up to a work limit,
+  stopping earlier only if its best result has been found five times;
   the winner is chosen on the
   raw values of the default priority metrics, min_distance and
   max_abs_correlation.

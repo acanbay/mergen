@@ -239,3 +239,38 @@ def test_lexicographic_first_metric_does_not_drift_beyond_tol():
         f = [_compute_metric(pr[0], (X - sp.gmins) / sp.granges, sp)
              for X in (D0, D)]
         assert f[1] <= f[0] + tol[0] + 1e-12
+
+
+def test_phi_p_moves_lift_min_distance_off_its_plateau(monkeypatch):
+    # The exchange alone stalls when a closest pair moves but another
+    # pair keeps the minimum; the phi_p sweeps get past that and never
+    # end below the exchange alone.
+    space = mergen.ParameterSpace({'x': list(range(9)),
+                                   'y': list(range(16))})
+    args = (0, None, space, ('min_distance',), [True], 'lexicographic',
+            np.full(1, 1e-9), np.zeros(1), [])
+
+    def md(X):
+        return _compute_metric('min_distance',
+                               (X - space.gmins) / space.granges, space)
+    with_phi, without = [], []
+    for s in range(6):
+        D0 = _start(space, 20, seed=s)
+        with_phi.append(md(P.polish(D0, *args,
+                                    rng=np.random.default_rng(s))[0]))
+        monkeypatch.setattr(P, '_PHI_TRIES', 0)
+        without.append(md(P.polish(D0, *args,
+                                   rng=np.random.default_rng(s))[0]))
+        monkeypatch.undo()
+    assert all(a >= b - 1e-12 for a, b in zip(with_phi, without))
+    assert sum(with_phi) > sum(without) + 1e-9
+
+
+def test_compare_warns_when_min_distance_is_a_priority(capsys):
+    s = _grid916()
+    s.compare(criteria=['cd2'], priority=('minimax',),
+              selection='lexicographic', n_repeats=1, mc_samples=0,
+              verbose=False)
+    assert 'min_distance is a priority metric' not in capsys.readouterr().out
+    s.compare(criteria=['cd2'], n_repeats=1, mc_samples=0, verbose=False)
+    assert 'min_distance is a priority metric' in capsys.readouterr().out

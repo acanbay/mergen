@@ -1554,7 +1554,7 @@ class GridSampler:
         excess is redistributed to under-used levels so the whole design
         stays as balanced as possible.
 
-        This is the level-collapsing approach of Joseph, Gul & Ba (2018)
+        This is the level-collapsing approach of Joseph, Gul & Ba (2020)
         adapted to a fixed grid.
 
         Parameters
@@ -1583,9 +1583,9 @@ class GridSampler:
 
         References
         ----------
-        Joseph, V. R., Gul, E. & Ba, S. (2018). Designing computer
+        Joseph, V. R., Gul, E. & Ba, S. (2020). Designing computer
             experiments with multiple types of factors: the MaxPro
-            approach. *Journal of Quality Technology*, 50(4).
+            approach. *Journal of Quality Technology*, 52(4), 343-354.
         Morris, M. D. & Mitchell, T. J. (1995).
             *J. Statist. Plan. Infer.*, 43, 381–402.
         McKay, M. D., Beckman, R. J. & Conover, W. J. (1979).

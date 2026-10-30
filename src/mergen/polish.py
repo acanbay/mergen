@@ -10,9 +10,20 @@ candidate that gives the best key, as long as the key improves; a run
 of steps stops after a sweep over all rows without improvement.
 Optionally, a fixed number of iterated-local-search kicks follows (a
 few rows moved at random, then exchange again); a kicked result is kept
-only if it is better. Point exchange is the classical local search for discrete
-design problems (Fedorov 1972); the kicks follow Lourenço, Martin &
-Stützle (2003).
+only if it is better. Point exchange is the classical local search for
+discrete design problems (Fedorov 1972); the kicks follow Lourenço,
+Martin & Stützle (2003).
+
+With ``min_distance`` among the priority metrics, the exchange
+alternates with sweeps that lower the Morris-Mitchell phi_p (p = 50) of
+the design without making the key worse (Morris & Mitchell 1995). phi_p
+counts every small distance, so these moves spread the closest pairs
+on a plateau where the exchange alone stalls. They do not reliably
+reach the best ``min_distance``: on test spaces the polished winner lay
+a median 3 % (up to 12 %) below the best known value under
+``'lexicographic'`` and 10 % (up to 38 %) under ``'pareto'``, where the
+other priority metric may not get worse and the sweeps changed no
+winner in the tests.
 
 The key, for ``selection='lexicographic'``, starts with the amount by
 which the first metric is worse than at the start (beyond ``tol``), so
@@ -37,6 +48,9 @@ References
 Fedorov, V. V. (1972). *Theory of Optimal Experiments*. Academic Press.
 Lourenço, H. R., Martin, O. C. & Stützle, T. (2003). Iterated local
     search. In *Handbook of Metaheuristics*, Springer, 320-353.
+Morris, M. D. & Mitchell, T. J. (1995). Exploratory designs for
+    computational experiments. *Journal of Statistical Planning and
+    Inference*, 43(3), 381-402.
 """
 from __future__ import annotations
 
@@ -53,6 +67,10 @@ from .distances import _embed_heom
 _MAX_SWEEPS = 50
 _N_KICKS    = 0
 _KICK_ROWS  = 3
+#: Exponent of the Morris-Mitchell phi_p that guides moves along a
+#: min_distance plateau, and the candidates tried per row.
+_PHI_P      = 50
+_PHI_TRIES  = 10
 #: Metrics whose best value is typically attained by many designs.
 _PLATEAU = ('min_distance', 'minimax')
 #: Rows of the minimax evaluation set scored per block.
@@ -487,6 +505,77 @@ def polish(design: np.ndarray, n_kept: int, extra: Optional[np.ndarray],
             kt.append(t)
         return kv, kt, int(C[surv.min()])
 
+    def phi_sweep(cur, cur_t):
+        """
+        One pass over the rows that lowers the Morris-Mitchell phi_p
+        (p = _PHI_P) of the design without making the key worse. The
+        exchange alone stalls on a min_distance plateau: moving one row
+        of a closest pair leaves the minimum unchanged while another
+        pair still attains it. phi_p counts every small distance, so
+        its moves spread the closest pairs and let the exchange improve
+        the minimum later. A move is kept only if the exact key is not
+        worse; rows in closest pairs are tried first.
+        """
+        n_acc = 0
+        Dm = met.D[:met.m]
+        md = float(met.D.min())
+        crit = np.flatnonzero((Dm <= md + key.t('min_distance', md))
+                              .any(axis=1))
+        rest = np.setdiff1d(np.arange(met.m), crit)
+        order = np.r_[crit[rng.permutation(len(crit))],
+                      rest[rng.permutation(len(rest))]]
+        for slot in order:
+            slot = int(slot)
+            used = blocked.copy()
+            used[met.rows] = True
+            C = np.flatnonzero(~used)
+            if not len(C):
+                continue
+            cols = np.r_[0:slot, slot + 1:met.n]
+            md = float(met.D.min())
+            if not md > 0:
+                # Coinciding fixed rows: phi_p is infinite for every move.
+                break
+            with np.errstate(divide='ignore', over='ignore',
+                             invalid='ignore'):
+                old = float(np.sum((met.D[slot, cols] / md) ** -_PHI_P))
+                tot = float(np.sum(
+                    (met.D[np.triu_indices(met.n, 1)] / md) ** -_PHI_P))
+                Dc = met.Dpool[C][:, cols]
+                new = np.sum((Dc / md) ** -_PHI_P, axis=1)
+            delta = new - old
+            ok = np.flatnonzero(
+                (delta < -1e-12 * tot)
+                & (Dc.min(axis=1) >= md - key.t('min_distance', md)))
+            for k in ok[np.argsort(delta[ok], kind='stable')][:_PHI_TRIES]:
+                prev = met.rows.copy()
+                met.move(slot, int(C[k]))
+                new_key, new_t = state_key()
+                if not _better(cur, new_key,
+                               [max(a, b) for a, b in zip(cur_t, new_t)]):
+                    cur, cur_t = new_key, new_t
+                    n_acc += 1
+                    break
+                met.set_rows(prev)
+        return cur, cur_t, n_acc
+
+    def search():
+        """Exchange; with min_distance in the priority, alternated
+        with phi_p sweeps until neither changes the design."""
+        cur, cur_t, n_moves, n_sweeps = local_search()
+        if 'min_distance' not in priority:
+            return cur, cur_t, n_moves, n_sweeps
+        for _ in range(max_sweeps):
+            cur, cur_t, n_acc = phi_sweep(cur, cur_t)
+            n_moves += n_acc
+            n_sweeps += 1
+            if not n_acc:
+                break
+            cur, cur_t, nm, ns = local_search()
+            n_moves += nm
+            n_sweeps += ns
+        return cur, cur_t, n_moves, n_sweeps
+
     def local_search():
         n_moves = n_sweeps = 0
         cur, cur_t = state_key()
@@ -516,7 +605,7 @@ def polish(design: np.ndarray, n_kept: int, extra: Optional[np.ndarray],
                 break
         return cur, cur_t, n_moves, n_sweeps
 
-    best_key, best_t, n_moves, n_sweeps = local_search()
+    best_key, best_t, n_moves, n_sweeps = search()
     best_rows = met.rows.copy()
     for _ in range(n_kicks):
         free = np.flatnonzero(~blocked)
@@ -528,7 +617,7 @@ def polish(design: np.ndarray, n_kept: int, extra: Optional[np.ndarray],
         rows = met.rows.copy()
         rows[slots] = rng.choice(free, size=k, replace=False)
         met.set_rows(rows)
-        kv, kt, nm, ns = local_search()
+        kv, kt, nm, ns = search()
         n_moves += nm
         n_sweeps += ns
         if _better(kv, best_key, [max(a, b) for a, b in zip(kt, best_t)]):

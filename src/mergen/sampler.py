@@ -322,11 +322,12 @@ def _gap_text(info) -> str:
             f"{100 * info.get('gap_max', 0.0):.1f} %")
 
 
-# n_repeats='auto' runs rounds of _AUTO_ROUND repeats until the selected
-# result has been found by _AUTO_HITS of them. This is Mergen's own
-# rule: a result that independent searches keep finding is unlikely to
-# change with the seed. While no other repeat has reproduced the best
-# result, each round doubles the optimiser budget of the next one. The
+# n_repeats='auto' runs rounds of _AUTO_ROUND repeats up to a work cap
+# and stops early only when the selected result has been found by
+# _AUTO_HITS of them (Mergen's own rule; it seldom triggers except on
+# small problems, so the cap is usually reached). While no other repeat
+# has reproduced the best result, each round doubles the optimiser
+# budget of the next one. The
 # total work is capped at _AUTO_MAX_EFFORT repeats at the default
 # budget: a count, not a time, so a seed gives the same design on every
 # machine.
@@ -428,10 +429,37 @@ def _same_values(a, b):
                        <= _SAME_RTOL * np.maximum(np.abs(a), np.abs(b))))
 
 
+def _public_repeat_info(info, auto):
+    """The documented view of one repeat summary."""
+    return dict(n_repeats=int(info['n_repeats']), hits=int(info['hits']),
+                stopped_early=bool(info['converged']) if auto else None,
+                budget_factor=info['budget_factor'],
+                gap_median=float(info['gap_median']),
+                gap_max=float(info['gap_max']))
+
+
+def _measured_repeat_info(info, reps, win, priority, space, extra):
+    """``info`` with ``hits`` and the gaps measured against ``win``,
+    the repeat delivered under ``priority``; how the repeats stopped
+    (``converged``, ``budget_factor``) is kept."""
+    def values(r):
+        v = [r.score]
+        if priority:
+            v += list(_priority_values(r.design, priority, space, extra))
+        return v
+    ref = values(win)
+    gaps = [abs(r.score / win.score - 1) for r in reps
+            if r is not win and win.score > 0]
+    return dict(info, n_repeats=len(reps),
+                hits=sum(_same_values(values(r), ref) for r in reps),
+                gap_median=float(np.median(gaps)) if gaps else 0.0,
+                gap_max=max(gaps, default=0.0))
+
+
 def _repeats_text(n_repeats):
-    """'5 repeats', '1 repeat' or 'repeats until settled'."""
+    """'5 repeats', '1 repeat' or 'auto repeats, capped'."""
     if n_repeats == 'auto':
-        return "repeats until settled"
+        return "auto repeats, capped"
     return f"{n_repeats} repeat{'s' if n_repeats > 1 else ''}"
 
 
@@ -750,6 +778,20 @@ class SamplingResult:
         return self.samples
 
     @property
+    def repeat_info(self) -> Dict[str, dict]:
+        """Per algorithm, how its repeats ended: ``n_repeats`` run,
+        ``hits`` (repeats that found the delivered result),
+        ``stopped_early`` (``n_repeats='auto'`` found it 5 times before
+        the work cap; ``None`` for an integer ``n_repeats``),
+        ``budget_factor`` (search-length multiplier reached), and
+        ``gap_median`` / ``gap_max``, the relative distance of the other
+        repeats' criterion scores from the delivered one. Empty for a
+        loaded design."""
+        auto = self._meta.get('n_repeats') == 'auto'
+        return {a: _public_repeat_info(i, auto)
+                for a, i in getattr(self, '_repeat_info', {}).items()}
+
+    @property
     def best_score(self) -> Optional[float]:
         """Criterion score of the best algorithm's design, or None."""
         if self.best_algorithm and self.best_algorithm in self.algorithm_results:
@@ -968,6 +1010,13 @@ class ComparisonResult:
         set. Under ``'lexicographic'`` it is informational: tolerant
         equality is not transitive, so with a large ``tol`` the
         lexicographic winner can lie outside it.
+    repeat_info : dict
+        Maps each row of the table to how the repeats of its combination
+        ended, as in :attr:`SamplingResult.repeat_info` (``n_repeats``,
+        ``hits``, ``stopped_early``, ``budget_factor``, ``gap_median``,
+        ``gap_max``). ``hits`` and the gaps are measured against the
+        repeat the current priority selects; a ``'+polish'`` row
+        reports the repeats of the combination it started from.
     """
 
     def __init__(self, table, metrics, results, best, priority,
@@ -986,6 +1035,7 @@ class ComparisonResult:
         self.decided_by = decided_by
         self._best_result = None   # set by Sampler.compare after selection
         self._context     = None   # what reselect() needs; set by compare
+        self.repeat_info: Dict[Tuple[str, str], dict] = {}
 
     @property
     def best(self) -> Tuple[str, str]:
@@ -997,7 +1047,8 @@ class ComparisonResult:
     def best_result(self) -> "SamplingResult":
         """The full SamplingResult of the winning combination, identical
         to calling run() for that combination with the same seed,
-        n_repeats, priority, selection and tolerances. After
+        n_repeats, priority, selection and tolerances, unless the winner
+        is a polished design, which run() does not produce. After
         :meth:`reselect` it is built from all the stored repeats, as
         ``n_repeats`` equal to their number."""
         return self._best_result
@@ -1067,7 +1118,8 @@ class ComparisonResult:
             baseline=ctx['baseline'], seed=ctx['seed'],
             n_repeats=ctx['n_repeats'], verbose=verbose,
             extra_pts=ctx['extra_pts'], polish=ctx.get('polish', False),
-            polish_kicks=ctx.get('polish_kicks', 0))
+            polish_kicks=ctx.get('polish_kicks', 0),
+            settle=ctx.get('settle'))
 
     def summary(self) -> None:
         """Print the comparison table and how the winner was chosen."""
@@ -1651,9 +1703,11 @@ class Sampler:
             derived from ``seed`` via NumPy's SeedSequence.spawn; the
             representative repeat is returned (see ``priority``). An
             integer runs exactly that many repeats. ``'auto'`` runs
-            rounds of 5 repeats until the selected result has been found
-            by 5 of them, so that another seed is unlikely to change it;
-            two repeats found the same
+            rounds of 5 repeats up to a work cap and stops early only
+            when the selected result has been found by 5 of them; it
+            usually reaches the cap, so it does not make the result
+            independent of the seed (see below). Two repeats found the
+            same
             result when the criterion score and the priority metrics
             agree to a relative 1e-9. While no other repeat has
             reproduced the best result, each round doubles the
@@ -1669,9 +1723,12 @@ class Sampler:
             problems, so ``'auto'`` usually runs to the work limit:
             on benchmark spaces of 15 to 30 runs (2 to 5 factors, all
             criteria, three optimisers, repeats at the default length),
-            7 % of runs settled, and the best of 20 repeats varied
-            across seeds by a median 2.1 % of the criterion score (up
-            to 11 %).
+            7 % of runs stopped early, and the best of 20 repeats
+            varied across seeds by a median 2.1 % of the criterion
+            score (up to 11 %). :attr:`SamplingResult.repeat_info`
+            reports, per algorithm, whether the run stopped early and
+            how far the other repeats' scores lie from the delivered
+            one.
         priority : tuple of str, optional
             Quality-metric names used to pick the representative repeat
             when ``n_repeats > 1``, and the delivered algorithm when
@@ -1984,7 +2041,7 @@ class Sampler:
         # Each optimiser provides its own prepare_initial_design()
         # method so it can use the type of starting design its
         # underlying algorithm was designed for. The default in
-        # BaseOptimizer is a balanced LHS (Joseph, Gul & Ba 2018),
+        # BaseOptimizer is a balanced LHS (Joseph, Gul & Ba 2020),
         # which matches what SA, SCE and ESE expect from the
         # literature; subclasses may override for non-LHS algorithms.
         if self._prescribed or self._focus:
@@ -2231,8 +2288,9 @@ class Sampler:
 
         # Repeat k of every algorithm uses the k-th seed spawned from
         # ``seed``. With an integer n_repeats exactly that many repeats
-        # run. With 'auto', rounds of _AUTO_ROUND repeats run until the
-        # selected result has been found _AUTO_HITS times; while no
+        # run. With 'auto', rounds of _AUTO_ROUND repeats run up to the
+        # work limit, stopping earlier once the selected result has been
+        # found _AUTO_HITS times; while no
         # other repeat has reproduced the best result, each round doubles
         # the budget of the next, and the work stops at
         # _AUTO_MAX_EFFORT repeats at the
@@ -2743,9 +2801,10 @@ class Sampler:
             same as 44.
         n_repeats : int or 'auto', default 'auto'
             Number of independent optimiser runs per combination, as in
-            :meth:`run` (``'auto'`` repeats until the result is settled
-            or a work limit is reached, which is the common case; see
-            there). Each
+            :meth:`run` (``'auto'``: up to a work cap, stopping early
+            only when the best result has been found by 5 repeats,
+            which is rare; see there and :attr:`ComparisonResult.repeat_info`).
+            Each
             run uses a distinct seed derived from ``seed`` via
             NumPy's SeedSequence.spawn (independent, not consecutive
             integers). The representative repeat of each combination is
@@ -2790,8 +2849,17 @@ class Sampler:
             priority than without polishing under ``'lexicographic'``;
             under ``'pareto'`` it is never dominated by the winner
             without polishing, though the added designs move the ideal
-            point and can shift the choice along the front. The
-            result is a local optimum, not a proven global one.
+            point and can shift the choice along the front. With
+            ``min_distance`` in the priority, the exchange alternates
+            with moves that lower the Morris-Mitchell phi_p. The
+            result is a local optimum, not a proven global one. On
+            five test spaces the winner's first priority metric lay,
+            from the best known value, a median 0 % (at most 11 %) for
+            ``minimax``, 1 % (5 %) for ``cd2``, 3 % (12 %) for
+            ``min_distance`` under ``'lexicographic'`` and 10 % (38 %)
+            under the default Pareto priority; ``min_distance`` is a
+            known limit, and compare() warns when it is a priority
+            metric.
             ``best_result.summary()`` names the combination a polished
             winner started from. ``False`` compares the optimiser
             designs only.
@@ -2993,13 +3061,14 @@ class Sampler:
             priority=priority, selection=selection, tol=tol, rtol=rtol,
             baseline=baseline, seed=seed, n_repeats=n_repeats,
             verbose=verbose, reuse=True, n_jobs=n_jobs,
-            extra_pts=extra_pts, polish=polish, polish_kicks=polish_kicks)
+            extra_pts=extra_pts, polish=polish, polish_kicks=polish_kicks,
+            settle=settle)
 
     def _finish_compare(self, repeats, crit_list, alg_list, priority,
                         selection, tol, rtol, baseline, seed, n_repeats,
                         verbose, reuse=False, n_jobs=-1,
                         extra_pts=None, polish=False,
-                        polish_kicks=0) -> "ComparisonResult":
+                        polish_kicks=0, settle=None) -> "ComparisonResult":
         """
         Select the representative repeat of every combination, choose
         the winner and build the ComparisonResult. Shared by compare()
@@ -3029,11 +3098,17 @@ class Sampler:
         # so the table describes exactly the design each combination
         # delivers.
         results: Dict[Tuple[str, str], Any] = {}
+        settle_now: Dict[Tuple[str, str], dict] = {}
         raw_rows, pct_rows, designs_n = [], [], []
         for key in combos:
             rep = _select_repeat(repeats[key], priority, self.space,
                                  selection, tol_arr, rtol_arr, extra_pts)
             results[key] = rep
+            if settle and key in settle:
+                # Measured against the repeat this priority delivers.
+                settle_now[key] = _measured_repeat_info(
+                    settle[key], repeats[key], rep, priority, self.space,
+                    extra_pts)
             design = np.asarray(rep.design, dtype=float)
             if extra_pts is not None and len(extra_pts):
                 design = np.vstack([design, extra_pts])
@@ -3128,6 +3203,23 @@ class Sampler:
                   "metric): "
                   + ", ".join(f"{combos[i][0]}/{combos[i][1]}"
                               for i in sel.excluded))
+        if 'min_distance' in priority:
+            # A known limit (0.1.1), measured on five test spaces, seeds
+            # 5-9, under the default Pareto priority and under
+            # ('min_distance',).
+            _warn("min_distance is a priority metric, and compare() does "
+                  "not reliably reach its best value: on test spaces the "
+                  "winner's min_distance lay a median "
+                  + ("10 % (up to 38 %) below the best known under the "
+                     "default Pareto priority and 3 % (up to 12 %) with "
+                     "min_distance alone under 'lexicographic'"
+                     if polish else
+                     "15 % (up to 38 %) below the best known under the "
+                     "default Pareto priority and 13 % (up to 38 %) with "
+                     "min_distance alone under 'lexicographic', without "
+                     "polishing")
+                  + ". minimax and cd2 are reached more closely; see the "
+                  "guide on comparing designs.")
         best_key = combos[sel.winner]
 
         table.insert(0, 'best', [' *' if k == best_key else ''
@@ -3145,7 +3237,14 @@ class Sampler:
                             baseline=baseline, seed=seed,
                             n_repeats=n_repeats, tol=tol, rtol=rtol,
                             extra_pts=extra_pts, polish=polish,
-                            polish_kicks=polish_kicks)
+                            polish_kicks=polish_kicks, settle=settle)
+        # A polished row reports the repeats of the combination it
+        # started from.
+        for pkey, origin in polished.items():
+            if origin in settle_now:
+                settle_now[pkey] = settle_now[origin]
+        cmp.repeat_info = {k: _public_repeat_info(v, n_repeats == 'auto')
+                           for k, v in settle_now.items()}
 
         # best_result must be a full SamplingResult that matches a
         # standalone run() exactly (a polished winner excepted: run()
@@ -3182,6 +3281,11 @@ class Sampler:
             if '[WARNING]' in line and not (
                     reuse and 'repeats before the work limit' in line):
                 print(line)
+        # best_result was built from the stored repeats (one, for a
+        # polished winner); it reports the sweep's repeats instead.
+        if best_key in settle_now:
+            cmp._best_result._repeat_info[_ba] = settle_now[best_key]
+            cmp._best_result._meta['n_repeats'] = n_repeats
         delivered = np.asarray(cmp._best_result.algorithm_results[_ba].design)
         compared  = np.asarray(results[best_key].design)
         if best_key in polished:

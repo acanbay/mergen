@@ -298,3 +298,70 @@ def test_unsettled_warning_reports_the_gap_of_the_other_repeats(
     assert info['gap_median'] == pytest.approx(np.median(gaps))
     out = capsys.readouterr().out
     assert f"at most {100 * max(gaps):.1f} %" in out
+
+
+def test_repeat_info_reports_how_the_repeats_ended():
+    r = _grid_sampler().run(criteria='phi_p', algorithm='sce', seed=44,
+                            verbose=False)
+    info = r.repeat_info['sce']
+    assert info['stopped_early'] is True and info['hits'] >= 5
+    assert info['n_repeats'] == len(r._repeats_by_alg['sce'])
+    fixed = _grid_sampler().run(criteria='phi_p', algorithm='sce', seed=44,
+                                n_repeats=3, verbose=False)
+    assert fixed.repeat_info['sce']['stopped_early'] is None
+    assert fixed.repeat_info['sce']['n_repeats'] == 3
+
+
+def test_repeat_info_of_a_run_that_hit_the_limit(monkeypatch):
+    import mergen.sampler as sampler_mod
+    monkeypatch.setattr(sampler_mod, '_AUTO_MAX_EFFORT', 10)
+    r = _hard_sampler().run(criteria='phi_p', algorithm='sa', seed=44,
+                            verbose=False)
+    info = r.repeat_info['sa']
+    assert info['stopped_early'] is False
+    assert 0 <= info['gap_median'] <= info['gap_max']
+    assert info['gap_max'] > 0
+
+
+def test_compare_repeat_info_covers_every_combination(monkeypatch):
+    import mergen.sampler as sampler_mod
+    monkeypatch.setattr(sampler_mod, '_AUTO_MAX_EFFORT', 10)
+    cmp = _hard_sampler().compare(criteria=['phi_p', 'cd2'],
+                                  algorithms=['sa'], mc_samples=0,
+                                  verbose=False)
+    # Every compared row, polished ones included.
+    assert set(cmp.repeat_info) == set(zip(cmp.metrics.criterion,
+                                           cmp.metrics.algorithm))
+    assert {('phi_p', 'sa'), ('cd2', 'sa')} <= set(cmp.repeat_info)
+    assert all(i['stopped_early'] in (True, False)
+               for i in cmp.repeat_info.values())
+    # Under a new priority the figures are measured against the repeat
+    # it delivers; how the repeats stopped does not change.
+    again = cmp.reselect(priority=('cd2',), verbose=False)
+    w = again.best
+    origin = (w[0], w[1].removesuffix('+polish'))
+    assert again.repeat_info[w] == again.best_result.repeat_info[origin[1]]
+    reps = cmp._context['repeats'][origin]
+    win = again.results[origin]
+    gaps = [abs(r.score / win.score - 1) for r in reps if r is not win]
+    assert again.repeat_info[w]['gap_median'] == pytest.approx(
+        float(np.median(gaps)))
+    assert again.repeat_info[w]['gap_max'] == pytest.approx(max(gaps))
+    assert again.repeat_info[w]['stopped_early'] == \
+        cmp.repeat_info[origin]['stopped_early']
+
+
+def test_a_polished_winner_reports_the_repeats_it_started_from(
+        monkeypatch):
+    import mergen.sampler as sampler_mod
+    monkeypatch.setattr(sampler_mod, '_AUTO_MAX_EFFORT', 10)
+    cmp = _hard_sampler().compare(criteria=['phi_p', 'cd2'],
+                                  algorithms=['sa'], mc_samples=0,
+                                  priority=('minimax', 'cd2'),
+                                  selection='lexicographic', verbose=False)
+    assert cmp.best[1] == 'sa+polish'
+    origin = (cmp.best[0], 'sa')
+    info = cmp.repeat_info[cmp.best]
+    assert info == cmp.repeat_info[origin]
+    assert info['n_repeats'] > 1 and info['stopped_early'] is False
+    assert cmp.best_result.repeat_info['sa'] == info

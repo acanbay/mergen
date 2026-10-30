@@ -46,14 +46,15 @@ numbers on any machine.
 The run itself also printed a warning: the best result was found by
 only one of the repeats before the work limit, and the warning gives
 how far the other repeats' criterion scores lie from it, so another
-seed may give a different design. `run()` repeats the optimisation
-until its best result has been found five times (`n_repeats='auto'`),
-lengthening the search when no repeat reproduces the best one. Except
-on small problems that seldom happens within the limit, as here for
+seed may give a different design. `run()` repeats the optimisation up
+to a work limit and stops earlier only if its best result has been
+found five times (`n_repeats='auto'`), lengthening the search when no
+repeat reproduces the best one. Except on small problems that seldom
+happens within the limit, as here for
 `umaxpro` with simulated annealing. The design is still good, as the
-report shows, but if it must not depend on the seed, raise the budget
-with `set_optimizer()` or let `Sampler.compare()` find a criterion and
-algorithm that settle.
+report shows. `result.repeat_info` gives how far the repeats lie
+apart; to make the result depend less on the seed, raise the budget
+with `set_optimizer()`.
 
 ### The Monte Carlo baseline
 

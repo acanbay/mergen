@@ -60,15 +60,17 @@ before `run()`:
   available; the {doc}`criterion guide
   <explanation/choosing_criterion>` and the {doc}`algorithm guide
   <explanation/choosing_algorithm>` explain when to pick which. By
-  default the optimisation is repeated until its best result has been
-  found five times or a work limit is reached, and the repeats run on
-  every core. Except on small problems the limit is usually reached
+  default the optimisation is repeated up to a work limit, stopping
+  earlier only if its best result has been found five times, and the
+  repeats run on every core. Except on small problems the limit is usually reached
   first; a warning then says how far the other repeats' scores lie from
   the delivered one, since another seed may give a different design.
 
 `Sampler.compare(criteria, algorithms, n_repeats)`
 : When you are unsure, run several combinations under a shared
-  baseline and get the best design on the metrics you prioritise; see
+  baseline and get the design that is best on the metrics you
+  prioritise among those combinations, polished on those metrics to a
+  local optimum (not a proven best); see
   {doc}`comparing designs <how-to/compare_designs>`.
 
 ## Working with the result

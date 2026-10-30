@@ -45,8 +45,8 @@ Mergen features used
 - A nominal factor in a mostly numeric space.
 - ``Sampler.compare()``: on a mixed space, criteria=None auto-selects the
   nominal-supporting criteria, so the comparison is valid. Each
-  combination is repeated from reproducible seeds until its best
-  result has been found five times or a work limit is reached, and
+  combination is repeated from reproducible seeds up to a work limit,
+  stopping earlier only if its best result has been found five times;
   the winner is chosen on the
   raw values of the default priority metrics, min_distance and
   max_abs_correlation.

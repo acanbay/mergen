@@ -25,7 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for all metrics or per metric.
 - `n_repeats='auto'`, the new default of `Sampler.run()`,
   `Sampler.compare()` and the `sequential` functions. Repeats run in
-  rounds of 5 until the selected result has been found by 5 of them.
+  rounds of 5 up to a work limit and stop earlier only when the
+  selected result has been found by 5 of them.
   While no other repeat has reproduced
   the best result, each round doubles the optimiser's search length,
   unless it was set with `set_optimizer()`; a doubled round that
@@ -34,12 +35,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   length, with a warning that the result may still depend on the seed
   and how far the other repeats' criterion scores lie from the
   delivered one. Except on small problems the limit is usually reached:
-  on benchmark spaces of 15 to 30 runs, 7 % of runs settled, and the
+  on benchmark spaces of 15 to 30 runs, 7 % of runs stopped early, and the
   best of 20 repeats varied across seeds by a median 2.1 % (up to
   11 %). Counting repeats as equal within a tolerance was tested and
   rejected: at 0.1 to 5 %, 11 to 36 % of the runs it declared settled
   were further than the tolerance from the best known score.
   An integer `n_repeats` runs exactly that many repeats.
+  `SamplingResult.repeat_info` and `ComparisonResult.repeat_info`
+  report whether the repeats stopped early and how far the other
+  repeats' scores lie from the delivered one.
 - A `cd2` quality metric: the centred L2 discrepancy of the whole
   design, so a `priority` such as `('minimax', 'cd2')` can name it.
 - `mergen.distances.maximin_subset()`: the set of candidate points
@@ -54,14 +58,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prescribed and focus rows; improved designs join the table as
   `'<algorithm>+polish'`, so the winner is never worse on the priority
   under `'lexicographic'` and never dominated by the unpolished winner
-  under `'pareto'`. On five test spaces the winners within 1 % of the
-  best known first priority metric rose from 5 % to 39 %; the best
-  known `minimax` value was reached in 23 of 25 `('minimax', 'cd2')`
-  cases, while `min_distance` kept a median gap of 12 % under the
-  default priority.
-  A target set before the tests (90 % of all cases within 1 %) was not
-  met.
-  `polish_kicks` adds seeded iterated-local-search kicks (default 0).
+  under `'pareto'`. With `min_distance` in the priority, the exchange
+  alternates with moves that lower the Morris-Mitchell phi_p. On five
+  test spaces the winners within 1 % of the best known first priority
+  metric rose from 5 % to 41 %; the best known `minimax` value was
+  reached in 21 of 25 `('minimax', 'cd2')` cases, and `cd2` came within
+  a median 1 % (at most 5 %). `polish_kicks` adds seeded
+  iterated-local-search kicks (default 0).
+- Known limit: `compare()` does not reliably reach the best
+  `min_distance`. With polishing, the winner lay a median 3 % (up to
+  12 %) below the best known value under `('min_distance',)` and 10 %
+  (up to 38 %) under the default Pareto priority, where the phi_p moves
+  changed no winner in the tests. Targets set before
+  the tests (90 % of all cases within 1 %; for `min_distance` a median
+  gap of at most 2 % and none above 10 %) were not met, so `compare()`
+  warns whenever `min_distance` is a priority metric. This is carried
+  to 0.2.0 as an open defect.
 
 ### Changed
 
@@ -608,8 +620,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sequential.fill_around()` result. `PhiP` refuses a p that is not a
   number in (0, 30].
 - `run()`, `compare()` and the `sequential` functions take longer by
-  default, as they repeat until the result is settled; pass an integer
-  `n_repeats` for a fixed number of repeats.
+  default, as they repeat up to a work limit (stopping earlier only if
+  the best result is found five times); pass an integer `n_repeats`
+  for a fixed number of repeats.
 
 ## [0.1.0] - 2026-07-18
 
