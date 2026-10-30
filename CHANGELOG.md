@@ -558,6 +558,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   feasible candidate; `maximin_subset()` returns sorted indices, not
   the selection order of `kennard_stone()`. Tian & Xu are now cited as
   2026 and Joseph, Gul & Ba (MaxProQQ) as 2020 throughout.
+- Documentation builds: Read the Docs used whatever gallery the
+  docs-gallery branch held, so a build that started before the gallery
+  of new code was ready executed the changed examples and ran into the
+  time limit, and rebuilding an older version used the gallery of newer
+  code. The gallery now records the code it was built from; Read the
+  Docs builds only when it matches, cancels the build otherwise (the
+  pages online stay), and never executes an example. The docs-gallery
+  workflow starts the waiting builds once the gallery is ready. Each
+  release keeps its own documentation version, also downloadable as
+  zipped HTML.
+- The estimated runtimes of six examples were wrong: those of 04, 12
+  and 14 were too short for the default repeats of 0.1.1, those of 05,
+  06 and 09 too long. They now give times measured on four cores.
 
 ### Results-affecting changes
 

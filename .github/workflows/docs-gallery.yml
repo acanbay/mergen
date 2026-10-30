@@ -2,29 +2,45 @@
 # dedicated docs-gallery branch (an orphan branch that only ever
 # holds the generated gallery, in the same way large projects keep
 # CI-built documentation in a separate git area, e.g. scikit-learn's
-# scikit-learn.github.io). ReadTheDocs downloads that branch as a
-# tarball in pre_build and, thanks to the sphinx-gallery MD5 cache,
-# assembles the pages without executing any example, staying inside
-# its build time limit. The main branch never contains generated
-# files, and no GitHub release is involved.
+# scikit-learn.github.io). The main branch never contains generated
+# files.
+#
+# The gallery carries GALLERY_INPUTS, the fingerprint of the code it was
+# built from (docs/gallery_inputs.sh). Read the Docs downloads the branch
+# in pre_build (docs/fetch_gallery.sh) and builds only when the
+# fingerprint matches the commit it builds; otherwise it cancels the
+# build and keeps the pages online. The sphinx-gallery MD5 cache then
+# lets it assemble the pages without executing any example, inside its
+# build time limit. Once the gallery is pushed, this workflow starts the
+# Read the Docs builds that were waiting for it (secret RTD_TOKEN).
 name: docs-gallery
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 5 * * 1"   # Mondays 05:00 UTC
+    - cron: "0 5 * * 1"   # Mondays 05:00 UTC: catches dependency drift
   push:
     branches: [main]
     paths:
       - "examples/**"
-      - "src/mergen/**"
+      - "src/**"
       - "pyproject.toml"
+      - "docs/conf.py"
+      - "docs/gallery_inputs.sh"
+      - ".github/workflows/docs-gallery.yml"
 
 permissions:
   contents: write   # needed to push the docs-gallery branch
 
+concurrency:
+  group: docs-gallery
+  cancel-in-progress: true   # only the newest commit's gallery matters
+
 jobs:
   build-gallery:
+    # The gallery on docs-gallery must come from main; a manual run on
+    # another branch would replace it with that branch's gallery.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -42,6 +58,7 @@ jobs:
 
       - name: Publish the gallery to the docs-gallery branch
         run: |
+          bash docs/gallery_inputs.sh > docs/auto_examples/GALLERY_INPUTS
           cd docs/auto_examples
           git init -b docs-gallery
           git add -A
@@ -51,3 +68,38 @@ jobs:
           git push --force \
             "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" \
             docs-gallery
+
+      # latest always; after a push also stable and the release it points
+      # to, whose builds were cancelled if the release was published
+      # before this gallery was ready (a build whose code differs from
+      # the gallery cancels itself again, harmlessly). A release whose
+      # .readthedocs.yaml predates this check (v0.1.0) is never rebuilt:
+      # it would take the newer gallery without noticing.
+      - name: Start the Read the Docs builds
+        env:
+          RTD_TOKEN: ${{ secrets.RTD_TOKEN }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ -z "$RTD_TOKEN" ]; then
+            echo "::warning::Secret RTD_TOKEN is not set; start the Read the Docs build by hand."
+            exit 0
+          fi
+          api=https://readthedocs.org/api/v3/projects/mergen/versions
+          auth="Authorization: Token ${RTD_TOKEN}"
+          versions=latest
+          release=$(curl -fsS -H "$auth" "$api/stable/" | jq -r '.ref // empty')
+          if [ "$EVENT" != schedule ] && [ -n "$release" ]; then
+            git fetch --quiet --depth 1 origin "refs/tags/$release"
+            if git show FETCH_HEAD:.readthedocs.yaml | grep -q fetch_gallery.sh; then
+              versions="latest stable"
+              if [ "$(curl -fsS -H "$auth" "$api/$release/" | jq -r .active)" = true ]; then
+                versions="$versions $release"
+              fi
+            else
+              echo "Release $release predates the gallery check; its documentation is left as it is."
+            fi
+          fi
+          for v in $versions; do
+            echo "Starting the Read the Docs build of $v"
+            curl -fsS -X POST -H "$auth" "$api/$v/builds/" > /dev/null
+          done

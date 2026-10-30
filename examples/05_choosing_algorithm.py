@@ -44,7 +44,7 @@ Mergen features used
   modest compute budget, so the comparison reflects a fixed cost
   rather than each optimiser's own (much heavier) defaults.
 
-Estimated runtime: a few minutes (three optimisations under a shared
+Estimated runtime: under a minute (three optimisations under a shared
 compute budget).
 """
 from mergen import ParameterSpace, Sampler

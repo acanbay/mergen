@@ -37,7 +37,7 @@ Mergen features used
 - mergen.sequential.k_fold_split: partition the design into folds for
   cross-validation.
 
-Estimated runtime: a minute or two.
+Estimated runtime: under a minute.
 """
 from mergen import ParameterSpace, Sampler
 from mergen import sequential
