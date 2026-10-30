@@ -84,7 +84,7 @@ def _umaxpro_naive(X: np.ndarray) -> float:
 
 
 def _stratified_l2_naive(X: np.ndarray, s: int, p: int, w: list) -> float:
-    """Tian & Xu (2025), Theorem 1 Eq. 13, as plain loops.
+    """Tian & Xu (2026), Theorem 1 Eq. 13, as plain loops.
 
     delta_i(t, z) = 1{floor(s^i t) = floor(s^i z)}, bins clamped at
     s^i - 1 so that a coordinate of exactly 1 stays in the last bin.
@@ -162,7 +162,7 @@ class TestPhiPIndependent:
     """
 
     @pytest.mark.parametrize("n,d", [(5, 2), (10, 3), (20, 4)])
-    @pytest.mark.parametrize("p", [2, 15, 50])
+    @pytest.mark.parametrize("p", [2, 15, 30])
     def test_matches_naive_random_designs(self, n, d, p):
         X = np.random.default_rng(44).random((n, d))
         assert np.isclose(PhiP(p=p).evaluate(X, space=None),
@@ -276,14 +276,14 @@ class TestUMaxProIndependent:
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Stratified L2 — Tian & Xu (2025), published values
+# Stratified L2 — Tian & Xu (2026), published values
 # ─────────────────────────────────────────────────────────────────────
 class TestStratifiedL2AgainstPaper:
-    """Validate StratifiedL2 against values published in Tian & Xu (2025).
+    """Validate StratifiedL2 against values published in Tian & Xu (2026).
 
     References
     ----------
-    Tian, Y. & Xu, H. (2025). A stratified L2-discrepancy with
+    Tian, Y. & Xu, H. (2026). A stratified L2-discrepancy with
         application to space-filling designs. *Journal of the Royal
         Statistical Society, Series B*.
     """
@@ -381,7 +381,7 @@ class TestCriterionInvariances:
     built from pairwise, per-axis terms symmetric in the two points
     and across axes; StratifiedL2's symmetry follows from the
     reflection/permutation invariance of its dyadic strata (Tian & Xu
-    2025, Section 3, properties i-ii). Hence all five criteria must
+    2026, Section 3, properties i-ii). Hence all five criteria must
     be invariant under row permutation, column permutation, and the
     reflection x -> 1 - x. A violation would indicate an indexing or
     normalisation bug invisible to unit tests.

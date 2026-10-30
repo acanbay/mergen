@@ -23,18 +23,17 @@ result.quality_report()
 ════════════════════════════════════════════════════════════════════════
   Metric                      Value    Baseline  Better when        Rank
 ────────────────────────────────────────────────────────────────────────
-  Min distance               0.1491      0.0505  higher         99th pct
-  Minimax distance           0.5151      0.5696  lower          77th pct  *
-  Max |correlation|          0.1601      0.2386  lower          77th pct  *
-  2D projection CD2          0.1305      0.1890  lower          99th pct  *
-  CV distances               0.3806      0.4017  lower          89th pct
-  Mean distance              0.7278      0.7415  higher         38th pct
+  Min distance               0.1940      0.0505  higher         99th pct
+  Minimax distance           0.4404      0.5696  lower          98th pct
+  Max |correlation|          0.0831      0.2386  lower          96th pct
+  2D projection CD2          0.0148      0.0395  lower          99th pct
+  CV distances               0.3558      0.4017  lower          99th pct
+  Mean distance              0.7450      0.7415  higher         52nd pct
 ────────────────────────────────────────────────────────────────────────
   Criterion scores
 ────────────────────────────────────────────────────────────────────────
-  UMAXPRO                    7.9158e+14  1.2973e+22  99th pct  lower
+  UMAXPRO                    6.5415e+06  6.0784e+13    99th pct  lower
 ────────────────────────────────────────────────────────────────────────
-  * = primarily optimised by 'umaxpro'
   For other priorities, see: mergen.criteria.list_criteria()
 ────────────────────────────────────────────────────────────────────────
   Baseline: 300 MC designs from feasible space  |  Rank = percentile among baseline designs
@@ -45,14 +44,17 @@ With the same seed and the same Mergen version you get exactly these
 numbers on any machine.
 
 The run itself also printed a warning: the best result was found by
-only one of the repeats before the work limit, so another seed may give
-a different design. `run()` repeats the optimisation until its best
-result has been found five times (`n_repeats='auto'`), lengthening the
-search when no repeat reproduces the best one. For `umaxpro` with
-simulated annealing on this space that does not happen within the
-limit. The design is still good, as the report shows, but if it must
-not depend on the seed, raise the budget with `set_optimizer()` or let
-`Sampler.compare()` find a criterion and algorithm that settle.
+only one of the repeats before the work limit, and the warning gives
+how far the other repeats' criterion scores lie from it, so another
+seed may give a different design. `run()` repeats the optimisation up
+to a work limit and stops earlier only if its best result has been
+found five times (`n_repeats='auto'`), lengthening the search when no
+repeat reproduces the best one. Except on small problems that seldom
+happens within the limit, as here for
+`umaxpro` with simulated annealing. The design is still good, as the
+report shows. `result.repeat_info` gives how far the repeats lie
+apart; to make the result depend less on the seed, raise the budget
+with `set_optimizer()`.
 
 ### The Monte Carlo baseline
 
@@ -61,7 +63,7 @@ from the same feasible space and computes every metric for each of
 them. If your design has prescribed or focus points, every random
 design keeps them and only the rest is random; the quality metrics
 page explains this. This baseline is what turns raw numbers into
-evidence. A minimum distance of 0.1491 means nothing in isolation;
+evidence. A minimum distance of 0.1940 means nothing in isolation;
 knowing that 300 random attempts had a median of 0.0505 quantifies
 what the optimisation gained.
 
@@ -78,22 +80,27 @@ metrics, lower is better.
 *Rank* is direction-adjusted, so it always reads the same way: it is
 the share of baseline designs that your design beats on that metric.
 The 99th percentile min distance above outperforms almost every one of
-the random designs; the 77th percentile maximum correlation outperforms
-77 percent of them. Higher rank is always better, whatever the metric's
+the random designs; the 52nd percentile mean distance outperforms 52
+percent of them. Higher rank is always better, whatever the metric's
 direction, and the terminal colour coding follows the same rule.
 
-### The asterisks
+### Marked rows and the criterion
 
-The rows marked `*` flag the metrics most closely related to the
-chosen criterion, as a guide to which rows deserve your attention
-first. The example above also illustrates an honest and important
-point: a design can sit at the 99th percentile on the criterion it
-optimised while ranking modestly on other classical metrics. A single
-criterion is one definition of a good design, not all of them. If the
-metrics you care about are not the ones your criterion serves, the fix
-is not more iterations but a different criterion; the
-choosing-a-criterion page in the explanation section maps goals to
-criteria, and `Sampler.compare()` measures the trade-offs empirically.
+A row is marked `*` when its metric follows directly from the
+definition of the chosen criterion. Only `phi_p` has such a metric:
+as its exponent grows it approaches the maximin criterion, so a
+`phi_p` run marks the min distance row. No row is marked for
+`umaxpro`, because no metric in the table measures what it optimises
+(separation of the points in every projection).
+
+The example above also illustrates an honest and important point: a
+design can sit at the 99th percentile on the criterion it optimised
+while ranking modestly on other classical metrics. A single criterion
+is one definition of a good design, not all of them. If the metrics
+you care about are not the ones your criterion serves, the fix is not
+more iterations but a different criterion; the choosing-a-criterion
+page in the explanation section maps goals to criteria, and
+`Sampler.compare()` measures the trade-offs empirically.
 
 ### The criterion row
 

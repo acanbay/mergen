@@ -38,7 +38,9 @@ with a point_type column for filtering.
 from __future__ import annotations
 
 import datetime
+import functools
 import os
+import re
 import warnings
 from itertools import combinations
 from typing import List, Optional, Union
@@ -164,7 +166,9 @@ def _collect(result) -> pd.DataFrame:
     for df in getattr(result, 'sets', {}).values():
         if len(df):
             frames.append(df)
-    out = pd.concat(frames, ignore_index=True)
+    # Plots place points by their numeric grid values; nominal and
+    # ordinal axes get their labels as tick labels (_category_ticks).
+    out = result.space.encode_frame(pd.concat(frames, ignore_index=True))
     # Focus points are part of the optimised design; plots show them with
     # the same colour and legend entry. Exports keep the Focus label.
     out.loc[out["point_type"] == "Focus", "point_type"] = "Optimised"
@@ -178,19 +182,26 @@ def _present(df: pd.DataFrame) -> list:
     return base + extra
 
 
+# Colours for sets and point types that were given none, in order.
+_FALLBACK = ["#8338ec", "#ffbe0b", "#06d6a0", "#8d99ae", "#ff006e",
+             "#118ab2", "#bc6c25", "#6a994e"]
+
+
 def _extra_colors(result) -> dict:
-    ec = {
-        name: sdf["color"].iloc[0]
-        for name, sdf in getattr(result, 'sets', {}).items()
-        if len(sdf) and "color" in sdf.columns
-    }
-    # Custom-labelled design points (e.g. from Sampler.load_design) may
-    # carry their colour in the samples frame itself.
-    df = result.samples
-    if "color" in df.columns:
-        for t, sub in df.groupby("point_type"):
-            if t not in _STYLE and len(sub):
-                ec.setdefault(t, sub["color"].iloc[0])
+    """Colour of every point type outside _STYLE: its own colour when it
+    has one, otherwise the next fallback colour."""
+    ec = {}
+    frames = [result.samples] + list(getattr(result, 'sets', {}).values())
+    for df in frames:
+        if not len(df) or "point_type" not in df.columns:
+            continue
+        for t, sub in df.groupby("point_type", sort=False):
+            if t in _STYLE or t in ec:
+                continue
+            color = sub["color"].iloc[0] if "color" in sub.columns else None
+            if not isinstance(color, str):
+                color = _FALLBACK[len(ec) % len(_FALLBACK)]
+            ec[t] = color
     return ec
 
 
@@ -222,7 +233,7 @@ def _legend_handles(present: list, ec: dict, show_pool: bool = False):
                                markeredgewidth=st['lw'],
                                markersize=np.sqrt(st['ms']) * 0.9,
                                linestyle='none'))
-        lbls.append(t)
+        lbls.append(_mpl_text(t))
     for t, color in ec.items():
         if t not in present:
             continue
@@ -232,7 +243,7 @@ def _legend_handles(present: list, ec: dict, show_pool: bool = False):
                                markeredgewidth=0.5,
                                markersize=np.sqrt(70) * 0.9,
                                linestyle='none'))
-        lbls.append(t)
+        lbls.append(_mpl_text(t))
     return handles, lbls
 
 
@@ -336,9 +347,151 @@ def _scatter(ax, df, xc: str, yc: str, present: list,
             pad = (v.max() - v.min()) * 0.07 or 0.5
             setter(float(v.min()) - pad, float(v.max()) + pad)
 
-    ax.set_xlabel(xc, fontsize=11)
-    ax.set_ylabel(yc, fontsize=11)
+    ax.set_xlabel(_mpl_text(xc), fontsize=11)
+    ax.set_ylabel(_mpl_text(yc), fontsize=11)
     ax.tick_params(labelsize=9)
+    _category_ticks(ax, space, xc, 'x')
+    _category_ticks(ax, space, yc, 'y')
+
+
+def _range_text(space, name: str, vals, esc=str) -> str:
+    """A parameter's range for the reports: its labels, passed through
+    the format's escape function *esc*, if it has any."""
+    if space.is_categorical(name):
+        return ", ".join(esc(str(lb)) for lb in space.category_labels(name))
+    return f"[{float(vals.min()):.4g}, {float(vals.max()):.4g}]"
+
+
+_LATEX_SPECIAL = {'\\': r'\textbackslash{}', '&': r'\&', '%': r'\%',
+                  '$': r'\$', '#': r'\#', '_': r'\_', '{': r'\{',
+                  '}': r'\}', '~': r'\textasciitilde{}',
+                  '^': r'\textasciicircum{}', '|': r'\textbar{}',
+                  '<': r'\textless{}', '>': r'\textgreater{}'}
+
+
+def _design_labels(result) -> list:
+    """Point types of the design in report order: the built-in ones,
+    then any other (e.g. the label of a loaded design)."""
+    present = list(dict.fromkeys(result.samples["point_type"]))
+    order = ["Prescribed", "Focus", "Optimised"]
+    return [t for t in order if t in present] + [
+        t for t in present if t not in order]
+
+
+def _repeats_text(result) -> str:
+    """Repeats of the delivered optimisation, e.g. '15 (auto)'; empty
+    for a loaded design, which was not optimised."""
+    info = getattr(result, '_repeat_info', {}).get(
+        getattr(result, 'best_algorithm', None))
+    if not info:
+        return ''
+    mode = result._meta.get('n_repeats')
+    return f"{info['n_repeats']}" + (" (auto)" if mode == 'auto' else "")
+
+
+@functools.lru_cache(maxsize=4096)
+def _is_math(span: str) -> bool:
+    """Whether a '$...$' span is valid mathtext, the test the plots use."""
+    try:
+        from matplotlib.mathtext import MathTextParser
+        MathTextParser('path').parse(span)
+        return True
+    except Exception:
+        return False
+
+
+def _with_math(text, escape, escape_math=lambda m: m) -> str:
+    """*text* with *escape* applied to everything except its valid
+    '$...$' spans, which stay math (as they do in the plots) and get
+    only *escape_math*; a span that is not valid math is escaped as
+    text."""
+    parts = re.split(r'(\$[^$]+\$)', str(text))
+    return "".join(escape_math(p) if i % 2 and _is_math(p) else escape(p)
+                   for i, p in enumerate(parts))
+
+
+def _latex_escape(text: str) -> str:
+    """Text safe to place in LaTeX; valid $...$ spans stay math, with
+    the characters that end a cell or a line (& % #) escaped."""
+    return _with_math(
+        text,
+        lambda t: "".join(_LATEX_SPECIAL.get(ch, ch) for ch in t),
+        lambda m: re.sub(r'(?<!\\)([&%#])', r'\\\1', m))
+
+
+def _md_escape(text: str, cell: bool = True) -> str:
+    """Text shown literally in Markdown; valid $...$ spans stay math. In
+    a table cell (*cell*) a '|' inside math is escaped too, so the table
+    holds; elsewhere it is left alone, since '\\|' would read as a
+    double bar in the math."""
+    return _with_math(
+        text,
+        lambda t: "".join('\\' + ch if ch in '\\`*_|[]<>$&~' else ch
+                          for ch in t),
+        (lambda m: m.replace('|', '\\|')) if cell else (lambda m: m))
+
+
+def _escaped_frame(df: pd.DataFrame, escape) -> pd.DataFrame:
+    """*df* with its column names and its text cells (nominal and
+    ordinal labels) passed through *escape*; numbers are left alone."""
+    out = df.copy()
+    for c in out.columns:
+        # Text columns are object or, from pandas 3, string dtype.
+        if not pd.api.types.is_numeric_dtype(out[c]):
+            out[c] = pd.Series([escape(v) if isinstance(v, str) else v
+                                for v in out[c]], index=out.index,
+                               dtype=object)
+    out.columns = [escape(c) for c in out.columns]
+    return out
+
+
+def _mpl_text(text) -> str:
+    """Text for a plot: mathtext such as '$\\alpha$' is kept, but a '$'
+    that matplotlib cannot parse is shown literally instead of failing."""
+    text = str(text)
+    if text.count('$') < 2:
+        return text
+    try:
+        from matplotlib.mathtext import MathTextParser
+        MathTextParser('path').parse(text)
+        return text
+    except Exception:
+        return text.replace('$', r'\$')
+
+
+def _html_escape(text: str) -> str:
+    """Text safe in the HTML report, whose MathJax reads $...$ as math:
+    valid spans stay math, any other '$' is escaped for MathJax."""
+    import html
+
+    def plain(t):
+        out = html.escape(t).replace('$', '\\$')
+        # A backslash right before a math span would escape its '$' for
+        # MathJax; an empty element keeps the two apart.
+        return out + '<span></span>' if t.endswith('\\') else out
+    return _with_math(text, plain, html.escape)
+
+
+def _check_names(space, names) -> None:
+    """Raise ValueError for a name that is not a parameter."""
+    unknown = [n for n in names if n not in space.names]
+    if unknown:
+        raise ValueError(f"Unknown parameter(s) {unknown}. "
+                         f"Parameters: {space.names}.")
+
+
+def _category_ticks(ax, space, name: str, axis: str) -> None:
+    """Label a nominal or ordinal axis with its levels."""
+    if name not in space._parameters or not space.is_categorical(name):
+        return
+    labels = space.category_labels(name)
+    ticks  = list(range(len(labels)))
+    if axis == 'x':
+        ax.set_xticks(ticks)
+        ax.set_xticklabels([_mpl_text(lb) for lb in labels], fontsize=9)
+    else:
+        ax.set_yticks(ticks)
+        ax.set_yticklabels([_mpl_text(lb) for lb in labels], fontsize=9)
 
 
 def _kde_strip(ax, df, param: str, present: list, space, ec: dict) -> None:
@@ -404,8 +557,9 @@ def _kde_strip(ax, df, param: str, present: list, space, ec: dict) -> None:
     ax.set_ylim(-0.18, 1.12)
     ax.set_yticks([0, 0.5, 1.0])
     ax.set_yticklabels(['0', '0.5', '1'], fontsize=9)
-    ax.set_xlabel(param, fontsize=11)
+    ax.set_xlabel(_mpl_text(param), fontsize=11)
     ax.tick_params(labelsize=9)
+    _category_ticks(ax, space, param, 'x')
 
 
 def _apply_log(ax, xc: str, yc: str, log_params: list) -> set:
@@ -475,8 +629,8 @@ def plot_pairplot(result, show_pool: bool = False, title: bool = True,
             is_self = (xc == yc)
             _scatter(ax, df, xc, yc, present, space,
                      show_pool and not is_self, ec)
-            ax.set_xlabel(xc if i == nd - 1 else "", fontsize=11)
-            ax.set_ylabel(yc if j == 0 else "", fontsize=11)
+            ax.set_xlabel(_mpl_text(xc) if i == nd - 1 else "", fontsize=11)
+            ax.set_ylabel(_mpl_text(yc) if j == 0 else "", fontsize=11)
             if is_self:
                 if xc in space._parameters:
                     v   = space._parameters[xc]
@@ -523,6 +677,7 @@ def plot_1d(result, params: Optional[Union[str, list]] = None,
     selected = (space.names     if params is None else
                 [params]        if isinstance(params, str) else
                 list(params))
+    _check_names(space, selected)
     n    = len(selected)
     tstr = "1D Distribution" if title else ""
 
@@ -569,6 +724,13 @@ def plot_2d(result, params: Optional[Union[list, List[list]]] = None,
         pairs = [tuple(params)]
     else:
         pairs = [tuple(p) for p in params]
+    if any(len(p) != 2 or p[0] == p[1] for p in pairs):
+        raise ValueError(f"plot('2d') takes pairs of two different "
+                         f"parameters; got {params!r}.")
+    if not pairs:
+        raise ValueError("plot('2d') needs at least two parameters; this "
+                         "space has one. Use plot('1d') instead.")
+    _check_names(space, [n for pair in pairs for n in pair])
 
     n     = len(pairs)
     ncols = min(n, 3)
@@ -581,8 +743,8 @@ def plot_2d(result, params: Optional[Union[list, List[list]]] = None,
     for idx, (xc, yc) in enumerate(pairs):
         ax = axes[idx // ncols, idx % ncols]
         _scatter(ax, df, xc, yc, present, space, show_pool, ec)
-        ax.set_xlabel(xc, fontsize=11)
-        ax.set_ylabel(yc, fontsize=11)
+        ax.set_xlabel(_mpl_text(xc), fontsize=11)
+        ax.set_ylabel(_mpl_text(yc), fontsize=11)
         if log:
             _apply_log(ax, xc, yc, log)
             plotted |= {xc, yc}
@@ -617,13 +779,16 @@ def plot_distances(result, title: bool = True,
             out.extend(np.linalg.norm(norm[i + 1:] - norm[i], axis=1).tolist())
         return np.array(out)
 
-    sets = [("Design", result.samples[space.names].values, "#3a86ff")]
+    def num(df):
+        return space.encode_frame(df[space.names]).to_numpy(dtype=float)
+
+    sets = [("Design", num(result.samples), "#3a86ff")]
     if len(result.validation):
-        sets.append(("Validation", result.validation[space.names].values, "#e63946"))
+        sets.append(("Validation", num(result.validation), "#e63946"))
+    ec = _extra_colors(result)
     for name, sdf in getattr(result, 'sets', {}).items():
         if len(sdf):
-            c = sdf["color"].iloc[0] if "color" in sdf.columns else "#888888"
-            sets.append((name, sdf[space.names].values, c))
+            sets.append((name, num(sdf), ec.get(name, "#888888")))
 
     tpad = _TPAD_T if title else _TPAD_N
     pw   = min(_PS * 1.6, _MAX_W - _LPAD - _LGND - _RPAD)
@@ -657,7 +822,7 @@ def plot_distances(result, title: bool = True,
         else:
             ax.hist(dists, bins=20, alpha=0.35, color=color, density=True)
         handles.append(Line2D([0], [0], color=color, lw=2))
-        lbls.append(name)
+        lbls.append(_mpl_text(name))
 
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(bottom=0)
@@ -704,7 +869,7 @@ def plot_correlation(result, title: bool = True,
     granges = space.granges
     d       = len(names)
 
-    pts    = result.samples[names].values.astype(float)
+    pts    = space.encode_frame(result.samples[names]).to_numpy(dtype=float)
     X_norm = (pts - gmins) / granges
 
     # Correlation matrix — diagonal set to 1.0 (self-correlation)
@@ -725,9 +890,10 @@ def plot_correlation(result, title: bool = True,
     ax.imshow(corr, vmin=0, vmax=1, cmap='RdYlGn_r', aspect='auto')
 
     ax.set_xticks(range(d))
-    ax.set_xticklabels(names, rotation=45, ha='right', fontsize=tick_fs)
+    ax.set_xticklabels([_mpl_text(n) for n in names], rotation=45,
+                       ha='right', fontsize=tick_fs)
     ax.set_yticks(range(d))
-    ax.set_yticklabels(names, fontsize=tick_fs)
+    ax.set_yticklabels([_mpl_text(n) for n in names], fontsize=tick_fs)
 
     for i in range(d):
         for j in range(d):
@@ -1111,7 +1277,7 @@ def _report_header(result) -> str:
         lines.append(
             f"  {name:<24} {ptype:<12} "
             f"{len(vals):>5} levels  "
-            f"[{float(vals.min()):.4g}, {float(vals.max()):.4g}]"
+            f"{_range_text(space, name, vals)}"
         )
     lines += [
         f"  {'Candidates':<24} {space.n_candidates:>5,}",
@@ -1120,7 +1286,7 @@ def _report_header(result) -> str:
         "─" * 40,
     ]
     vc = result.samples["point_type"].value_counts()
-    for lbl in ("Prescribed", "Focus", "Optimised"):
+    for lbl in _design_labels(result):
         n = vc.get(lbl, 0)
         if n:
             lines.append(f"  {lbl:<24} {n:>5}")
@@ -1261,22 +1427,22 @@ def export_markdown(result, filename: str = 'report.md') -> None:
         f.write("|-----------|------|-------:|-------|\n")
         for name, vals in zip(space.names, space.values):
             ptype = space._param_types.get(name, 'discrete')
-            f.write(f"| {name} | {ptype} | {len(vals)} | [{float(vals.min()):.4g}, {float(vals.max()):.4g}] |\n")
+            f.write(f"| {_md_escape(name)} | {ptype} | {len(vals)} | {_range_text(space, name, vals, _md_escape)} |\n")
         f.write(f"| **Feasible candidates** | | {space.n_candidates} | |\n")
         f.write("\n---\n\n")
 
         # ── Design Summary ────────────────────────────────────────────
         f.write("## Design Summary\n\n")
         vc = result.samples["point_type"].value_counts()
-        for lbl in ("Prescribed", "Focus", "Optimised"):
+        for lbl in _design_labels(result):
             n = vc.get(lbl, 0)
             if n:
-                f.write(f"- **{lbl}**: {n}\n")
+                f.write(f"- **{_md_escape(lbl, cell=False)}**: {n}\n")
         f.write(f"- **Total design**: {len(result.samples)}\n")
         if len(result.validation):
             f.write(f"- **Validation**: {len(result.validation)}\n")
         for sname, sdf in getattr(result, 'sets', {}).items():
-            f.write(f"- **{sname}**: {len(sdf)}\n")
+            f.write(f"- **{_md_escape(sname, cell=False)}**: {len(sdf)}\n")
         f.write("\n")
 
         # ── Run Settings ──────────────────────────────────────────────
@@ -1284,7 +1450,8 @@ def export_markdown(result, filename: str = 'report.md') -> None:
         from .criteria import criterion_latex as _clx
         _crit = meta.get('criteria', '?')
         f.write(f"- **Criterion**: {_clx(_crit) if isinstance(_crit, str) else _crit}\n")
-        f.write(f"- **Restarts**: {meta.get('n_restarts', '?')}\n")
+        if _repeats_text(result):
+            f.write(f"- **Repeats**: {_repeats_text(result)}\n")
         f.write(f"- **Seed**: {meta.get('seed', '?')}\n")
         f.write("\n---\n\n")
 
@@ -1297,13 +1464,13 @@ def export_markdown(result, filename: str = 'report.md') -> None:
 
         # ── Design Points ─────────────────────────────────────────────
         f.write("## Design Points\n\n")
-        for lbl in ("Prescribed", "Focus", "Optimised"):
+        for lbl in _design_labels(result):
             sub = result.samples[result.samples["point_type"] == lbl]
             if sub.empty:
                 continue
-            f.write(f"### {lbl} ({len(sub)} points)\n\n")
+            f.write(f"### {_md_escape(lbl, cell=False)} ({len(sub)} points)\n\n")
             try:
-                f.write(sub[names].to_markdown(index=True, floatfmt=".10g") + "\n\n")
+                f.write(sub[names].pipe(_escaped_frame, _md_escape).to_markdown(index=True, floatfmt=".10g") + "\n\n")
             except Exception:
                 f.write(sub[names].to_string(index=True, float_format=lambda x: f"{x:.10g}") + "\n\n")
 
@@ -1311,16 +1478,16 @@ def export_markdown(result, filename: str = 'report.md') -> None:
         if len(result.validation):
             f.write(f"## Validation Set ({len(result.validation)} points)\n\n")
             try:
-                f.write(result.validation[names].to_markdown(index=True, floatfmt='.10g') + "\n\n")
+                f.write(result.validation[names].pipe(_escaped_frame, _md_escape).to_markdown(index=True, floatfmt='.10g') + "\n\n")
             except Exception:
                 f.write(result.validation[names].to_string(index=True, float_format=lambda x: f"{x:.10g}") + "\n\n")
 
         # ── Extra sets ────────────────────────────────────────────────
         for sname, sdf in getattr(result, 'sets', {}).items():
             if len(sdf):
-                f.write(f"## {sname} ({len(sdf)} points)\n\n")
+                f.write(f"## {_md_escape(sname, cell=False)} ({len(sdf)} points)\n\n")
                 try:
-                    f.write(sdf[names].to_markdown(index=True, floatfmt='.10g') + "\n\n")
+                    f.write(sdf[names].pipe(_escaped_frame, _md_escape).to_markdown(index=True, floatfmt='.10g') + "\n\n")
                 except Exception:
                     f.write(sdf[names].to_string(index=True, float_format=lambda x: f"{x:.10g}") + "\n\n")
 
@@ -1356,8 +1523,8 @@ def export_latex(result, filename: str = 'report.tex') -> None:
         f.write("\\toprule\nParameter & Type & Levels & Range \\\\\n\\midrule\n")
         for name, vals in zip(space.names, space.values):
             ptype = space._param_types.get(name, 'discrete')
-            f.write(f"{name} & {ptype} & {len(vals)} & "
-                    f"[{float(vals.min()):.4g}, {float(vals.max()):.4g}] \\\\\n")
+            f.write(f"{_latex_escape(name)} & {ptype} & {len(vals)} & "
+                    f"{_range_text(space, name, vals, _latex_escape)} \\\\\n")
         f.write("\\midrule\n")
         f.write(f"Feasible candidates & & {space.n_candidates} & \\\\\n")
         f.write("\\bottomrule\n\\end{tabular}\n\n")
@@ -1366,13 +1533,15 @@ def export_latex(result, filename: str = 'report.tex') -> None:
         f.write("\\subsection*{Design Summary}\n\n")
         vc = result.samples["point_type"].value_counts()
         f.write("\\begin{tabular}{lr}\n\\toprule\n")
-        for lbl in ("Prescribed", "Focus", "Optimised"):
+        for lbl in _design_labels(result):
             n = vc.get(lbl, 0)
             if n:
-                f.write(f"{lbl} & {n} \\\\\n")
+                f.write(f"{_latex_escape(lbl)} & {n} \\\\\n")
         f.write(f"Total design & {len(result.samples)} \\\\\n")
         if len(result.validation):
             f.write(f"Validation & {len(result.validation)} \\\\\n")
+        for sname, sdf in getattr(result, 'sets', {}).items():
+            f.write(f"{_latex_escape(sname)} & {len(sdf)} \\\\\n")
         f.write("\\bottomrule\n\\end{tabular}\n\n")
 
         # Run Settings
@@ -1381,7 +1550,8 @@ def export_latex(result, filename: str = 'report.tex') -> None:
         from .criteria import criterion_latex as _clx
         _crit = meta.get('criteria', '?')
         f.write(f"Criterion & {_clx(_crit) if isinstance(_crit, str) else _crit} \\\\\n")
-        f.write(f"Restarts & {meta.get('n_restarts', '?')} \\\\\n")
+        if _repeats_text(result):
+            f.write(f"Repeats & {_repeats_text(result)} \\\\\n")
         f.write(f"Seed & {meta.get('seed', '?')} \\\\\n")
         f.write("\\bottomrule\n\\end{tabular}\n\n")
 
@@ -1394,23 +1564,27 @@ def export_latex(result, filename: str = 'report.tex') -> None:
             f.write("\n\\end{verbatim}\n\n")
 
         # Design points per type
-        for lbl in ("Prescribed", "Focus", "Optimised"):
+        for lbl in _design_labels(result):
             sub = result.samples[result.samples["point_type"] == lbl]
             if sub.empty:
                 continue
-            f.write(f"\\subsection*{{{lbl} ({len(sub)} points)}}\n\n")
-            f.write(sub[names].to_latex(index=True, float_format='%.10g') + "\n")
+            f.write(f"\\subsection*{{{_latex_escape(lbl)} ({len(sub)} points)}}\n\n")
+            f.write(sub[names].pipe(_escaped_frame, _latex_escape).to_latex(
+                index=True, float_format='%.10g', escape=False) + "\n")
 
         # Validation
         if len(result.validation):
             f.write(f"\\subsection*{{Validation Set ({len(result.validation)} points)}}\n\n")
-            f.write(result.validation[names].to_latex(index=True, float_format='%.10g') + "\n")
+            f.write(result.validation[names].pipe(_escaped_frame, _latex_escape).to_latex(
+                index=True, float_format='%.10g', escape=False) + "\n")
 
         # Extra sets
         for sname, sdf in getattr(result, 'sets', {}).items():
             if len(sdf):
-                f.write(f"\\subsection*{{{sname} ({len(sdf)} points)}}\n\n")
-                f.write(sdf[names].to_latex(index=True, float_format='%.10g') + "\n")
+                f.write(f"\\subsection*{{{_latex_escape(sname)} "
+                        f"({len(sdf)} points)}}\n\n")
+                f.write(sdf[names].pipe(_escaped_frame, _latex_escape).to_latex(
+                    index=True, float_format='%.10g', escape=False) + "\n")
 
     print(f"  Saved: {p}")
 
@@ -1469,7 +1643,11 @@ def export_html(result, filename: str = 'report.html') -> None:
     """
 
     def _df_to_html(df):
-        return df.to_html(index=True, border=0, classes='', float_format='%.10g')
+        # Names and labels escaped like the rest of the page (MathJax
+        # reads $...$ as math).
+        return _escaped_frame(df, _html_escape).to_html(
+            index=True, border=0, classes='', float_format='%.10g',
+            escape=False)
 
     def _get_metrics_text():
         return _quality_table(result)
@@ -1500,8 +1678,8 @@ def export_html(result, filename: str = 'report.html') -> None:
         f.write("<table><tr><th>Parameter</th><th>Type</th><th>Levels</th><th>Range</th></tr>\n")
         for name, vals in zip(space.names, space.values):
             ptype = space._param_types.get(name, 'discrete')
-            f.write(f"<tr><td>{name}</td><td>{ptype}</td><td>{len(vals)}</td>"
-                    f"<td>[{float(vals.min()):.4g}, {float(vals.max()):.4g}]</td></tr>\n")
+            f.write(f"<tr><td>{_html_escape(name)}</td><td>{ptype}</td><td>{len(vals)}</td>"
+                    f"<td>{_range_text(space, name, vals, _html_escape)}</td></tr>\n")
         f.write(f"<tr><td><strong>Feasible candidates</strong></td><td></td>"
                 f"<td>{space.n_candidates}</td><td></td></tr>\n")
         f.write("</table>\n<hr>\n")
@@ -1509,15 +1687,15 @@ def export_html(result, filename: str = 'report.html') -> None:
         # Design summary
         f.write("<h2>Design Summary</h2>\n<ul>\n")
         vc = result.samples["point_type"].value_counts()
-        for lbl in ("Prescribed", "Focus", "Optimised"):
+        for lbl in _design_labels(result):
             n = vc.get(lbl, 0)
             if n:
-                f.write(f"  <li><strong>{lbl}</strong>: {n}</li>\n")
+                f.write(f"  <li><strong>{_html_escape(lbl)}</strong>: {n}</li>\n")
         f.write(f"  <li><strong>Total design</strong>: {len(result.samples)}</li>\n")
         if len(result.validation):
             f.write(f"  <li><strong>Validation</strong>: {len(result.validation)}</li>\n")
         for sname, sdf in getattr(result, 'sets', {}).items():
-            f.write(f"  <li><strong>{sname}</strong>: {len(sdf)}</li>\n")
+            f.write(f"  <li><strong>{_html_escape(sname)}</strong>: {len(sdf)}</li>\n")
         f.write("</ul>\n")
 
         # Run settings
@@ -1525,7 +1703,9 @@ def export_html(result, filename: str = 'report.html') -> None:
         from .criteria import criterion_latex as _clx
         _crit = meta.get('criteria', '?')
         f.write(f"  <li><strong>Criterion</strong>: {_clx(_crit) if isinstance(_crit, str) else _crit}</li>\n")
-        f.write(f"  <li><strong>Restarts</strong>: {meta.get('n_restarts', '?')}</li>\n")
+        if _repeats_text(result):
+            f.write(f"  <li><strong>Repeats</strong>: "
+                    f"{_repeats_text(result)}</li>\n")
         f.write(f"  <li><strong>Seed</strong>: {meta.get('seed', '?')}</li>\n")
         f.write("</ul>\n<hr>\n")
 
@@ -1538,11 +1718,11 @@ def export_html(result, filename: str = 'report.html') -> None:
 
         # Design points
         f.write("<h2>Design Points</h2>\n")
-        for lbl in ("Prescribed", "Focus", "Optimised"):
+        for lbl in _design_labels(result):
             sub = result.samples[result.samples["point_type"] == lbl]
             if sub.empty:
                 continue
-            f.write(f"<h3>{lbl} ({len(sub)} points)</h3>\n")
+            f.write(f"<h3>{_html_escape(lbl)} ({len(sub)} points)</h3>\n")
             f.write(_df_to_html(sub[names]) + "\n")
 
         if len(result.validation):
@@ -1551,7 +1731,7 @@ def export_html(result, filename: str = 'report.html') -> None:
 
         for sname, sdf in getattr(result, 'sets', {}).items():
             if len(sdf):
-                f.write(f"<h2>{sname} ({len(sdf)} points)</h2>\n")
+                f.write(f"<h2>{_html_escape(sname)} ({len(sdf)} points)</h2>\n")
                 f.write(_df_to_html(sdf[names]) + "\n")
 
         f.write("</body>\n</html>\n")
@@ -1570,4 +1750,7 @@ def _full_df(result) -> pd.DataFrame:
     for sdf in getattr(result, 'sets', {}).values():
         if len(sdf):
             frames.append(sdf.copy())
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    out = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    # A named index gives the CSV and Excel files a header for it.
+    out.index.name = 'id'
+    return out

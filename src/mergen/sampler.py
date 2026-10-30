@@ -1,7 +1,8 @@
 """
 mergen.sampler
 ==============
-Space-filling design via the Stochastic Coordinate Exchange (SCE) engine.
+Space-filling design construction: candidate pool, user points and
+the optimisers ``'sa'`` (default), ``'sce'`` and ``'ese'``.
 
 This module exposes four objects:
 
@@ -30,7 +31,9 @@ Quick start
 
 Algorithm
 ---------
-The optimisation is a Stochastic Coordinate Exchange (SCE) outer-inner loop:
+The default optimiser is simulated annealing (``algorithm='sa'``, see
+:mod:`mergen.algorithms`). The Stochastic Coordinate Exchange optimiser
+(``algorithm='sce'``) implemented in this module is an outer-inner loop:
 
   * **Inner loop** — for each restart, repeatedly pick one row of the
     design and propose new values along **one coordinate at a time**,
@@ -100,11 +103,8 @@ from .criteria import (
 )
 
 # ── Terminal colours ──────────────────────────────────────────────────────
-_RED    = "\033[0;31m"
-_GREEN  = "\033[0;32m"
-_YELLOW = "\033[1;33m"
-_CYAN   = "\033[0;36m"
-_RESET  = "\033[0m"
+from ._term import RED as _RED, GREEN as _GREEN, YELLOW as _YELLOW, \
+    CYAN as _CYAN, RESET as _RESET
 
 # Small numerical floor used to avoid log(0) in score reporting only.
 _EPS = 1e-300
@@ -195,6 +195,18 @@ _NOT_PRIORITY = {
 }
 _PRIORITY_METRICS = ('min_distance', 'minimax', 'max_abs_correlation',
                      'projection_cd2', 'cd2')
+
+
+def default_criterion(space) -> str:
+    """
+    The criterion ``run()`` uses when none is given: ``'maxproqq'`` for
+    a space with a nominal or ordinal parameter (MaxPro for
+    quantitative and qualitative factors; Joseph, Gul & Ba 2020), and
+    ``'umaxpro'`` otherwise.
+    """
+    if any(space.is_categorical(p) for p in space.names):
+        return 'maxproqq'
+    return 'umaxpro'
 
 
 def _check_priority(priority, allow_none: bool):
@@ -304,11 +316,18 @@ def _select_repeat(reps, priority, space, selection='lexicographic',
     return reps[sel.winner]
 
 
-# n_repeats='auto' runs rounds of _AUTO_ROUND repeats until the selected
-# result has been found by _AUTO_HITS of them. This is Mergen's own
-# rule: a result that independent searches keep finding is unlikely to
-# change with the seed. While no other repeat has reproduced the best
-# result, each round doubles the optimiser budget of the next one. The
+def _gap_text(info) -> str:
+    """'a median 2.1 %, at most 8.4 %' from repeat_info gaps."""
+    return (f"a median {100 * info.get('gap_median', 0.0):.1f} %, at most "
+            f"{100 * info.get('gap_max', 0.0):.1f} %")
+
+
+# n_repeats='auto' runs rounds of _AUTO_ROUND repeats up to a work cap
+# and stops early only when the selected result has been found by
+# _AUTO_HITS of them (Mergen's own rule; it seldom triggers except on
+# small problems, so the cap is usually reached). While no other repeat
+# has reproduced the best result, each round doubles the optimiser
+# budget of the next one. The
 # total work is capped at _AUTO_MAX_EFFORT repeats at the default
 # budget: a count, not a time, so a seed gives the same design on every
 # machine.
@@ -410,10 +429,37 @@ def _same_values(a, b):
                        <= _SAME_RTOL * np.maximum(np.abs(a), np.abs(b))))
 
 
+def _public_repeat_info(info, auto):
+    """The documented view of one repeat summary."""
+    return dict(n_repeats=int(info['n_repeats']), hits=int(info['hits']),
+                stopped_early=bool(info['converged']) if auto else None,
+                budget_factor=info['budget_factor'],
+                gap_median=float(info['gap_median']),
+                gap_max=float(info['gap_max']))
+
+
+def _measured_repeat_info(info, reps, win, priority, space, extra):
+    """``info`` with ``hits`` and the gaps measured against ``win``,
+    the repeat delivered under ``priority``; how the repeats stopped
+    (``converged``, ``budget_factor``) is kept."""
+    def values(r):
+        v = [r.score]
+        if priority:
+            v += list(_priority_values(r.design, priority, space, extra))
+        return v
+    ref = values(win)
+    gaps = [abs(r.score / win.score - 1) for r in reps
+            if r is not win and win.score > 0]
+    return dict(info, n_repeats=len(reps),
+                hits=sum(_same_values(values(r), ref) for r in reps),
+                gap_median=float(np.median(gaps)) if gaps else 0.0,
+                gap_max=max(gaps, default=0.0))
+
+
 def _repeats_text(n_repeats):
-    """'5 repeats', '1 repeat' or 'repeats until settled'."""
+    """'5 repeats', '1 repeat' or 'auto repeats, capped'."""
     if n_repeats == 'auto':
-        return "repeats until settled"
+        return "auto repeats, capped"
     return f"{n_repeats} repeat{'s' if n_repeats > 1 else ''}"
 
 
@@ -487,12 +533,17 @@ def _run_one_algorithm_task(
     seed:            int,
     verbose:         bool,
     budget_factor:   int = 1,
+    visible_out:     int = 0,
 ):
     """
     Run a single optimiser end-to-end (initial design + optimise).
 
     ``budget_factor`` multiplies the default search length of a built-in
     optimiser (see ``_BUDGET_PARAM``) unless ``params`` sets it.
+
+    The last ``visible_out`` anchor rows are criterion-visible points
+    outside the budget: the optimiser sees them as frozen rows, and
+    they are removed from the returned design.
 
     Top-level (module-scope) function so that joblib can serialise the
     task. Called sequentially
@@ -547,7 +598,7 @@ def _run_one_algorithm_task(
         else:
             setattr(optimiser, key, int(budget_factor * base))
 
-    return optimiser.optimize(
+    res = optimiser.optimize(
         initial_design = full_design,
         space          = space,
         criterion      = criterion,
@@ -557,6 +608,14 @@ def _run_one_algorithm_task(
         seed           = seed,
         verbose        = verbose,
     )
+    if visible_out:
+        from dataclasses import replace
+        res = replace(res, design=np.delete(
+            res.design, np.arange(n_frozen - visible_out, n_frozen), axis=0))
+    # Frozen rows at the top of the returned design (compare's polishing
+    # keeps them).
+    res.metadata['n_kept'] = n_frozen - visible_out
+    return res
 
 
 # ======================================================================
@@ -675,7 +734,8 @@ class SamplingResult:
     sets       : dict[str, pd.DataFrame]
         Extra named sets (e.g. ``{'test': df, 'holdout': df}``).
     designs    : dict[str, pd.DataFrame]
-        Designs per criterion when multiple criteria are run.
+        The design under the name of its criterion (one entry, since
+        ``run()`` optimises one criterion).
     space      : ParameterSpace
     """
 
@@ -690,8 +750,10 @@ class SamplingResult:
         validation: pd.DataFrame,
         space:      ParameterSpace,
     ) -> None:
-        self.samples        = samples
-        self.validation     = validation
+        # Nominal and ordinal columns hold their labels; library code
+        # that needs numbers uses space.encode_frame().
+        self.samples        = space.decode_frame(samples)
+        self.validation     = space.decode_frame(validation)
         self.space          = space
         self.sets:    Dict[str, pd.DataFrame] = {}
         self.designs: Dict[str, pd.DataFrame] = {}
@@ -714,6 +776,20 @@ class SamplingResult:
     def best_design(self) -> pd.DataFrame:
         """Alias for :attr:`samples` — the design from the best algorithm."""
         return self.samples
+
+    @property
+    def repeat_info(self) -> Dict[str, dict]:
+        """Per algorithm, how its repeats ended: ``n_repeats`` run,
+        ``hits`` (repeats that found the delivered result),
+        ``stopped_early`` (``n_repeats='auto'`` found it 5 times before
+        the work cap; ``None`` for an integer ``n_repeats``),
+        ``budget_factor`` (search-length multiplier reached), and
+        ``gap_median`` / ``gap_max``, the relative distance of the other
+        repeats' criterion scores from the delivered one. Empty for a
+        loaded design."""
+        auto = self._meta.get('n_repeats') == 'auto'
+        return {a: _public_repeat_info(i, auto)
+                for a, i in getattr(self, '_repeat_info', {}).items()}
 
     @property
     def best_score(self) -> Optional[float]:
@@ -759,6 +835,10 @@ class SamplingResult:
                 print(f"  {'Best algorithm':<16}: {self.best_algorithm}")
             elif alg is not None:
                 print(f"  {'Algorithm':<16}: {alg}")
+            src = self._meta.get('polished_from')
+            if src:
+                print(f"  {'Polished':<16}: from {src[0]} + {src[1]} "
+                      f"(compare)")
 
         # Per-algorithm scores when multiple were run
         if len(self.algorithm_results) > 1:
@@ -817,8 +897,9 @@ class SamplingResult:
 
     def comparison(self) -> pd.DataFrame:
         """
-        Compare quality metrics across all criteria in ``self.designs``.
-        Returns a DataFrame (criteria × metrics).
+        The standard quality metrics of the design, as a one-row
+        DataFrame indexed by its criterion (``run()`` optimises one
+        criterion). To compare criteria, use :meth:`Sampler.compare`.
         """
         from . import metrics as _metrics
         return _metrics.comparison(self)
@@ -830,7 +911,8 @@ class SamplingResult:
         Parameters
         ----------
         kind : ``'pairplot'`` | ``'1d'`` | ``'2d'`` | ``'distances'``
-               | ``'quality'`` | ``'all'``
+               | ``'correlation'`` | ``'quality'`` | ``'comparison'``
+               | ``'all'`` (see :func:`mergen.output.plot`)
         """
         from . import output as _output
         _output.plot(self, kind=kind, **kwargs)
@@ -900,9 +982,12 @@ class ComparisonResult:
         The raw metric values of each combination's representative
         design (normalised coordinates), on which the selection is made.
     results : dict
-        Maps ``(criterion, algorithm)`` to the representative
+        Maps ``(criterion, algorithm)``, or ``(criterion,
+        '<algorithm>+polish')`` for a polished design, to the representative
         :class:`~mergen.algorithms.base.OptimisationResult` (design,
-        criterion score and optimiser metadata) of that combination.
+        criterion score and optimiser metadata) of that combination. The
+        score of a polished design is NaN; ``best_result`` carries it
+        when that design wins.
     best : tuple of (str, str)
         The winning (criterion, algorithm) pair (read-only).
     priority : tuple of str
@@ -925,6 +1010,13 @@ class ComparisonResult:
         set. Under ``'lexicographic'`` it is informational: tolerant
         equality is not transitive, so with a large ``tol`` the
         lexicographic winner can lie outside it.
+    repeat_info : dict
+        Maps each row of the table to how the repeats of its combination
+        ended, as in :attr:`SamplingResult.repeat_info` (``n_repeats``,
+        ``hits``, ``stopped_early``, ``budget_factor``, ``gap_median``,
+        ``gap_max``). ``hits`` and the gaps are measured against the
+        repeat the current priority selects; a ``'+polish'`` row
+        reports the repeats of the combination it started from.
     """
 
     def __init__(self, table, metrics, results, best, priority,
@@ -943,6 +1035,7 @@ class ComparisonResult:
         self.decided_by = decided_by
         self._best_result = None   # set by Sampler.compare after selection
         self._context     = None   # what reselect() needs; set by compare
+        self.repeat_info: Dict[Tuple[str, str], dict] = {}
 
     @property
     def best(self) -> Tuple[str, str]:
@@ -954,7 +1047,10 @@ class ComparisonResult:
     def best_result(self) -> "SamplingResult":
         """The full SamplingResult of the winning combination, identical
         to calling run() for that combination with the same seed,
-        n_repeats, priority, selection and tolerances."""
+        n_repeats, priority, selection and tolerances, unless the winner
+        is a polished design, which run() does not produce. After
+        :meth:`reselect` it is built from all the stored repeats, as
+        ``n_repeats`` equal to their number."""
         return self._best_result
 
     def selection_text(self) -> str:
@@ -988,9 +1084,10 @@ class ComparisonResult:
         The stored repeats of every combination are reused; only the
         representative repeats, the metrics and the winner are
         recomputed. Arguments left as None keep their current value.
-        ``best_result`` is rebuilt by running the winning combination
-        through the sampler that produced this comparison, so the
-        sampler must not have been reconfigured in between.
+        ``best_result`` is rebuilt from the winning combination's stored
+        repeats through the sampler that produced this comparison, so
+        it holds the design the table describes; the sampler must not
+        have been reconfigured in between.
 
         Returns
         -------
@@ -1020,7 +1117,9 @@ class ComparisonResult:
             selection=selection, tol=tol, rtol=rtol,
             baseline=ctx['baseline'], seed=ctx['seed'],
             n_repeats=ctx['n_repeats'], verbose=verbose,
-            extra_pts=ctx['extra_pts'])
+            extra_pts=ctx['extra_pts'], polish=ctx.get('polish', False),
+            polish_kicks=ctx.get('polish_kicks', 0),
+            settle=ctx.get('settle'))
 
     def summary(self) -> None:
         """Print the comparison table and how the winner was chosen."""
@@ -1101,7 +1200,8 @@ class ComparisonResult:
 
 class Sampler:
     """
-    Space-filling design sampler using Stochastic Coordinate Exchange (SCE).
+    Space-filling design sampler (default optimiser: simulated
+    annealing, ``'sa'``; also ``'sce'`` and ``'ese'``).
 
     The sampler is configured fluently — ``add_*`` methods register
     prescribed/focus/exclusion points, ``set_*`` methods set sizes and
@@ -1157,7 +1257,7 @@ class Sampler:
         self,
         points:    Union[Sequence, np.ndarray],
         in_design: bool = True,
-        in_optim:     bool = False,
+        in_optim:  bool = True,
     ) -> "Sampler":
         """
         Add one or more prescribed (fixed) points.
@@ -1175,8 +1275,8 @@ class Sampler:
             ``False`` → added on top of ``n_samples`` (the total
             design size grows accordingly).
         in_optim : bool
-            ``True``  → the optimiser sees these points and pushes
-            optimised points away from them.
+            ``True`` (default) → the optimiser sees these points and
+            places the optimised points to complement them.
             ``False`` → the optimiser ignores them (the points are
             only reserved against being re-selected).
 
@@ -1184,53 +1284,34 @@ class Sampler:
         -------
         self
         """
-        pts = np.asarray(points, dtype=float)
-        if pts.ndim == 1:
-            pts = pts[np.newaxis, :]
-        if pts.ndim != 2 or pts.shape[1] != self.space.n_parameters:
-            _fatal(
-                f"Each prescribed point must have {self.space.n_parameters} "
-                f"coordinates, got shape {pts.shape}."
-            )
-        for row in pts:
-            validated = self.space.validate_point(row, label="Prescribed point")
+        pts = self.space.encode_points(points, context="Prescribed point")
+        return self._add_prescribed_codes(pts, in_design, in_optim)
+
+    def _add_prescribed_codes(self, pts, in_design: bool = True,
+                              in_optim: bool = True,
+                              on_grid: bool = True) -> "Sampler":
+        """
+        add_prescribed() for rows already on the grid encoding. With
+        ``on_grid=False`` a row need only lie within the parameter
+        ranges (and on a level of each nominal or ordinal parameter):
+        sequential.fill_around takes references such as literature
+        points this way, out of the budget, so they are never
+        delivered.
+        """
+        for row in np.asarray(pts, dtype=float).reshape(
+                -1, self.space.n_parameters):
+            if on_grid:
+                validated = self.space.validate_point(
+                    row, label="Prescribed point", encoded=True)
+            else:
+                validated = self.space.validate_reference(
+                    row, label="Reference point")
             self._prescribed.append((validated, bool(in_design), bool(in_optim)))
         return self
 
     def _encode_points(self, points, context: str) -> np.ndarray:
-        """
-        Convert a list/array of points to the numeric grid encoding.
-
-        Nominal factors are stored internally as integer category
-        indices, so string category labels (e.g. 'adam') are mapped to
-        their index before the array is built. Numeric factors pass
-        through unchanged. Accepts a single point or a list of points.
-        """
-        rows = list(points)
-        if len(rows) and np.ndim(rows[0]) == 0:
-            rows = [rows]                      # a single point
-        names = self.space.names
-        encoded = []
-        for row in rows:
-            if len(row) != len(names):
-                _fatal(
-                    f"{context}: each point must have {len(names)} "
-                    f"coordinates, got {len(row)}."
-                )
-            vals = []
-            for name, v in zip(names, row):
-                if self.space.is_nominal(name) and isinstance(v, str):
-                    labels = self.space.category_labels(name)
-                    if v not in labels:
-                        _fatal(
-                            f"{context}: '{v}' is not a level of nominal "
-                            f"factor '{name}'. Valid levels: {labels}."
-                        )
-                    vals.append(float(labels.index(v)))
-                else:
-                    vals.append(float(v))
-            encoded.append(vals)
-        return np.asarray(encoded, dtype=float)
+        """Points as grid-encoded floats; see ParameterSpace.encode_points."""
+        return self.space.encode_points(points, context=context)
 
     def add_set(
         self,
@@ -1258,7 +1339,7 @@ class Sampler:
             must lie on the parameter grid.
         color : str, optional
             Matplotlib colour used for this set in plots
-            (e.g. ``'#3a86ff'``). If omitted, a neutral fallback colour
+            (e.g. ``'#3a86ff'``). If omitted, a fallback colour
             is assigned by the plotting layer.
 
         Returns
@@ -1267,11 +1348,14 @@ class Sampler:
         """
         builtin = {"Optimised", "Validation", "Prescribed", "Focus"}
         taken   = builtin | set(self._user_sets) | set(self._extra_sets or {})
+        if self._loaded_design is not None:
+            taken.add(self._loaded_design[1])
         if name in taken:
             _fatal(f"Set name '{name}' is already in use.")
         pts = self._encode_points(points, context=f"Set '{name}'")
         validated = np.vstack([
-            self.space.validate_point(row, label=f"Set '{name}' point")
+            self.space.validate_point(row, label=f"Set '{name}' point",
+                                      encoded=True)
             for row in pts
         ])
         self._user_sets[name] = (validated, color)
@@ -1327,8 +1411,14 @@ class Sampler:
                 f"load_design: each point must have "
                 f"{self.space.n_parameters} coordinates, got shape {pts.shape}."
             )
+        if str(name) in {"Validation", "Prescribed", "Focus",
+                         "Optimised"} | set(self._user_sets) | set(
+                self._extra_sets or {}):
+            _fatal(f"load_design: the label '{name}' is already used by "
+                   f"another set of points.")
         validated = np.vstack([
-            self.space.validate_point(row, label="Loaded design point")
+            self.space.validate_point(row, label="Loaded design point",
+                                      encoded=True)
             for row in pts
         ])
         self._loaded_design = (validated, str(name), color)
@@ -1506,8 +1596,9 @@ class Sampler:
         opt_cls = get_optimizer(name)
 
         # Validate kwargs against the optimiser's parameter schema by
-        # instantiating it; this raises ValueError on unknown keys.
-        opt_cls(**kwargs)
+        # instantiating it (ValueError on unknown keys), and their
+        # values (ValueError when out of range).
+        opt_cls(**kwargs).validate()
 
         # Store the hyperparameters
         self._optimizer_params[name] = dict(kwargs)
@@ -1537,11 +1628,19 @@ class Sampler:
             w = np.array([weights.get(n, 1.0) for n in names], dtype=float)
         else:
             w = np.asarray(weights, dtype=float)
+        if isinstance(weights, dict):
+            unknown = [k for k in weights if k not in names]
+            if unknown:
+                _fatal(f"set_dimension_weights: unknown parameter(s) "
+                       f"{unknown}. Parameters: {names}.")
         if len(w) != self.space.n_parameters:
             _fatal(
                 f"dimension_weights length ({len(w)}) must match "
                 f"n_parameters ({self.space.n_parameters})."
             )
+        if not np.all(np.isfinite(w)) or np.any(w < 0) or not w.sum() > 0:
+            _fatal(f"set_dimension_weights: weights must be finite, "
+                   f"non-negative and not all zero; got {w.tolist()}.")
         self._dim_weights = w / w.sum()
         warnings.warn(
             "set_dimension_weights() has no effect in this version: no "
@@ -1564,7 +1663,7 @@ class Sampler:
 
     def run(
         self,
-        criteria:  Union[str, List[str], BaseCriterion] = 'umaxpro',
+        criteria:  Union[str, List[str], BaseCriterion, None] = None,
         algorithm: Union[str, List[str]]                = 'sa',
         seed:      Optional[int]                        = 44,
         n_repeats: Union[int, str]                      = 'auto',
@@ -1580,12 +1679,15 @@ class Sampler:
 
         Parameters
         ----------
-        criteria : str or BaseCriterion instance
+        criteria : str, BaseCriterion instance or None
             Optimisation criterion (a one-element list is accepted; use
             :meth:`compare` to try several).
             Available built-in names: ``'umaxpro'``, ``'maxpro'``,
-            ``'phi_p'``, ``'cd2'``, ``'stratified'``.  Default
-            ``'umaxpro'``.
+            ``'maxproqq'``, ``'phi_p'``, ``'cd2'``, ``'qqd'``,
+            ``'stratified'``. ``None`` (default) chooses
+            ``'maxproqq'`` when the space has a nominal or ordinal
+            parameter and ``'umaxpro'`` otherwise (see
+            :func:`default_criterion`).
         algorithm : str or list of str, optional
             Name of the optimiser (or list of names) to run. Each name
             must be a registered optimiser
@@ -1594,15 +1696,18 @@ class Sampler:
             collected in :attr:`SamplingResult.algorithm_results`.
             Default ``'sa'``.
         seed : int or None
-            Random seed for reproducibility (default 44).
+            Random seed for reproducibility (default 44). ``None`` is
+            the same as 44: a run is always reproducible.
         n_repeats : int or 'auto', default 'auto'
             Number of independent optimisation repeats. Repeat seeds are
             derived from ``seed`` via NumPy's SeedSequence.spawn; the
             representative repeat is returned (see ``priority``). An
             integer runs exactly that many repeats. ``'auto'`` runs
-            rounds of 5 repeats until the selected result has been found
-            by 5 of them, so that another seed is unlikely to change it;
-            two repeats found the same
+            rounds of 5 repeats up to a work cap and stops early only
+            when the selected result has been found by 5 of them; it
+            usually reaches the cap, so it does not make the result
+            independent of the seed (see below). Two repeats found the
+            same
             result when the criterion score and the priority metrics
             agree to a relative 1e-9. While no other repeat has
             reproduced the best result, each round doubles the
@@ -1611,8 +1716,19 @@ class Sampler:
             set with :meth:`set_optimizer`.
             The work stops at 64 repeats, or earlier at the work of 32
             repeats at the default search length, with a warning that
-            the result may still depend on the seed. The limit counts work, not time,
-            so a seed gives the same design on every machine.
+            gives how far the other repeats' criterion scores lie from
+            the delivered one. The limit counts work, not time, so a
+            seed gives the same design on every machine. Independent
+            searches seldom find an identical design except on small
+            problems, so ``'auto'`` usually runs to the work limit:
+            on benchmark spaces of 15 to 30 runs (2 to 5 factors, all
+            criteria, three optimisers, repeats at the default length),
+            7 % of runs stopped early, and the best of 20 repeats
+            varied across seeds by a median 2.1 % of the criterion
+            score (up to 11 %). :attr:`SamplingResult.repeat_info`
+            reports, per algorithm, whether the run stopped early and
+            how far the other repeats' scores lie from the delivered
+            one.
         priority : tuple of str, optional
             Quality-metric names used to pick the representative repeat
             when ``n_repeats > 1``, and the delivered algorithm when
@@ -1626,7 +1742,10 @@ class Sampler:
             stable when near-optimal criterion scores correspond to
             different coverage trade-offs. Pass the same ``priority``,
             ``selection``, ``tol`` and ``rtol`` used in :meth:`compare`
-            to reproduce its ``best_result`` exactly. When several
+            to reproduce its ``best_result`` exactly, unless the winner
+            is a polished design (``'<algorithm>+polish'``), which
+            ``run()`` does not produce; ``compare(polish=False)`` gives
+            winners that ``run()`` reproduces. When several
             algorithms are run, the same rule also chooses which
             algorithm's design is delivered.
         n_jobs : int or None, default -1
@@ -1694,6 +1813,8 @@ class Sampler:
             )
 
         # Resolve criterion(ia)
+        if criteria is None:
+            criteria = default_criterion(self.space)
         if isinstance(criteria, str):
             crit_list  = [get_criterion(criteria)]
             crit_names = [criteria]
@@ -1831,7 +1952,7 @@ class Sampler:
             say("  [MERGEN]   Sampling focus / exclusion regions...",
                 flush=True)
         (focus_in_pts, focus_out_pts, focus_sa_pts, repel_weights, reserved,
-         focus_sa_in) = self._build_focus_exclusion(
+         focus_sa_in, focus_sa_out) = self._build_focus_exclusion(
             gs, gmins, granges, reserved,
             np.random.default_rng(seed if seed is not None else 44))
         # Delivered rows outside the optimised design; the priority
@@ -1875,6 +1996,14 @@ class Sampler:
         if focus_sa_in_design_sampled:
             anchor_parts.append(np.array(focus_sa_in_design_sampled,
                                          dtype=float))
+        # Criterion-visible points outside the budget (in_design=False,
+        # in_optim=True; fill_around's references) come last among the
+        # anchors: the optimiser sees them as frozen rows, and each task
+        # removes them from the design it returns.
+        visible_out = ([pt for pt, in_d, in_s in self._prescribed
+                        if not in_d and in_s] + focus_sa_out)
+        if visible_out:
+            anchor_parts.append(np.array(visible_out, dtype=float))
 
         _corner_used = False
         if anchor_parts:
@@ -1912,7 +2041,7 @@ class Sampler:
         # Each optimiser provides its own prepare_initial_design()
         # method so it can use the type of starting design its
         # underlying algorithm was designed for. The default in
-        # BaseOptimizer is a balanced LHS (Joseph, Gul & Ba 2018),
+        # BaseOptimizer is a balanced LHS (Joseph, Gul & Ba 2020),
         # which matches what SA, SCE and ESE expect from the
         # literature; subclasses may override for non-LHS algorithms.
         if self._prescribed or self._focus:
@@ -1933,8 +2062,10 @@ class Sampler:
         # the dispatcher loop below, so each optimiser's natural
         # starting design is used.
 
-        # n_frozen: the optimiser must not move these rows
-        n_frozen = len(prescribed_in_pts) + len(focus_in_pts)
+        # n_frozen: the optimiser must not move these rows. The returned
+        # designs lack the visible out-of-budget rows (n_kept frozen).
+        n_kept   = len(prescribed_in_pts) + len(focus_in_pts)
+        n_frozen = n_kept + len(visible_out)
 
         # crit_start: first row visible to the criterion
         #   Rows are: [criterion-blind frozen | criterion-visible frozen | optimised]
@@ -2050,6 +2181,7 @@ class Sampler:
                 crit_start                  = crit_start,
                 seed                        = rep_seed,
                 budget_factor               = budget_factor,
+                visible_out                 = len(visible_out),
                 # In parallel mode, suppress per-task verbose output so
                 # worker streams do not interleave.
                 verbose                     = (verbose and not run_in_parallel
@@ -2095,18 +2227,29 @@ class Sampler:
         frozen_groups = [
             [p for p in prescribed_in_pts if tuple(p) not in sa_set],
             [p for p in focus_in_pts if tuple(p) not in foc_set],
-            in_design_sa_prescribed, focus_sa_in_design_sampled]
-        mirror_axes = _mirror_axes(space, gs, banned, frozen_groups)
+            in_design_sa_prescribed, focus_sa_in_design_sampled,
+            visible_out]
+        # A reference off the grid has no grid image: no mirroring then.
+        mirror_axes = ([] if any(gs.point_to_index(p) < 0
+                                 for p in visible_out)
+                       else _mirror_axes(space, gs, banned, frozen_groups))
+        visible_rows = np.asarray(visible_out, dtype=float).reshape(-1, n_dims)
 
         def canonical(res):
             from dataclasses import replace
-            D = _canonical_design(res.design, mirror_axes, gs, n_frozen)
+            if not np.isfinite(res.score):
+                # A design handed over by compare()'s polishing: score it.
+                res = replace(res, score=float(criterion.evaluate(
+                    _normalised(np.vstack([np.asarray(res.design)[crit_start:],
+                                           visible_rows]), space), space)))
+            D = _canonical_design(res.design, mirror_axes, gs, n_kept)
             s_new = float(criterion.evaluate(
-                _normalised(D[crit_start:], space), space))
+                _normalised(np.vstack([D[crit_start:], visible_rows]),
+                            space), space))
             if not _same_values([s_new], [res.score]):
                 # The criterion is not symmetric here: keep the design
                 # as found, rows sorted.
-                D = _canonical_design(res.design, [], gs, n_frozen)
+                D = _canonical_design(res.design, [], gs, n_kept)
             return replace(res, design=D)
 
         def values(res):
@@ -2126,7 +2269,7 @@ class Sampler:
         # Work of one repeat in units of a repeat at the default search
         # length, so the work limit means the same with a user budget.
         n_rows = (len(prescribed_in_pts) + len(focus_in_pts)
-                  + n_optimised_slots)
+                  + len(visible_out) + n_optimised_slots)
 
         def repeat_cost(alg_name):
             key = _BUDGET_PARAM.get(alg_name)
@@ -2145,8 +2288,9 @@ class Sampler:
 
         # Repeat k of every algorithm uses the k-th seed spawned from
         # ``seed``. With an integer n_repeats exactly that many repeats
-        # run. With 'auto', rounds of _AUTO_ROUND repeats run until the
-        # selected result has been found _AUTO_HITS times; while no
+        # run. With 'auto', rounds of _AUTO_ROUND repeats run up to the
+        # work limit, stopping earlier once the selected result has been
+        # found _AUTO_HITS times; while no
         # other repeat has reproduced the best result, each round doubles
         # the budget of the next, and the work stops at
         # _AUTO_MAX_EFFORT repeats at the
@@ -2192,9 +2336,16 @@ class Sampler:
                 algorithm_results[a] = win
                 k = next(i for i, r in enumerate(reps) if r is win)
                 hits = sum(_same_values(v, vals[k]) for v in vals)
+                # How far the other repeats' criterion scores lie from
+                # the delivered one, relative: the measured seed effect.
+                gaps = [abs(r.score / win.score - 1) for r in reps
+                        if r is not win and win.score > 0]
                 repeat_info[a] = dict(n_repeats=len(reps), hits=hits,
                                       budget_factor=factor[a],
-                                      converged=hits >= _AUTO_HITS)
+                                      converged=hits >= _AUTO_HITS,
+                                      gap_median=(float(np.median(gaps))
+                                                  if gaps else 0.0),
+                                      gap_max=max(gaps, default=0.0))
                 if not auto_repeats or hits >= _AUTO_HITS:
                     continue
                 # A best result no other repeat has reproduced means the
@@ -2232,10 +2383,12 @@ class Sampler:
                 if not info['converged']:
                     _warn(f"{alg_name}: the best result was found by "
                           f"{info['hits']} of {info['n_repeats']} repeats "
-                          f"before the work limit, so another seed may "
-                          f"give a different design. Raise the optimiser "
-                          f"budget with set_optimizer() for a result that "
-                          f"does not depend on the seed.")
+                          f"before the work limit; the other repeats' "
+                          f"criterion scores differ from it by "
+                          f"{_gap_text(info)}, so another seed may give "
+                          f"a different, better or worse design. "
+                          f"Raise the optimiser budget with "
+                          f"set_optimizer() to reduce this.")
 
         t_elapsed = time.perf_counter() - t_run_start
 
@@ -2272,7 +2425,7 @@ class Sampler:
             # The seed corner is an ordinary optimised row: once the
             # optimiser has moved it, its node is free again.
             best_reserved.discard(corner_idx)
-        for row in best_design[n_frozen:]:
+        for row in best_design[n_kept:]:
             idx = gs.point_to_index(row)
             if idx >= 0:
                 best_reserved.add(idx)
@@ -2390,8 +2543,9 @@ class Sampler:
         say("═" * 60)
 
         result                    = SamplingResult(df_samples, df_val, space)
-        result.sets               = extra_dfs
-        result.designs            = {crit_name: df_samples}
+        result.sets               = {k: space.decode_frame(v)
+                                     for k, v in extra_dfs.items()}
+        result.designs            = {crit_name: result.samples}
         result.algorithm_results  = algorithm_results
         result.best_algorithm     = best_algorithm
         # All repeat results per algorithm (spawn order), so compare()
@@ -2407,6 +2561,7 @@ class Sampler:
             'algorithm'       : (algorithm_names[0] if len(algorithm_names) == 1
                                  else algorithm_names),
             'best_algorithm'  : best_algorithm,
+            'n_repeats'       : n_repeats,
             'n_parameters'    : n_dims,
             'n_candidates'    : space.n_candidates,
             'n_design'        : len(df_samples),
@@ -2449,6 +2604,7 @@ class Sampler:
                 "design size is fixed by the loaded points. Use "
                 "mergen.sequential.extend to grow a design."
             )
+        self._check_conflicts()
 
         t_start = time.perf_counter()
         space   = self.space
@@ -2553,8 +2709,9 @@ class Sampler:
         say("═" * 60)
 
         result                    = SamplingResult(df_samples, df_val, space)
-        result.sets               = extra_dfs
-        result.designs            = {'loaded': df_samples}
+        result.sets               = {k: space.decode_frame(v)
+                                     for k, v in extra_dfs.items()}
+        result.designs            = {'loaded': result.samples}
         result.algorithm_results  = {}
         result.best_algorithm     = 'loaded'
         result._meta              = {
@@ -2598,6 +2755,8 @@ class Sampler:
         selection:  str = 'pareto',
         tol:        Union[float, Dict[str, float]] = 1e-9,
         rtol:       Union[float, Dict[str, float]] = 0.0,
+        polish:     bool = True,
+        polish_kicks: int = 0,
     ) -> "ComparisonResult":
         """
         Run a criterion/algorithm sweep and select the best design.
@@ -2638,11 +2797,14 @@ class Sampler:
         seed : int, default 44
             Base seed. All randomness (the repeats and the Monte Carlo
             baseline) is derived from it, so the whole comparison
-            reproduces exactly from this one number.
+            reproduces exactly from this one number. ``None`` is the
+            same as 44.
         n_repeats : int or 'auto', default 'auto'
             Number of independent optimiser runs per combination, as in
-            :meth:`run` (``'auto'`` repeats until the result is settled;
-            see there). Each
+            :meth:`run` (``'auto'``: up to a work cap, stopping early
+            only when the best result has been found by 5 repeats,
+            which is rare; see there and :attr:`ComparisonResult.repeat_info`).
+            Each
             run uses a distinct seed derived from ``seed`` via
             NumPy's SeedSequence.spawn (independent, not consecutive
             integers). The representative repeat of each combination is
@@ -2672,6 +2834,42 @@ class Sampler:
             normalised coordinates, so ``tol={'min_distance': 0.01}``
             treats designs whose minimum distances differ by less than
             1 % of the parameter range as equally good.
+        polish : bool, default True
+            Polish the design of every combination on the priority
+            metrics before the selection (:mod:`mergen.polish`): rows
+            are moved one at a time to the free feasible grid node that
+            improves the priority most, until no single move helps.
+            Prescribed and focus rows stay. A polished design is never
+            worse than the design it started from (beyond ``tol``) on
+            the first priority metric under ``'lexicographic'``, and on
+            every priority metric under ``'pareto'``. A polished design
+            that differs from its start is added to the table as
+            ``'<algorithm>+polish'`` and competes under the same
+            selection rule. The winner is therefore never worse on the
+            priority than without polishing under ``'lexicographic'``;
+            under ``'pareto'`` it is never dominated by the winner
+            without polishing, though the added designs move the ideal
+            point and can shift the choice along the front. With
+            ``min_distance`` in the priority, the exchange alternates
+            with moves that lower the Morris-Mitchell phi_p. The
+            result is a local optimum, not a proven global one. On
+            five test spaces the winner's first priority metric lay,
+            from the best known value, a median 0 % (at most 11 %) for
+            ``minimax``, 1 % (5 %) for ``cd2``, 3 % (12 %) for
+            ``min_distance`` under ``'lexicographic'`` and 10 % (38 %)
+            under the default Pareto priority; ``min_distance`` is a
+            known limit, and compare() warns when it is a priority
+            metric.
+            ``best_result.summary()`` names the combination a polished
+            winner started from. ``False`` compares the optimiser
+            designs only.
+        polish_kicks : int, default 0
+            Iterated-local-search kicks after the exchange: three random
+            rows are moved and the exchange runs again; the result is
+            kept only if it is better. Kicks follow the seed, so the
+            design does not depend on the machine, but each kick costs
+            about as much as the first exchange, which can be minutes
+            on large candidate sets.
 
         Returns
         -------
@@ -2681,6 +2879,11 @@ class Sampler:
             (percentile ranks), ``.ties``, ``.front`` and
             :meth:`~ComparisonResult.reselect`.
         """
+        if (isinstance(polish_kicks, bool)
+                or not isinstance(polish_kicks, (int, np.integer))
+                or polish_kicks < 0):
+            _fatal(f"polish_kicks must be a non-negative integer; got "
+                   f"{polish_kicks!r}")
         if self._loaded_design is not None:
             _fatal("compare() cannot run on a loaded design: load_design() "
                    "makes run() return the loaded points without "
@@ -2818,7 +3021,8 @@ class Sampler:
                 job_results.append((key, reps))
                 settle[key] = info
         repeats = dict(job_results)
-        unsettled = [f"{cr} + {alg} ({i['hits']} of {i['n_repeats']})"
+        unsettled = [f"{cr} + {alg} ({i['hits']} of {i['n_repeats']}; "
+                     f"other repeats {_gap_text(i)})"
                      for (cr, alg), i in settle.items()
                      if n_repeats == 'auto' and not i['converged']]
         if unsettled:
@@ -2857,12 +3061,14 @@ class Sampler:
             priority=priority, selection=selection, tol=tol, rtol=rtol,
             baseline=baseline, seed=seed, n_repeats=n_repeats,
             verbose=verbose, reuse=True, n_jobs=n_jobs,
-            extra_pts=extra_pts)
+            extra_pts=extra_pts, polish=polish, polish_kicks=polish_kicks,
+            settle=settle)
 
     def _finish_compare(self, repeats, crit_list, alg_list, priority,
                         selection, tol, rtol, baseline, seed, n_repeats,
                         verbose, reuse=False, n_jobs=-1,
-                        extra_pts=None) -> "ComparisonResult":
+                        extra_pts=None, polish=False,
+                        polish_kicks=0, settle=None) -> "ComparisonResult":
         """
         Select the representative repeat of every combination, choose
         the winner and build the ComparisonResult. Shared by compare()
@@ -2892,11 +3098,17 @@ class Sampler:
         # so the table describes exactly the design each combination
         # delivers.
         results: Dict[Tuple[str, str], Any] = {}
+        settle_now: Dict[Tuple[str, str], dict] = {}
         raw_rows, pct_rows, designs_n = [], [], []
         for key in combos:
             rep = _select_repeat(repeats[key], priority, self.space,
                                  selection, tol_arr, rtol_arr, extra_pts)
             results[key] = rep
+            if settle and key in settle:
+                # Measured against the repeat this priority delivers.
+                settle_now[key] = _measured_repeat_info(
+                    settle[key], repeats[key], rep, priority, self.space,
+                    extra_pts)
             design = np.asarray(rep.design, dtype=float)
             if extra_pts is not None and len(extra_pts):
                 design = np.vstack([design, extra_pts])
@@ -2912,6 +3124,56 @@ class Sampler:
                           if baseline is not None else np.nan)
             raw_rows.append(raw)
             pct_rows.append(pct)
+        # Polishing: each combination design, moved row by row on the
+        # feasible grid to improve the priority (mergen.polish). A
+        # polished design that differs from its start joins the
+        # candidates as '<algorithm>+polish'; the selection below is
+        # unchanged, so the winner is never lexicographically worse, or
+        # Pareto-dominated by, the winner without polishing.
+        polished: Dict[Tuple[str, str], Tuple[str, str]] = {}
+        if polish:
+            from dataclasses import replace
+            from .polish import polish as _polish
+            hb = [m in _m._HIGHER_BETTER for m in priority]
+            banned = ([ep.point for ep in self._exclusions]
+                      + self._baseline_reserved()
+                      + [pt for pt, _d, _o in self._prescribed])
+            for k, key in enumerate(list(combos)):
+                rep = results[key]
+                if verbose:
+                    print(f"  [COMPARE]  polishing {key[0]} + {key[1]} ...",
+                          flush=True)
+                rng = np.random.default_rng(np.random.SeedSequence(
+                    [44 if seed is None else int(seed), 7, k]))
+                D, info = _polish(
+                    rep.design, int(rep.metadata.get('n_kept', 0)),
+                    extra_pts, self.space, priority, hb, selection,
+                    tol_arr, rtol_arr, banned, rng,
+                    n_kicks=int(polish_kicks))
+                if not info['improved']:
+                    continue
+                pkey = (key[0], key[1] + '+polish')
+                combos.append(pkey)
+                polished[pkey] = key
+                results[pkey] = replace(
+                    rep, design=D, score=float('nan'),
+                    metadata=dict(rep.metadata, polished_from=key,
+                                  polish=info))
+                design = D
+                if extra_pts is not None and len(extra_pts):
+                    design = np.vstack([design, extra_pts])
+                Xn = _normalised(design, self.space)
+                designs_n.append(Xn)
+                raw = {'criterion': pkey[0], 'algorithm': pkey[1]}
+                pct = {'criterion': pkey[0], 'algorithm': pkey[1]}
+                for m in metric_names:
+                    val = _m._compute_metric(m, Xn, space=self.space)
+                    raw[m] = float(val)
+                    pct[m] = (float(_m._percentile_rank(
+                                  val, baseline[m], m in _m._HIGHER_BETTER))
+                              if baseline is not None else np.nan)
+                raw_rows.append(raw)
+                pct_rows.append(pct)
         metrics_df = pd.DataFrame(raw_rows)
         table      = pd.DataFrame(pct_rows)
 
@@ -2941,6 +3203,23 @@ class Sampler:
                   "metric): "
                   + ", ".join(f"{combos[i][0]}/{combos[i][1]}"
                               for i in sel.excluded))
+        if 'min_distance' in priority:
+            # A known limit (0.1.1), measured on five test spaces, seeds
+            # 5-9, under the default Pareto priority and under
+            # ('min_distance',).
+            _warn("min_distance is a priority metric, and compare() does "
+                  "not reliably reach its best value: on test spaces the "
+                  "winner's min_distance lay a median "
+                  + ("10 % (up to 38 %) below the best known under the "
+                     "default Pareto priority and 3 % (up to 12 %) with "
+                     "min_distance alone under 'lexicographic'"
+                     if polish else
+                     "15 % (up to 38 %) below the best known under the "
+                     "default Pareto priority and 13 % (up to 38 %) with "
+                     "min_distance alone under 'lexicographic', without "
+                     "polishing")
+                  + ". minimax and cd2 are reached more closely; see the "
+                  "guide on comparing designs.")
         best_key = combos[sel.winner]
 
         table.insert(0, 'best', [' *' if k == best_key else ''
@@ -2957,24 +3236,42 @@ class Sampler:
                             crit_list=crit_list, alg_list=alg_list,
                             baseline=baseline, seed=seed,
                             n_repeats=n_repeats, tol=tol, rtol=rtol,
-                            extra_pts=extra_pts)
+                            extra_pts=extra_pts, polish=polish,
+                            polish_kicks=polish_kicks, settle=settle)
+        # A polished row reports the repeats of the combination it
+        # started from.
+        for pkey, origin in polished.items():
+            if origin in settle_now:
+                settle_now[pkey] = settle_now[origin]
+        cmp.repeat_info = {k: _public_repeat_info(v, n_repeats == 'auto')
+                           for k, v in settle_now.items()}
 
         # best_result must be a full SamplingResult that matches a
-        # standalone run() exactly. Produce it by calling run() once for
+        # standalone run() exactly (a polished winner excepted: run()
+        # scores its design, handed over below). Produce it by calling run() once for
         # the winning combination with the same settings; the single
         # seed derivation guarantees identical optimisations. Right
         # after the sweep (reuse=True) the winner's stored repeats are
         # handed to run() instead of being optimised again. Its run
         # banner is hidden; its warnings are passed on.
-        _bc, _ba = best_key
+        # reselect() (reuse=False) also hands over the stored repeats, all
+        # of them: under a new priority, 'auto' could stop after a
+        # different number of repeats than the table was built from.
+        _bc, _ba = polished.get(best_key, best_key)
         buf = io.StringIO()
-        if reuse:
+        if best_key in polished:
+            # The polished design is delivered as the only repeat; run()
+            # scores it and builds the validation and extra sets.
+            self._reuse_repeats = {_ba: [results[best_key]]}
+            best_repeats = 1
+        else:
             self._reuse_repeats = {_ba: repeats[best_key]}
+            best_repeats = n_repeats if reuse else len(repeats[best_key])
         try:
             with contextlib.redirect_stdout(buf):
                 cmp._best_result = self.run(
                     criteria=_bc, algorithm=_ba, seed=seed,
-                    n_repeats=n_repeats, priority=priority,
+                    n_repeats=best_repeats, priority=priority,
                     selection=selection, tol=cmp.tol, rtol=cmp.rtol,
                     n_jobs=n_jobs, verbose=False)
         finally:
@@ -2984,9 +3281,30 @@ class Sampler:
             if '[WARNING]' in line and not (
                     reuse and 'repeats before the work limit' in line):
                 print(line)
-        delivered = cmp._best_result.algorithm_results[_ba].design
-        if not np.array_equal(np.asarray(delivered),
-                              np.asarray(results[best_key].design)):
+        # best_result was built from the stored repeats (one, for a
+        # polished winner); it reports the sweep's repeats instead.
+        if best_key in settle_now:
+            cmp._best_result._repeat_info[_ba] = settle_now[best_key]
+            cmp._best_result._meta['n_repeats'] = n_repeats
+        delivered = np.asarray(cmp._best_result.algorithm_results[_ba].design)
+        compared  = np.asarray(results[best_key].design)
+        if best_key in polished:
+            # run() delivers the design in canonical form: rows sorted
+            # and, where the problem is symmetric, possibly mirrored,
+            # which leaves every metric unchanged. The table keeps that
+            # form once the priority metrics are confirmed equal.
+            cmp._best_result._meta['polished_from'] = polished[best_key]
+            same = delivered.shape == compared.shape and bool(np.allclose(
+                _priority_values(delivered, priority, self.space, extra_pts),
+                _priority_values(compared, priority, self.space, extra_pts),
+                rtol=_SAME_RTOL, atol=1e-12))
+            if same:
+                from dataclasses import replace
+                results[best_key] = replace(results[best_key],
+                                            design=delivered.copy())
+        else:
+            same = np.array_equal(delivered, compared)
+        if not same:
             _warn("best_result differs from the compared design: the "
                   "sampler was reconfigured after compare(). Re-run "
                   "compare() to obtain a consistent result.")
@@ -3111,6 +3429,11 @@ class Sampler:
                     _fatal(f"Point {np.asarray(u).tolist()} is both a "
                            f"focus centre and in the set '{sname}' added "
                            f"with add_set().")
+                if _overlap(u, e_pts):
+                    _fatal(f"Point {np.asarray(u).tolist()} is both "
+                           f"excluded and in the set '{sname}' added with "
+                           f"add_set(); an excluded point cannot be in "
+                           f"any set.")
 
         # Within-role duplicates
         def _check_dupes(pts: List[np.ndarray], label: str) -> None:
@@ -3124,6 +3447,17 @@ class Sampler:
         _check_dupes(p_pts, "add_prescribed()")
         _check_dupes(f_pts, "add_focus()")
         _check_dupes(e_pts, "add_exclusion()")
+        _check_dupes([u for upts, _c in self._user_sets.values()
+                      for u in upts], "the sets added with add_set()")
+        if self._loaded_design is not None:
+            loaded = list(self._loaded_design[0])
+            _check_dupes(loaded, "load_design()")
+            for sname, (upts, _ucolor) in self._user_sets.items():
+                for u in upts:
+                    if _overlap(u, loaded):
+                        _fatal(f"Point {np.asarray(u).tolist()} is both in "
+                               f"the loaded design and in the set "
+                               f"'{sname}' added with add_set().")
 
     # ------------------------------------------------------------------ #
     # Private: focus / exclusion sampling                                  #
@@ -3159,6 +3493,8 @@ class Sampler:
         reserved      : updated set of reserved grid indices
         focus_sa_in   : list[np.ndarray]
             The ``focus_in_pts`` with ``in_optim=True``, in the same order.
+        focus_sa_out  : list[np.ndarray]
+            The ``focus_out_pts`` with ``in_optim=True``, in the same order.
         """
         focus_in_pts:  List[np.ndarray] = []
         focus_sa_in:   List[np.ndarray] = []
@@ -3166,6 +3502,7 @@ class Sampler:
         constraints, names = self.space._constraints, self.space.names
         focus_out_pts: List[np.ndarray] = []
         focus_sa_pts:  List[np.ndarray] = []
+        focus_sa_out:  List[np.ndarray] = []
         repel_weights: Dict[int, float] = {}
 
         mask = self.space.is_mask
@@ -3184,9 +3521,12 @@ class Sampler:
                         pt.copy())
                     if fp.in_optim:
                         focus_sa_pts.append(pt.copy())
-                        if fp.in_design:
-                            focus_sa_in.append(pt.copy())
-                n_draw = max(fp.n_samples - 1, 0)
+                        (focus_sa_in if fp.in_design
+                         else focus_sa_out).append(pt.copy())
+                    n_draw = max(fp.n_samples - 1, 0)
+                # A centre already taken (e.g. as a neighbour of another
+                # focus region) does not count; all n_samples points
+                # are drawn from its neighbourhood.
             elif fp.include_center is False:
                 # Centre is never selected
                 if self_idx >= 0 and self_idx not in reserved:
@@ -3247,8 +3587,8 @@ class Sampler:
                 (focus_in_pts if fp.in_design else focus_out_pts).append(cpt)
                 if fp.in_optim:
                     focus_sa_pts.append(cpt)
-                    if fp.in_design:
-                        focus_sa_in.append(cpt)
+                    (focus_sa_in if fp.in_design
+                     else focus_sa_out).append(cpt)
 
         # ── Exclusion points ──────────────────────────────────────────
         for ep in self._exclusions:
@@ -3260,7 +3600,7 @@ class Sampler:
 
 
         return (focus_in_pts, focus_out_pts, focus_sa_pts, repel_weights,
-                reserved, focus_sa_in)
+                reserved, focus_sa_in, focus_sa_out)
 
     # ------------------------------------------------------------------ #
     # Private: Stochastic Coordinate Exchange (SCE) core                   #

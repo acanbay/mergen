@@ -39,6 +39,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from .. import _term
+
 from .base import BaseOptimizer, OptimisationResult
 
 if TYPE_CHECKING:
@@ -50,6 +52,20 @@ if TYPE_CHECKING:
 # in projection; we never update the best design with a clamped score.
 _CRIT_EPS = 1e-10
 _EPS      = 1e-300
+
+
+def _begin_1d(criterion, X, i, score, space):
+    """criterion.begin_1d with the space when it takes one; a criterion
+    registered with the older three-argument signature still works."""
+    import inspect
+    try:
+        takes_space = 'space' in inspect.signature(
+            criterion.begin_1d).parameters
+    except (TypeError, ValueError):
+        takes_space = False
+    if takes_space:
+        return criterion.begin_1d(X, i, score, space=space)
+    return criterion.begin_1d(X, i, score)
 
 
 class SCEOptimizer(BaseOptimizer):
@@ -110,6 +126,11 @@ class SCEOptimizer(BaseOptimizer):
     # ────────────────────────────────────────────────────────────────
     # Public: optimise                                                  #
     # ────────────────────────────────────────────────────────────────
+    def validate(self) -> None:
+        """Raise ValueError for an out-of-range hyperparameter."""
+        self._check_counts('n_restarts', 'max_iter', 'K_axis',
+                           'max_ils_kicks', 'perturbation_size')
+
     def optimize(
         self,
         initial_design: np.ndarray,
@@ -130,16 +151,7 @@ class SCEOptimizer(BaseOptimizer):
         eff_seed = int(seed) + int(self.seed_offset)
 
         # ── Run-time validation ─────────────────────────────────
-        if self.n_restarts < 1:
-            raise ValueError(f"n_restarts must be ≥ 1; got {self.n_restarts}")
-        if self.K_axis < 1:
-            raise ValueError(f"K_axis must be ≥ 1; got {self.K_axis}")
-        if self.max_iter is not None and self.max_iter < 1:
-            raise ValueError(f"max_iter must be ≥ 1; got {self.max_iter}")
-        if self.max_ils_kicks < 1:
-            raise ValueError(
-                f"max_ils_kicks must be ≥ 1; got {self.max_ils_kicks}"
-            )
+        self.validate()
 
         # ── Set-up ───────────────────────────────────────────────
         gs       = space.grid_sampler()
@@ -295,7 +307,7 @@ class SCEOptimizer(BaseOptimizer):
                 if not (0 <= i_rel < len(X_norm)):
                     continue
 
-                cache = criterion.begin_1d(X_norm, i_rel, raw_score)
+                cache = _begin_1d(criterion, X_norm, i_rel, raw_score, space)
 
                 # Each axis once
                 for axis in range(n_dims):
@@ -382,7 +394,7 @@ class SCEOptimizer(BaseOptimizer):
                         improved_in_sweep    = True
 
                         # Refresh cache for subsequent axes on this row
-                        cache = criterion.begin_1d(X_norm, i_rel, raw_score)
+                        cache = _begin_1d(criterion, X_norm, i_rel, raw_score, space)
 
                         # Verify and track best — with full evaluate to
                         # guard against incremental drift
@@ -393,7 +405,8 @@ class SCEOptimizer(BaseOptimizer):
                                 best_score        = true_score
                                 best_design       = design.copy()
                                 best_reserv       = reserved.copy()
-                            cache = criterion.begin_1d(X_norm, i_rel, raw_score)
+                            cache = _begin_1d(criterion, X_norm, i_rel,
+                                              raw_score, space)
 
                     iter_count += 1
 
@@ -553,4 +566,4 @@ class SCEOptimizer(BaseOptimizer):
     @staticmethod
     def _info(msg: str) -> None:
         # ANSI green tag, matches the Sampler's log style
-        print(f"  \033[1;32m[SCE]\033[0m      {msg}", flush=True)
+        print(f"  {_term.GREEN_B}[SCE]{_term.RESET}      {msg}", flush=True)

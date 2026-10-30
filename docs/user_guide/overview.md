@@ -60,14 +60,17 @@ before `run()`:
   available; the {doc}`criterion guide
   <explanation/choosing_criterion>` and the {doc}`algorithm guide
   <explanation/choosing_algorithm>` explain when to pick which. By
-  default the optimisation is repeated until its best result has been
-  found five times or a work limit is reached, and the repeats run on
-  every core. When the limit is reached first, a warning says that
-  another seed may give a different design.
+  default the optimisation is repeated up to a work limit, stopping
+  earlier only if its best result has been found five times, and the
+  repeats run on every core. Except on small problems the limit is usually reached
+  first; a warning then says how far the other repeats' scores lie from
+  the delivered one, since another seed may give a different design.
 
 `Sampler.compare(criteria, algorithms, n_repeats)`
 : When you are unsure, run several combinations under a shared
-  baseline and get the best design on the metrics you prioritise; see
+  baseline and get the design that is best on the metrics you
+  prioritise among those combinations, polished on those metrics to a
+  local optimum (not a proven best); see
   {doc}`comparing designs <how-to/compare_designs>`.
 
 ## Working with the result
@@ -98,7 +101,8 @@ before `run()`:
 
 The {doc}`sequential module <../api/sequential>` extends finished
 designs: `extend` adds new well-placed runs, `fill_around`
-concentrates new runs near interesting points, `subsample` picks a
+places new runs away from points that already have results (from
+the literature or a pilot) and are not run again, `subsample` picks a
 representative pilot subset, `run_order` orders runs so early stops
 still leave a balanced design, `k_fold_split` builds
 cross-validation folds, and `nested` creates designs within designs.

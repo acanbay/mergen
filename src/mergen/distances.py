@@ -375,7 +375,8 @@ def maximin_subset(
     never worse than the Kennard-Stone set. Both cases warn, since the
     set is then not proven optimal.
 
-    Parameters and return value are as for :func:`kennard_stone`.
+    Parameters are as for :func:`kennard_stone`. The selected row
+    indices are returned in ascending order, not in selection order.
 
     References
     ----------

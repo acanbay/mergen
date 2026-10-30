@@ -120,19 +120,19 @@ run `sphinx-build -b html docs docs/_build/html`, then open
 ## Examples
 
 Fifteen complete, runnable studies from different domains live in
-[`examples/`](examples/), from a five-line quickstart to CFD,
+[`examples/`](https://github.com/acanbay/mergen/tree/main/examples), from a five-line quickstart to CFD,
 wet-lab and particle-physics campaigns.
 
 ## Roadmap
 
 Planned work for the next releases is listed in
-[`ROADMAP.md`](ROADMAP.md); suggestions are welcome in the
+[`ROADMAP.md`](https://github.com/acanbay/mergen/blob/main/ROADMAP.md); suggestions are welcome in the
 [issue tracker](https://github.com/acanbay/mergen/issues).
 
 ## Citing
 
 If you use Mergen in academic work, please cite it using the
-information in [`CITATION.cff`](CITATION.cff); GitHub renders it
+information in [`CITATION.cff`](https://github.com/acanbay/mergen/blob/main/CITATION.cff); GitHub renders it
 under the "Cite this repository" button.
 
 ## License

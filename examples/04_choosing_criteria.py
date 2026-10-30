@@ -53,8 +53,8 @@ Mergen features used
   every criterion compatible with the space; since this space has no
   nominal factor, the QQ-family criteria are automatically excluded.
   Each combination is optimised from independent, reproducible seeds
-  until its best result has been found five times or a work limit is
-  reached (n_repeats='auto'); a warning names any combination that
+  up to a work limit, stopping earlier only if its best result has been
+  found five times (n_repeats='auto'); a warning names any combination that
   hit the limit first. The winner is the design closest
   to the best value of every priority metric among those no other
   design beats on all of them (selection='pareto').

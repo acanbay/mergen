@@ -81,9 +81,11 @@ class TestMaxProQQ:
 
 class TestQQD:
     def test_reduces_to_wd_no_nominal(self, cont_space, small_design):
-        """QQD on all-quantitative == Hickernell WD²."""
+        """QQD on all-quantitative == Hickernell WD² of the design with
+        its levels at (2x+1)/(2s) (Zhang, Yang & Zhou 2021, p. 6)."""
         n, q = small_design.shape
-        diff = np.abs(small_design[:, None, :] - small_design[None, :, :])
+        T = cont_space.periodic_embed(small_design)
+        diff = np.abs(T[:, None, :] - T[None, :, :])
         K = 1.5 - diff + diff * diff
         wd_sq = -(4.0/3.0)**q + K.prod(axis=-1).sum() / (n*n)
         qqd_sq = QQD().evaluate(small_design, cont_space)
@@ -91,15 +93,15 @@ class TestQQD:
 
     def test_zhou_2021_example_D1_exact(self):
         """QQD²(D^(1)) == 0.0213 from Zhang, Yang & Zhou (2021)."""
+        # Two 8-level quantitative factors given as level indices; QQD
+        # itself places them at (2x+1)/16, as the paper does.
         raw = np.array([0, 2, 4, 6, 1, 3, 5, 7])
-        def transform(x):
-            return (2.0 * x + 1.0) / 16.0
         D1_nom = np.array([0, 0, 0, 0, 1, 1, 1, 1]) / 1.0
-        D_1 = np.column_stack([D1_nom, transform(raw), transform(raw)])
+        D_1 = np.column_stack([D1_nom, raw / 7.0, raw / 7.0])
         space = mergen.ParameterSpace({
             'D1':  ('nominal', ['A', 'B']),
-            'x1':  ('continuous', 0.0, 1.0),
-            'x2':  ('continuous', 0.0, 1.0),
+            'x1':  list(range(8)),
+            'x2':  list(range(8)),
         })
         score = QQD().evaluate(D_1, space)
         assert abs(score - 0.0213) < 1e-4

@@ -98,6 +98,13 @@ simultaneously. Mergen reports the raw pairwise sum, a strictly
 monotone transform of the published $\big(\psi / \binom{n}{2}
 \big)^{1/d}$ form, so the optimum is identical.
 
+A parameter with fewer levels than the design has runs cannot give
+every run its own value, so two runs must share a level and the
+product above is infinite. On such an axis, with $m$ levels, Mergen
+uses $(|x_{il} - x_{jl}| + 1/m)^2$ instead, the form Joseph, Gul & Ba
+(2020, Eq. 9) give for discrete factors; axes with at least $n$ levels
+keep the published term.
+
 Use it when a surrogate model will be fitted and you do not know in
 advance which inputs matter: projection quality is then the property
 that matters most. Its known artefact is a mild repulsion of points from the
@@ -111,15 +118,26 @@ replaces every squared coordinate difference by its periodic
 counterpart,
 
 $$
-\delta_{ijl} = \min\big(|x_{il} - x_{jl}|,\; 1 - |x_{il} - x_{jl}|\big),
+\delta_{ijl} = \min\big(|t_{il} - t_{jl}|,\; 1 - |t_{il} - t_{jl}|\big),
 \qquad
 \psi_u(D) = \sum_{i<j} \prod_{l=1}^{d} \delta_{ijl}^{-2},
 $$
 
-which treats each axis as a circle. This removes the boundary
-repulsion of plain MaxPro and makes the criterion invariant under
-cyclic shifts of the design, a property Mergen's validation suite
-checks explicitly. It is the default criterion in `Sampler.run`.
+which treats each axis as a circle. The $m$ levels of an axis sit on
+the circle at their stratum midpoints, level $k$ at
+$t = (k + 1/2)/m$ when the levels are equally spaced, the midpoint
+placement of Vorechovsky & Masek, so the lowest and highest level are
+$1/m$ apart rather than one point. Unequally spaced levels (a log
+grid, a list of values) keep their relative spacing, with a gap
+across the wrap equal to the mean spacing.
+This removes the boundary repulsion of plain MaxPro and, for equally
+spaced levels, makes the criterion invariant under cyclic shifts of
+the design, a property Mergen's validation suite checks explicitly.
+An axis with fewer levels than runs gets the $1/m$ term described
+under MaxPro; combining it with the periodic distance is Mergen's
+choice, as Vorechovsky & Masek do not treat that case. It is the
+default criterion of `Sampler.run` for numeric spaces; a space with a
+nominal or ordinal parameter gets MaxPro$_{\mathrm{QQ}}$ by default.
 
 Use it in the same situations as MaxPro; prefer it when uniform
 treatment of the boundary matters, which is most of the time.
@@ -155,8 +173,11 @@ orthogonal-array based constructions, or grid-refinement studies.
 $\mathrm{MaxPro_{QQ}}$ (`criteria='maxproqq'`; Joseph, Gul & Ba,
 2020) extends MaxPro to designs that mix
 continuous, discrete numeric, integer, ordinal, and nominal factors.
-Continuous coordinates contribute $(x_{il} - x_{jl})^2$ as before;
-a discrete numeric or ordinal factor with $m_k$ levels contributes
+Continuous coordinates contribute $(x_{il} - x_{jl})^2$ as before,
+unless the continuous grid has fewer levels than the design has runs:
+the paper leaves out the $1/m$ term only because a continuous factor
+is assumed to take $n$ distinct values, so such a column is scored as
+discrete numeric. A discrete numeric or ordinal factor with $m_k$ levels contributes
 $(|u_{ik} - u_{jk}| + 1/m_k)^2$; a nominal factor with $L_h$ levels
 contributes $(\mathbf{1}(v_{ih} \neq v_{jh}) + 1/L_h)^2$, so two runs
 sharing a nominal level are penalised but the term cannot vanish. When
@@ -174,6 +195,9 @@ Zhang, Yang & Zhou, 2021) is
 the uniformity counterpart for mixed spaces: quantitative columns are
 scored with the wrap-around $L_2$ kernel and nominal columns with a
 discrete kernel, calibrated so that neither factor type dominates.
+A quantitative factor with $s$ levels enters the kernel with its levels
+at $(2x + 1)/(2s)$, $x = 0, \dots, s - 1$, as in the paper, so its
+first and last level do not coincide on the wrap-around scale.
 When no qualitative factors are present, QQD reduces to the
 wrap-around $L_2$-discrepancy of the quantitative sub-design, which
 the test suite also verifies. Mergen reports $\mathrm{QQD}^2$, the

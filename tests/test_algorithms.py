@@ -295,3 +295,60 @@ class TestRoundFixes:
             for v in range(3):
                 levels = [gs.level_of(v, x) for x in D[:, v]]
                 assert len({lv * 20 // 100 for lv in levels}) == 20
+
+
+class TestSATemperatureProbe:
+    """The Ben-Ameur probe scores moves the chain itself could make."""
+
+    def _setup(self):
+        from mergen.criteria import PhiP
+        space = mergen.ParameterSpace({'x': list(range(9)),
+                                       'y': list(range(16))})
+        gs = space.grid_sampler()
+        rng = np.random.default_rng(0)
+        idx = rng.choice(gs.n_candidates, 12, replace=False)
+        design = np.array([gs.index_to_point(int(i)) for i in idx])
+        banned = {int(i) for i in rng.choice(
+            np.setdiff1d(np.arange(gs.n_candidates), idx), 30,
+            replace=False)}
+        reserved = banned | {int(i) for i in idx}
+        calls = []
+
+        class Spy(PhiP):
+            def incremental(self, X, i, new_pt, space, current_score):
+                calls.append((i, np.array(new_pt, dtype=float)))
+                return super().incremental(X, i, new_pt, space,
+                                           current_score)
+
+        return space, gs, design, banned, reserved, Spy(), calls
+
+    def test_probe_moves_only_free_nodes_and_movable_rows(self):
+        from mergen.algorithms.sa import SAOptimizer, banned_points
+        space, gs, design, banned, reserved, crit, calls = self._setup()
+        n_frozen = 3
+        X = (design - space.gmins) / space.granges
+        score = crit.evaluate(X, space)
+        T = SAOptimizer()._auto_temp(
+            design, X, set(reserved), n_frozen, 0, score, gs, space.gmins,
+            space.granges, crit, space, 1, 0,
+            banned_points(gs, banned, design))
+        assert T > 0 and calls
+        for i, new in calls:
+            assert i >= n_frozen
+            node = gs.point_to_index(new * space.granges + space.gmins)
+            assert node not in banned
+
+    def test_given_T_start_skips_the_probe(self, monkeypatch):
+        from mergen.algorithms.sa import SAOptimizer
+
+        def boom(*a, **k):
+            raise AssertionError("probe ran although T_start was given")
+
+        monkeypatch.setattr(SAOptimizer, '_auto_temp', boom)
+        space = mergen.ParameterSpace({'x': list(range(9)),
+                                       'y': list(range(16))})
+        s = mergen.Sampler(space)
+        s.set_design(n_samples=8, n_validation=0)
+        s.set_optimizer('sa', n_restarts=1, max_iter=200, T_start=0.05)
+        s.run(criteria='phi_p', seed=1, n_repeats=1, n_jobs=1,
+              verbose=False)

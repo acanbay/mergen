@@ -34,9 +34,11 @@ class TestMetricFunctionsBackwardCompat:
 
     def test_locked_values_numerical(self, num_result):
         rp = num_result.quality_report(verbose=False)
-        # locked pre-categorical values
-        assert np.isclose(rp['min_distance'], 0.141421, atol=1e-4)
-        assert np.isclose(rp['projection_cd2'], 0.059619, atol=1e-4)
+        # Locked values of this SA run (since the 0.1.1 start-calibrated
+        # temperature).
+        assert np.isclose(rp['min_distance'], 0.1, atol=1e-4)
+        # One pair of axes: the mean of CD2² is CD2² = 0.061019².
+        assert np.isclose(rp['projection_cd2'], 0.061019 ** 2, rtol=1e-4)
 
 
 class TestMetricFunctionsWithSpace:
@@ -527,3 +529,38 @@ def test_compare_matches_the_report_with_reserved_points(kind):
     rep = c.best_result.quality_report(mc_samples=50, verbose=False)
     for m in ('min_distance', 'minimax', 'mean_distance'):
         assert row[m] == pytest.approx(rep[f'{m}_percentile_rank'])
+
+
+def test_quality_report_plain_text_off_terminal_and_checks_mc_samples(capsys):
+    s = mergen.Sampler(mergen.ParameterSpace({'x': list(range(6)),
+                                              'y': list(range(6))}))
+    s.set_design(n_samples=5, n_validation=0)
+    r = s.run(criteria='phi_p', n_repeats=1, seed=1, verbose=False)
+    capsys.readouterr()
+    r.quality_report(criteria_metrics=['cd2'], mc_samples=20)
+    out = capsys.readouterr().out
+    assert '\033[' not in out
+    assert 'CD2 +' in out and '+ evaluated after the run' in out
+    with pytest.raises(ValueError, match='mc_samples'):
+        r.quality_report(mc_samples=-1, verbose=False)
+
+
+@pytest.mark.parametrize('crit, marked', [('phi_p', True), ('umaxpro', False)])
+def test_quality_report_marks_only_definitional_metrics(num_space, capsys,
+                                                       crit, marked):
+    # Only phi_p has a report metric that follows from its definition
+    # (maximin, as p grows); no row is marked for the MaxPro family.
+    s = mergen.Sampler(num_space)
+    s.set_design(n_samples=6, n_validation=0)
+    s.set_optimizer('sa', n_restarts=1, max_iter=200)
+    r = s.run(criteria=crit, seed=1, verbose=False, n_repeats=1)
+    capsys.readouterr()
+    r.quality_report(mc_samples=5)
+    out = capsys.readouterr().out
+    rows = [ln for ln in out.splitlines() if ln.rstrip().endswith('*')]
+    if marked:
+        assert len(rows) == 1 and 'Min distance' in rows[0]
+        assert "* = targeted by 'phi_p'" in out
+    else:
+        assert rows == [] and '* =' not in out
+    assert 'list_criteria()' in out

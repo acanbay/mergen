@@ -33,6 +33,14 @@ run_order(sampler, design, anchor='center', column='run_order')
     design remains space-filling — useful for serial execution,
     early stopping, interim analyses.
 
+k_fold_split(sampler, design, k, anchor='center')
+    Split a design into k balanced folds so that each fold covers the
+    space, for cross-validation of a surrogate fitted on the design.
+
+nested(sampler, n_outer, n_inner, ...)
+    Build an outer design and pick a space-filling inner subset of it,
+    for two budget tiers on the same space.
+
 Notes
 -----
 The first argument of every public function is a ``Sampler``. The
@@ -97,17 +105,28 @@ def _coerce_design(
                 f"DataFrame is missing parameter column(s): {missing}.\n"
                 f"  Expected columns: {space.names}"
             )
-        arr = design[space.names].to_numpy(dtype=float, copy=True)
+        # Nominal and ordinal columns may hold labels, as in
+        # result.samples.
+        arr = space.encode_frame(design[space.names]).to_numpy(
+            dtype=float, copy=True)
         return arr, design
-    if isinstance(design, (list, tuple)):
-        design = np.asarray(design, dtype=float)
-    arr = np.asarray(design, dtype=float)
+    arr = space.encode_points(design, context="design")
     if arr.ndim != 2 or arr.shape[1] != space.n_parameters:
         _fatal(
             f"design must have shape (n, {space.n_parameters}); "
             f"got {arr.shape}."
         )
     return arr, None
+
+
+def _count(name: str, value) -> int:
+    """A positive integer argument; 2.7 or True is refused, not cut."""
+    ok = (not isinstance(value, (bool, np.bool_))
+          and isinstance(value, (int, np.integer, float, np.floating))
+          and float(value).is_integer() and value >= 1)
+    if not ok:
+        _fatal(f"{name} must be a positive integer; got {value!r}.")
+    return int(value)
 
 
 def _kennard_stone_array(
@@ -163,7 +182,7 @@ def _kennard_stone_array(
     gmins, granges = space.gmins, space.granges
     norm_pool      = (pool - gmins) / granges
     N              = len(pool)
-    n_select       = int(n_select)
+    n_select       = _count('n_select', n_select)
 
     # When the space has any nominal factor the ordinary Euclidean
     # distance mixes ordered and unordered dimensions, which is not
@@ -237,7 +256,7 @@ def extend(
     sampler:         "Sampler",
     existing_design: Union[np.ndarray, pd.DataFrame, list, tuple],
     n_new:           int,
-    criteria:        str  = 'cd2',
+    criteria:        Optional[str] = None,
     algorithm:       Union[str, List[str]] = 'sa',
     n_validation:    int  = 0,
     seed:            Optional[int] = 44,
@@ -275,8 +294,9 @@ def extend(
     n_new : int
         Number of new points to add.
     criteria, algorithm, n_validation, seed, verbose, n_repeats
-        Passed through to :meth:`Sampler.run`. Defaults match the
-        one-shot workflow.
+        Passed through to :meth:`Sampler.run`. Defaults match
+        :meth:`Sampler.run`, except that no validation points are added
+        (``n_validation=0``): the call adds exactly ``n_new`` runs.
 
     Returns
     -------
@@ -288,8 +308,7 @@ def extend(
     Qian, P. Z. G. (2009). *Biometrika*, 96(4).
     """
     arr, df = _coerce_design(sampler, existing_design)
-    if int(n_new) < 1:
-        _fatal(f"n_new must be ≥ 1; got {n_new}.")
+    n_new = _count('n_new', n_new)
 
     tol = sampler.space.grid_tol
     missing = [pt.tolist() for pt, _, _ in sampler._prescribed
@@ -311,8 +330,8 @@ def extend(
         out = [any(not in_d and np.all(np.abs(row - pt) <= tol)
                    for pt, in_d, _ in snap['prescribed']) for row in arr]
         for row, is_out in zip(arr, out):
-            sampler.add_prescribed([row.tolist()],
-                                   in_design=not is_out, in_optim=True)
+            sampler._add_prescribed_codes(row, in_design=not is_out,
+                                          in_optim=True)
         sampler.set_design(
             n_samples    = len(arr) - sum(out) + int(n_new),
             n_validation = int(n_validation),
@@ -326,7 +345,8 @@ def extend(
 
     # The existing rows first, in their input order (an out-of-budget
     # row is otherwise placed after the new ones), then the new rows.
-    P = result.samples[sampler.space.names].to_numpy()
+    P = sampler.space.encode_frame(
+        result.samples[sampler.space.names]).to_numpy(dtype=float)
     first = [int(np.flatnonzero(np.all(np.abs(P - row) <= tol, axis=1))[0])
              for row in arr]
     rest = [i for i in range(len(P)) if i not in set(first)]
@@ -345,7 +365,7 @@ def fill_around(
     sampler:          "Sampler",
     reference_points: Union[np.ndarray, pd.DataFrame, list, tuple],
     n_new:            int,
-    criteria:         str  = 'cd2',
+    criteria:         Optional[str] = None,
     algorithm:        Union[str, List[str]] = 'sa',
     n_validation:     int  = 0,
     seed:             Optional[int] = 44,
@@ -375,7 +395,8 @@ def fill_around(
     n_new : int
         Number of new points to generate.
     criteria, algorithm, n_validation, seed, verbose, n_repeats
-        See :meth:`Sampler.run`.
+        See :meth:`Sampler.run`. Defaults match it, except that no
+        validation points are added (``n_validation=0``).
 
     Returns
     -------
@@ -383,8 +404,7 @@ def fill_around(
         Contains exactly ``n_new`` design points.
     """
     arr, _ = _coerce_design(sampler, reference_points)
-    if int(n_new) < 1:
-        _fatal(f"n_new must be ≥ 1; got {n_new}.")
+    n_new = _count('n_new', n_new)
 
     # The sampler's own prescribed points are references too; each
     # point is added once.
@@ -401,8 +421,8 @@ def fill_around(
         sampler._focus.clear()
         sampler._loaded_design = None
         for row in arr:
-            sampler.add_prescribed([row.tolist()],
-                                   in_design=False, in_optim=True)
+            sampler._add_prescribed_codes(row, in_design=False,
+                                          in_optim=True, on_grid=False)
         sampler.set_design(
             n_samples    = int(n_new),
             n_validation = int(n_validation),
@@ -417,7 +437,8 @@ def fill_around(
     # result.samples (with point_type 'Prescribed'). Drop them so the
     # caller receives exactly ``n_new`` rows — the new points whose
     # coordinates do not match any reference row.
-    sample_pts = result.samples[sampler.space.names].to_numpy()
+    sample_pts = sampler.space.encode_frame(
+        result.samples[sampler.space.names]).to_numpy(dtype=float)
     keep       = np.ones(len(sample_pts), dtype=bool)
     for ref in arr:
         keep &= ~np.all(np.abs(sample_pts - ref) <= sampler.space.grid_tol,
@@ -476,7 +497,14 @@ def subsample(
     idx     = _kennard_stone_array(sampler, arr, n_select, anchor=anchor)
     if df is not None:
         return df.iloc[idx].copy()
-    return arr[idx].copy()
+    rows = arr[idx].copy()
+    space = sampler.space
+    if any(space.is_categorical(n) for n in space.names):
+        # Nominal and ordinal levels come back as their labels, so the
+        # rows are an object array.
+        rows = space.decode_frame(
+            pd.DataFrame(rows, columns=space.names)).to_numpy(dtype=object)
+    return rows
 
 
 def run_order(
@@ -530,7 +558,8 @@ def run_order(
     arr, df = _coerce_design(sampler, design)
     order   = _kennard_stone_array(sampler, arr, len(arr), anchor=anchor)
     if df is None:
-        out = pd.DataFrame(arr[order], columns=sampler.space.names)
+        out = sampler.space.decode_frame(
+            pd.DataFrame(arr[order], columns=sampler.space.names))
     else:
         out = df.iloc[order].copy()
     out[column] = range(len(out))
@@ -547,20 +576,27 @@ def k_fold_split(
     Split a design into ``k`` space-filling folds for cross-validation.
 
     Returns ``k`` ``(train_indices, test_indices)`` pairs in the same
-    format as :class:`sklearn.model_selection.KFold`. Within each pair,
-    the test fold and the training set are *both* space-filling — every
-    fold covers the parameter space rather than clustering in a
-    sub-region, so cross-validation estimates are not biased by an
-    unlucky split.
+    format as :class:`sklearn.model_selection.KFold`. Every test fold
+    covers the parameter space rather than clustering in a sub-region,
+    so cross-validation estimates are not biased by an unlucky split.
+
+    Coverage is measured by a fold's coverage radius: the largest
+    distance from any design point to its nearest point of that fold,
+    in normalised coordinates (HEOM when the space has nominal
+    factors), as in :func:`run_order`. The folds minimise, in this
+    order, the largest coverage radius over the folds and the sum of
+    the radii.
 
     Algorithm
     ---------
     The design is first reordered with :func:`run_order` (sequential
-    Kennard-Stone). Then a round-robin assignment distributes rows to
-    folds: row 0 → fold 0, row 1 → fold 1, …, row k-1 → fold k-1,
-    row k → fold 0, and so on. Because consecutive rows of the
-    KS-ordering are placed as far apart as possible, each fold ends up
-    with one representative from every region of the space.
+    Kennard-Stone), and a round-robin assignment gives the starting
+    folds: row 0 → fold 0, row 1 → fold 1, …, row k → fold 0, and so
+    on. Pairwise swaps of rows between folds are then made while one
+    lowers the objective above; for each row the best swap is taken,
+    ties going to the lowest index. This is repeated from several KS
+    starting points (see ``anchor``) and the best folds are kept. The
+    result is a local optimum, deterministic for a given design.
 
     Parameters
     ----------
@@ -575,8 +611,11 @@ def k_fold_split(
         balanced as possible — the first ``len(design) mod k`` folds
         receive one extra row each.
     anchor : {'center', 'maximin', int, None}, default 'center'
-        First-point strategy for the underlying KS ordering. See
-        :func:`subsample`.
+        First-point strategy of the first KS ordering tried; the
+        centre and the maximin pair are tried too, and for designs of
+        up to 100 rows the first eight rows, and the best folds are
+        kept. When starts give equally good folds, the requested
+        ``anchor`` wins. See :func:`subsample`.
 
     Returns
     -------
@@ -597,20 +636,36 @@ def k_fold_split(
     """
     arr, _ = _coerce_design(sampler, design)
     n      = len(arr)
-    k      = int(k)
+    k      = _count('k', k)
     if k < 2:
         _fatal(f"k must be ≥ 2; got {k}.")
     if k > n:
         _fatal(f"k ({k}) cannot exceed design size ({n}).")
 
-    # KS-sequential ordering of position indices (0..n-1)
-    order = _kennard_stone_array(sampler, arr, n, anchor=anchor)
-    order = np.asarray(order, dtype=int)
+    space = sampler.space
+    norm  = (arr - space.gmins) / space.granges
+    from .distances import heom_pairwise
+    D = heom_pairwise(norm, space=space if space.has_nominal else None)
 
-    # Round-robin distribution → fold membership for every position
-    fold_of_pos = np.empty(n, dtype=int)
-    for rank, pos in enumerate(order):
-        fold_of_pos[pos] = rank % k
+    # Several deterministic starts (the requested anchor first), each
+    # a KS ordering dealt round-robin and improved by swaps; the best
+    # result is kept, ties going to the earlier start.
+    starts = list(dict.fromkeys(
+        [anchor, 'center', 'maximin']
+        + (list(range(min(n, 8))) if n <= _FOLD_ROW_STARTS_MAX else [])))
+    best = None
+    for start in starts:
+        order = np.asarray(_kennard_stone_array(sampler, arr, n,
+                                                anchor=start), dtype=int)
+        fold = np.empty(n, dtype=int)
+        for rank, pos in enumerate(order):
+            fold[pos] = rank % k
+        fold = _swap_folds(D, fold, k)
+        radii = [float(D[:, fold == f].min(axis=1).max()) for f in range(k)]
+        key = (round(max(radii), 12), round(sum(radii), 12))
+        if best is None or key < best[0]:
+            best = (key, fold)
+    fold_of_pos = best[1]
 
     # Build (train_idx, test_idx) pairs
     all_idx = np.arange(n)
@@ -618,11 +673,132 @@ def k_fold_split(
             for f in range(k)]
 
 
+# Sweeps of the fold-swap search; it usually stops after a few, and
+# the cap keeps very large designs bounded (a count, so deterministic).
+_FOLD_SWEEPS = 50
+# Up to this design size the first eight rows serve as extra starts.
+_FOLD_ROW_STARTS_MAX = 100
+
+
+def _max_min(cap, D, cols):
+    """
+    ``max_i min(cap[i], D[i, b])`` for every ``b`` in ``cols``, exactly.
+
+    Row ``i`` contributes at most ``cap[i]``, so the maximum over the
+    rows with the largest caps is exact whenever it reaches the
+    largest cap left out; the other columns are computed over all rows.
+    """
+    n = len(cap)
+    m = max(32, n // 8)
+    if n <= 2 * m:
+        return np.minimum(cap[:, None], D[:, cols]).max(axis=0)
+    top = np.argpartition(-cap, m)[:m]
+    t   = float(np.delete(cap, top).max())
+    out = np.minimum(cap[top, None], D[np.ix_(top, cols)]).max(axis=0)
+    redo = out < t
+    if redo.any():
+        out[redo] = np.minimum(cap[:, None], D[:, cols[redo]]).max(axis=0)
+    return out
+
+
+def _radius_without(low, high, arg, cols):
+    """
+    For every ``b`` in ``cols``: ``max_i`` of ``high[i]`` where
+    ``arg[i] == b`` and of ``low[i]`` elsewhere (``high >= low``).
+
+    The rows whose nearest member is ``b`` take ``high``; for the rest
+    the largest ``low`` comes from the two groups with the largest
+    ``low`` maxima, so the whole is O(n).
+    """
+    n_lab   = max(int(arg.max()), int(cols.max())) + 1
+    low_g   = np.full(n_lab, -np.inf)
+    high_g  = np.full(n_lab, -np.inf)
+    np.maximum.at(low_g, arg, low)
+    np.maximum.at(high_g, arg, high)
+    g1 = int(np.argmax(low_g))
+    second = np.delete(low_g, g1).max() if n_lab > 1 else -np.inf
+    rest = np.where(cols == g1, second, low_g[g1])
+    return np.maximum(rest, high_g[cols])
+
+
+def _swap_folds(D: np.ndarray, fold: np.ndarray, k: int) -> np.ndarray:
+    """
+    Improve a fold assignment by pairwise swaps (see k_fold_split).
+
+    Fold f's coverage radius is max_i min_{j in f} D[i, j]. A swap of
+    row a (fold A) with row b (fold B) changes only A's and B's radii.
+    Each row's nearest and second-nearest member of every fold are
+    kept, so the new radii of all candidate b of a fold are found at
+    once; they are refreshed for the two folds a swap changes.
+    """
+    fold = fold.copy()
+    n    = len(D)
+    cols = np.arange(n)
+
+    def nearest_two(f):
+        members = np.flatnonzero(fold == f)
+        Dm = D[:, members]
+        if len(members) == 1:
+            return Dm[:, 0], np.full(n, np.inf), np.full(n, members[0])
+        part = np.argpartition(Dm, 1, axis=1)[:, :2]
+        d0 = Dm[cols, part[:, 0]]
+        d1 = Dm[cols, part[:, 1]]
+        swap = d1 < d0
+        m1 = np.where(swap, d1, d0)
+        m2 = np.where(swap, d0, d1)
+        arg = members[np.where(swap, part[:, 1], part[:, 0])]
+        return m1, m2, arg
+
+    near  = [nearest_two(f) for f in range(k)]
+    radii = np.array([near[f][0].max() for f in range(k)])
+
+    def key(mx, sm):
+        # Rounded, so floating-point noise cannot drive a swap.
+        return np.round(mx, 12), np.round(sm, 12)
+
+    for _ in range(_FOLD_SWEEPS):
+        improved = False
+        for a in range(n):
+            A = fold[a]
+            m1, m2, arg = near[A]
+            # A without a: each row's nearest other member of A.
+            near_a = np.where(arg == a, m2, m1)
+            cur = key(radii.max(), radii.sum())
+            best = None
+            for B in range(k):
+                if B == A:
+                    continue
+                in_b = np.flatnonzero(fold == B)
+                b1, b2, barg = near[B]
+                new_a = _max_min(near_a, D, in_b)
+                new_b = _radius_without(np.minimum(D[:, a], b1),
+                                        np.minimum(D[:, a], b2), barg, in_b)
+                rest = np.delete(radii, [A, B])
+                mx = np.maximum(np.maximum(new_a, new_b),
+                                rest.max() if len(rest) else -np.inf)
+                sm = rest.sum() + new_a + new_b
+                kmx, ksm = key(mx, sm)
+                t = np.lexsort((in_b, ksm, kmx))[0]           # best, low index
+                cand = (kmx[t], ksm[t])
+                if cand < cur and (best is None or cand < best[0]):
+                    best = (cand, int(in_b[t]), B,
+                            float(new_a[t]), float(new_b[t]))
+            if best is not None:
+                _, b, B, ra, rb = best
+                fold[a], fold[b] = B, A
+                radii[A], radii[B] = ra, rb
+                near[A], near[B] = nearest_two(A), nearest_two(B)
+                improved = True
+        if not improved:
+            break
+    return fold
+
+
 def nested(
     sampler:   "Sampler",
     n_outer:   int,
     n_inner:   int,
-    criteria:  str  = 'cd2',
+    criteria:  Optional[str] = None,
     algorithm: Union[str, List[str]] = 'sa',
     seed:      Optional[int] = 44,
     verbose:   bool = True,
@@ -643,7 +819,8 @@ def nested(
     1. Build the outer design via :meth:`Sampler.run` on the current
        Sampler state (``n_samples = n_outer``).
     2. Pick the inner design as a maximin Kennard-Stone subsample of
-       the outer (:func:`subsample` with ``anchor='maximin'``).
+       the ``n_outer`` budget rows of the outer design
+       (:func:`subsample` with ``anchor='maximin'``).
 
     The resulting inner design is space-filling within outer, and
     every outer point is space-filling in the full parameter space.
@@ -667,13 +844,17 @@ def nested(
 
     Returns
     -------
-    outer : DataFrame, shape (n_outer, d + 1)
-        The outer design with one extra boolean column ``'in_inner'``
-        flagging the rows that belong to the inner design.
-    inner : DataFrame, shape (n_inner, d + 1)
-        The inner design (subset of outer, in KS selection order).
-        Same columns as ``outer``; the ``'in_inner'`` column is
-        constant ``True``.
+    outer : DataFrame
+        ``result.samples`` of the outer run (the ``d`` parameter
+        columns and ``'point_type'``) plus a boolean ``'in_inner'``
+        column flagging the rows of the inner design. It has
+        ``n_outer`` rows, more when prescribed or focus points outside
+        the budget (``in_design=False``) are kept in the samples; those
+        extra rows come last and are never in the inner design.
+    inner : DataFrame, shape (n_inner, d + 2)
+        The inner rows of ``outer``, in the order they appear in
+        ``outer`` (not in selection order). Same columns as
+        ``outer``; ``'in_inner'`` is ``True`` throughout.
 
     References
     ----------
@@ -682,10 +863,8 @@ def nested(
     Qian, P. Z. G. (2009). Nested Latin hypercube designs.
         *Biometrika*, 96(4), 957-970.
     """
-    n_outer = int(n_outer)
-    n_inner = int(n_inner)
-    if n_inner < 1:
-        _fatal(f"n_inner must be ≥ 1; got {n_inner}.")
+    n_outer = _count('n_outer', n_outer)
+    n_inner = _count('n_inner', n_inner)
     if n_outer <= n_inner:
         _fatal(
             f"n_outer ({n_outer}) must be strictly greater than "
@@ -703,7 +882,11 @@ def nested(
         sampler._restore_state(snap)
 
     outer = outer_result.samples.copy()
-    pts   = outer[sampler.space.names].to_numpy()
+    # Out-of-budget prescribed and focus points follow the n_outer
+    # budget rows; they are not run, so the inner design skips them.
+    n_run = len(outer) - len(outer_result._extra_pts)
+    pts   = sampler.space.encode_frame(
+        outer[sampler.space.names].iloc[:n_run]).to_numpy(dtype=float)
 
     # ── Step 2: inner = maximin KS subsample of outer ───────────────
     inner_pos = _kennard_stone_array(sampler, pts, n_inner, anchor='maximin')

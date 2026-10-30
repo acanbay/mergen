@@ -62,8 +62,10 @@ Kennard-Stone selection:
 pilot = sequential.subsample(sampler, extended.best_design, n_select=6)
 ```
 
-Or partition a design into space-filling folds for cross-validation,
-so that each fold and each training set covers the whole space:
+Or partition a design into folds for cross-validation. The folds are
+chosen so that the design point farthest from its nearest point of a
+fold is as close as possible, so no test fold leaves a region of the
+space uncovered:
 
 ```python
 folds = sequential.k_fold_split(sampler, extended.best_design, k=3)

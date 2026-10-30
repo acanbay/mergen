@@ -398,7 +398,8 @@ class TestCompare:
 
     def test_basic_flow(self, sampler_numeric, capsys):
         cmp = sampler_numeric.compare(n_repeats=5,
-            criteria=['umaxpro', 'cd2'], mc_samples=50, verbose=False)
+            criteria=['umaxpro', 'cd2'], mc_samples=50, verbose=False,
+            polish=False)
         capsys.readouterr()
         assert len(cmp.results) == 2
         assert len(cmp.table) == 2
@@ -431,7 +432,8 @@ class TestCompare:
 
     def test_best_result_consistency(self, sampler_numeric, capsys):
         cmp = sampler_numeric.compare(n_repeats=5,
-            criteria=['umaxpro', 'phi_p'], mc_samples=50, verbose=False)
+            criteria=['umaxpro', 'phi_p'], mc_samples=50, verbose=False,
+            polish=False)
         capsys.readouterr()
         # best_result is a full SamplingResult for the winning
         # combination, and it must match what a standalone run() produces
@@ -506,7 +508,8 @@ class TestCompareOrdering:
         crits = ['phi_p', 'cd2', 'maxpro']
         algs = ['sa', 'sce']
         cmp = sampler_numeric.compare(n_repeats=5,
-            algorithms=algs, criteria=crits, mc_samples=40, verbose=False)
+            algorithms=algs, criteria=crits, mc_samples=40, verbose=False,
+            polish=False)
         capsys.readouterr()
         got = [(r.criterion, r.algorithm) for r in cmp.table.itertuples()]
         expected = [(c, a) for c in crits for a in algs]
@@ -701,12 +704,14 @@ class TestParetoUtopiaRanking:
         assert not dominated(keys.index(cmp.best))
 
         # 2. Among Pareto-optimal designs, the winner is closest to
-        #    Utopia after min-max scaling over all designs.
-        lo, span = pts.min(axis=0), np.ptp(pts, axis=0)
+        #    Utopia after min-max scaling over the front (a dominated
+        #    design must not change the winner).
+        front = [i for i in range(len(pts)) if not dominated(i)]
+        F = pts[front]
+        lo, span = F.min(axis=0), np.ptp(F, axis=0)
         span = np.where(span > 1e-9, span, np.inf)
-        dist = np.linalg.norm((pts - lo) / span, axis=1)
-        front_d = [dist[i] for i in range(len(pts)) if not dominated(i)]
-        assert abs(dist[keys.index(cmp.best)] - min(front_d)) < 1e-9
+        dist = np.linalg.norm((F - lo) / span, axis=1)
+        assert abs(dist[front.index(keys.index(cmp.best))] - dist.min()) < 1e-9
 
 
 class TestCompareRepeatsAndParallel:

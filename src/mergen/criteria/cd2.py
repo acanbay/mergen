@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .base import BaseCriterion, _EPS
+from .base import BaseCriterion, _EPS, _active
 
 
 class CD2(BaseCriterion):
@@ -41,7 +41,7 @@ class CD2(BaseCriterion):
     """
 
     def evaluate(self, X: np.ndarray, space) -> float:
-        X    = np.asarray(X, dtype=float)
+        X    = _active(space, np.asarray(X, dtype=float))
         n, d = X.shape
 
         t1 = (13.0 / 12.0) ** d
@@ -63,10 +63,10 @@ class CD2(BaseCriterion):
         # Moving point i changes its own term in the single sum and row
         # and column i of the double sum, so the squared discrepancy
         # changes by an O(n·d) amount.
-        X      = np.asarray(X, dtype=float)
+        X, new_pt = _active(space, np.asarray(X, dtype=float),
+                            np.asarray(new_pt, dtype=float))
         n      = len(X)
         old_pt = X[i]
-        new_pt = np.asarray(new_pt, dtype=float)
         a      = np.abs(X - 0.5)
         a_old  = np.abs(old_pt - 0.5)
         a_new  = np.abs(new_pt - 0.5)

@@ -3,17 +3,19 @@ mergen.algorithms.sa
 ====================
 Simulated Annealing for space-filling design optimisation.
 
-The implementation follows the classical Morris & Mitchell (1995)
-recipe of single-point coordinate exchange on a discrete grid, extended
-with three modern refinements:
+The implementation builds on the simulated annealing of Morris &
+Mitchell (1995), whose move exchanges two elements within a randomly
+chosen column of a Latin hypercube, and adds three refinements:
 
-* **Auto-tuned initial temperature** via Ben-Ameur (2004): a probe pass
-  empirically estimates the criterion's log-delta magnitudes so the
-  user does not need to set ``T_start`` manually.
+* **Auto-tuned initial temperature** via Ben-Ameur (2004): moves the
+  chain can make from its start design are scored, and ``T_start`` is
+  set so that the uphill ones are accepted with mean probability
+  ``target_accept``; the user does not need to set it.
 * **Hybrid moves**: each iteration picks one of two move types — a
-  *random replacement* (the original Morris–Mitchell move, fast escape
-  from local optima) or a *column swap* (preserves the per-axis level
-  frequency and is essential for Latin-Hypercube structure). The mix is
+  *random replacement* of one row by a free grid node (fast escape
+  from local optima) or a *column swap* of two rows on one axis (the
+  Morris–Mitchell move; preserves the per-axis level frequency and is
+  essential for Latin-Hypercube structure). The mix is
   controlled by the ``hybrid_ratio`` hyperparameter.
 * **Iterated Local Search restarts** (Lourenço, Martin & Stützle 2003):
   after each restart the best design so far is perturbed and reused as
@@ -44,6 +46,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from .. import _term
+
 from .base import BaseOptimizer, OptimisationResult, banned_points, hits
 
 if TYPE_CHECKING:
@@ -73,8 +77,9 @@ class SAOptimizer(BaseOptimizer):
         auto rule ``max(2000, 100 × n)`` where *n* is the design size.
     T_start : float or None, default None
         Initial temperature. ``None`` activates the Ben-Ameur (2004)
-        auto-tune, which probes random transitions to estimate a
-        temperature giving acceptance rate ``target_accept``.
+        auto-tune: 200 moves from each restart's start design are
+        scored, and the temperature is set so that the uphill ones are
+        accepted with mean probability ``target_accept``.
     cooling : float or None, default None
         Geometric cooling rate (``T_{k+1} = cooling × T_k``). ``None``
         sets it so that the temperature reaches ``T_end_ratio × T_start``
@@ -83,13 +88,15 @@ class SAOptimizer(BaseOptimizer):
         Final-to-initial temperature ratio, used only when ``cooling``
         is auto-computed.
     target_accept : float, default 0.80
-        Target initial acceptance rate for Ben-Ameur auto-tune.
+        Target mean acceptance probability of uphill moves at the
+        start, for the Ben-Ameur auto-tune.
     hybrid_ratio : float, default 0.5
         Probability of choosing a *column-swap* move at each iteration
         (preserves LHS structure). The complement is the probability of
         a *random replacement* move (faster local-optimum escape but
         breaks LHS frequency balance). ``hybrid_ratio = 0.0`` → pure
-        Morris–Mitchell random replacement; ``1.0`` → pure column-swap.
+        random replacement; ``1.0`` → pure column-swap, the
+        Morris–Mitchell move.
     perturbation_size : int or None, default None
         Number of rows to perturb between restarts (ILS kick size).
         ``None`` activates ``max(1, n_optimised // 4)``.
@@ -136,6 +143,20 @@ class SAOptimizer(BaseOptimizer):
     # ────────────────────────────────────────────────────────────────
     # Public: optimise                                                  #
     # ────────────────────────────────────────────────────────────────
+    def validate(self) -> None:
+        """Raise ValueError for an out-of-range hyperparameter."""
+        if not 0.0 <= self.hybrid_ratio <= 1.0:
+            raise ValueError(
+                f"hybrid_ratio must be in [0, 1]; got {self.hybrid_ratio}"
+            )
+        self._check_counts('n_restarts', 'max_iter', 'perturbation_size')
+        if self.T_start is not None and not self.T_start > 0:
+            raise ValueError(f"T_start must be > 0; got {self.T_start}")
+        for p_name in ('cooling', 'T_end_ratio', 'target_accept'):
+            val = getattr(self, p_name)
+            if val is not None and not 0.0 < val < 1.0:
+                raise ValueError(f"{p_name} must be in (0, 1); got {val}")
+
     def optimize(
         self,
         initial_design: np.ndarray,
@@ -158,24 +179,7 @@ class SAOptimizer(BaseOptimizer):
         eff_seed = int(seed) + int(self.seed_offset)
 
         # ── Validate hyperparameters at run time (sklearn pattern) ──
-        if not 0.0 <= self.hybrid_ratio <= 1.0:
-            raise ValueError(
-                f"hybrid_ratio must be in [0, 1]; got {self.hybrid_ratio}"
-            )
-        if self.n_restarts < 1:
-            raise ValueError(
-                f"n_restarts must be ≥ 1; got {self.n_restarts}"
-            )
-        for p_name in ('max_iter', 'perturbation_size'):
-            val = getattr(self, p_name)
-            if val is not None and val < 1:
-                raise ValueError(f"{p_name} must be ≥ 1; got {val}")
-        if self.T_start is not None and not self.T_start > 0:
-            raise ValueError(f"T_start must be > 0; got {self.T_start}")
-        for p_name in ('cooling', 'T_end_ratio', 'target_accept'):
-            val = getattr(self, p_name)
-            if val is not None and not 0.0 < val < 1.0:
-                raise ValueError(f"{p_name} must be in (0, 1); got {val}")
+        self.validate()
 
         # ── Set up grid + helpers ─────────────────────────────────
         gs            = space.grid_sampler()
@@ -195,6 +199,7 @@ class SAOptimizer(BaseOptimizer):
         banned_pts = banned_points(gs, banned, initial_design)
 
         # ── Multi-restart loop ─────────────────────────────────────
+        self._early_rates: List[float] = []
         best_design:    np.ndarray = initial_design.copy()
         best_reserved:  set        = reserved.copy()
         best_score:     float      = float('inf')
@@ -256,6 +261,8 @@ class SAOptimizer(BaseOptimizer):
                 'acceptance_rate'  : (total_accepted / total_iter
                                       if total_iter else 0.0),
                 'best_log_score'   : float(np.log(max(best_score, _EPS))),
+                'early_acceptance' : (float(np.mean(self._early_rates))
+                                      if self._early_rates else 0.0),
             },
         )
 
@@ -308,15 +315,15 @@ class SAOptimizer(BaseOptimizer):
         # ── Auto-tune temperature if not user-supplied ──────────────
         if verbose:
             self._info("Tuning temperature...")
-        T_start, max_iter = self._auto_temp(
-            design, gs, gmins, granges, crit_start, criterion, space,
-            seed, r_idx,
-        )
-
         if self.T_start is not None:
-            T_start  = float(self.T_start)
-        if self.max_iter is not None:
-            max_iter = int(self.max_iter)
+            T_start = float(self.T_start)
+        else:
+            T_start = self._auto_temp(
+                design, X_norm, reserved, n_frozen, crit_start, raw_score,
+                gs, gmins, granges, criterion, space, seed, r_idx,
+                banned_pts)
+        max_iter = (int(self.max_iter) if self.max_iter is not None
+                    else max(2000, 100 * n))
 
         if self.cooling is not None:
             cooling = float(self.cooling)
@@ -338,6 +345,8 @@ class SAOptimizer(BaseOptimizer):
 
         log_interval = max(max_iter // 10, 500)
         n_accepted   = 0
+        n_early      = max(1, max_iter // 20)
+        early_acc    = 0
         constraints  = space._constraints
         names        = space.names
 
@@ -361,6 +370,8 @@ class SAOptimizer(BaseOptimizer):
 
             if accepted:
                 n_accepted += 1
+                if it < n_early:
+                    early_acc += 1
                 if raw_score < best_score and raw_score > _CRIT_EPS:
                     # Incremental score updates accumulate floating-point
                     # error over thousands of steps (severe for phi_p's
@@ -396,6 +407,7 @@ class SAOptimizer(BaseOptimizer):
                 f"rate={n_accepted/max_iter:.1%})"
             )
 
+        self._early_rates.append(early_acc / n_early)
         # The grid nodes of the best design, not of the last one: the
         # next restart perturbs the best design.
         return best_design, best_reserved, best_score, max_iter, n_accepted
@@ -533,7 +545,7 @@ class SAOptimizer(BaseOptimizer):
         T,           rng,
     ) -> Tuple[bool, float, np.ndarray, set]:
         """
-        Attempt a Morris–Mitchell random replacement of a single row.
+        Attempt a random replacement of a single row.
 
         Returns
         -------
@@ -584,101 +596,67 @@ class SAOptimizer(BaseOptimizer):
     # Private: Ben-Ameur (2004) automatic T_start                       #
     # ────────────────────────────────────────────────────────────────
     def _auto_temp(
-        self,
-        design,
-        gs,
-        gmins, granges,
-        crit_start,
-        criterion,
-        space,
-        seed,
-        r_idx,
+        self, design, X_norm, reserved, n_frozen, crit_start, raw_score,
+        gs, gmins, granges, criterion, space, seed, r_idx, banned_pts,
         n_probe: int = 200,
-    ) -> Tuple[float, int]:
+    ) -> float:
         """
         Ben-Ameur (2004) automatic initial temperature.
 
-        Estimates ``T_start`` such that the probability of accepting a
-        positive-cost transition equals ``target_accept`` on average.
-        See reference list in module docstring.
-
-        Returns
-        -------
-        T_start  : float
-        max_iter : int  (auto rule: ``max(2000, 100 × n)``)
+        Proposes ``n_probe`` moves of the chain from its actual start:
+        the restart's start design with its frozen rows, the same mix
+        of column swaps and random replacements (``hybrid_ratio``), and
+        the same rules for reserved and banned nodes and constraints.
+        The moves are scored, not applied. ``T_start`` is the
+        temperature at which the mean acceptance probability of the
+        uphill moves, ``mean(exp(-delta / T))`` with ``delta`` the change
+        of log(score), equals ``target_accept`` (bisection on log T).
+        The probe uses its own random generator, so the chain's moves
+        do not depend on it.
         """
-        n       = len(design)
-        n_crit  = n - crit_start
-        rng     = np.random.default_rng(seed + r_idx + 1000)
-
-        # Use a random design for the probe (Damblin–Couplet–Iooss 2013):
-        # a near-optimal design produces too-small Δ's and underestimates T.
-        probe_pts = []
-        probe_res: set = set()
-        while len(probe_pts) < min(n_crit, gs.n_candidates):
-            pt, idx = gs.random_point_excluding(probe_res, rng=rng)
-            if pt is None:
-                break
-            probe_pts.append(pt)
-            probe_res.add(idx)
-        if not probe_pts:
-            return 1.0, max(2000, 100 * n)
-
-        probe_arr   = np.array(probe_pts)
-        probe_norm  = (probe_arr - gmins) / granges
-        probe_score = criterion.evaluate(probe_norm, space)
-
-        # Collect uphill moves in the units of the acceptance rule: the
-        # Metropolis test uses the change of log(score), so the
-        # temperature must be calibrated on that same quantity.
-        constraints = space._constraints
-        names       = space.names
+        n   = len(design)
+        rng = np.random.default_rng(seed + r_idx + 1000)
+        constraints, names = space._constraints, space.names
+        n_swap = n - n_frozen
         uphill, all_deltas = [], []
         for _ in range(n_probe):
-            i_rel   = int(rng.integers(0, n_crit))
-            new_idx = int(rng.integers(0, gs.n_candidates))
-            if new_idx in probe_res:
+            D, Xn, res = design.copy(), X_norm.copy(), set(reserved)
+            if n_swap >= 2 and rng.random() < self.hybrid_ratio:
+                ok, sc, _ = self._try_swap(
+                    D, Xn, n_frozen, crit_start, raw_score, space,
+                    criterion, constraints, names, np.inf, rng,
+                    banned_pts, res, gs)
+            else:
+                ok, sc, _, _ = self._try_replace(
+                    D, Xn, res, n_frozen, crit_start, raw_score, space, gs,
+                    criterion, gmins, granges, constraints, names, np.inf,
+                    rng)
+            if not ok:
                 continue
-            new_raw = gs.index_to_point(new_idx)
-            if constraints and not all(
-                    c(dict(zip(names, new_raw))) for c in constraints):
-                continue
-            new_pt  = (new_raw - gmins) / granges
-            ld, _ = criterion.incremental(
-                probe_norm, i_rel, new_pt, space, probe_score)
+            ld = np.log(max(sc, _EPS)) - np.log(max(raw_score, _EPS))
             if not np.isfinite(ld):
                 continue
             all_deltas.append(abs(ld))
             if ld > 0:
                 uphill.append(ld)
-
         target = float(self.target_accept)
         if not uphill:
             # No uphill move found: fall back on the mean |change|.
-            T_start = (np.mean(all_deltas) / -np.log(target)
-                       if all_deltas else 1.0)
-            T_start = float(max(T_start, 1e-12))
-        else:
-            # Ben-Ameur (2004): choose T so that the mean acceptance
-            # probability of the sampled uphill moves equals the target,
-            # chi(T) = mean(exp(-delta / T)). chi increases with T, so
-            # bisection on log T finds the root.
-            d  = np.asarray(uphill, dtype=float)
-            lo = np.log(max(float(d.min()), 1e-300)) - np.log(1e6)
-            hi = np.log(float(d.max())) + np.log(1e6)
-            for _ in range(200):
-                mid = 0.5 * (lo + hi)
-                chi = float(np.mean(np.exp(-d / np.exp(mid))))
-                if chi < target:
-                    lo = mid
-                else:
-                    hi = mid
-                if hi - lo < 1e-9:
-                    break
-            T_start = float(np.exp(0.5 * (lo + hi)))
-
-        max_iter = max(2000, 100 * n)
-        return float(T_start), int(max_iter)
+            T = (np.mean(all_deltas) / -np.log(target)) if all_deltas else 1.0
+            return float(max(T, 1e-12))
+        # chi(T) = mean(exp(-delta / T)) increases with T.
+        d  = np.asarray(uphill, dtype=float)
+        lo = np.log(max(float(d.min()), 1e-300)) - np.log(1e6)
+        hi = np.log(float(d.max())) + np.log(1e6)
+        for _ in range(200):
+            mid = 0.5 * (lo + hi)
+            if float(np.mean(np.exp(-d / np.exp(mid)))) < target:
+                lo = mid
+            else:
+                hi = mid
+            if hi - lo < 1e-9:
+                break
+        return float(np.exp(0.5 * (lo + hi)))
 
     # ────────────────────────────────────────────────────────────────
     # Private: ILS-style perturbation between restarts                  #
@@ -744,4 +722,4 @@ class SAOptimizer(BaseOptimizer):
     @staticmethod
     def _info(msg: str) -> None:
         # ANSI green tag to match the Sampler's log style
-        print(f"  \033[1;32m[SA]\033[0m       {msg}", flush=True)
+        print(f"  {_term.GREEN_B}[SA]{_term.RESET}       {msg}", flush=True)

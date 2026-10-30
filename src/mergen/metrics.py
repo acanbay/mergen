@@ -52,13 +52,19 @@ from typing import Dict, List, Optional, Sequence, Union
 import numpy as np
 import pandas as pd
 
+from ._term import GREEN as _GREEN, YELLOW as _YELLOW, RED as _RED, \
+    RESET as _RESET, colour_on as _colour_on
+
 _EPS = 1e-10
 
-# ── Terminal colours ──────────────────────────────────────────────────────
-_GREEN  = "\033[0;32m"
-_YELLOW = "\033[1;33m"
-_RED    = "\033[0;31m"
-_RESET  = "\033[0m"
+
+def _paint(text: str, colour: str) -> str:
+    """*text* in *colour* on a terminal or in a Jupyter notebook (which
+    renders the codes); plain when the output goes to a file or is
+    captured."""
+    if _colour_on():
+        return f"{colour}{text}{_RESET}"
+    return text
 
 # ── Metric names ──────────────────────────────────────────────────────────
 _DEFAULT_METRICS = [
@@ -104,23 +110,25 @@ def metric_latex(name: str) -> str:
 # Higher is better for these
 _HIGHER_BETTER = {'min_distance', 'mean_distance'}
 
-# What each criterion primarily optimises — maps to metric keys
-# References:
-#   phi_p      : Morris & Mitchell (1995), Johnson et al. (1990)
-#   MaxPro     : Joseph, Gul & Ba (2015), Biometrika 102(2)
-#   uMaxPro    : Vorechovsky & Masek (2026), arxiv 2603.19778
-#   MaxProQQ   : Joseph, Gul & Ba (2020), J. Qual. Technol. 52(4)
-#   cd2        : Hickernell (1998)
-#   qqd        : Zhang, Yang & Zhou (2021); a discrepancy, like cd2
-#   stratified : Tian & Xu (2025), JRSS-B
+# Report metrics that follow directly from a criterion's definition;
+# the quality report marks them with '*'. Only phi_p has one: as p
+# grows, phi_p approaches the maximin criterion, i.e. the largest
+# minimum distance (Morris & Mitchell 1995; Johnson, Moore & Ylvisaker
+# 1990). The MaxPro family scores separation in every projection,
+# which no report metric measures; CD2, QQD and SL2 are discrepancies
+# whose own value is the criterion row, and minimising them does not
+# minimise any listed metric by definition.
 _CRIT_OPTIMISES = {
-    'umaxpro'    : {'projection_cd2', 'minimax', 'max_abs_correlation'},
-    'maxpro'     : {'projection_cd2', 'minimax', 'max_abs_correlation'},
-    'maxproqq'   : {'projection_cd2', 'minimax', 'max_abs_correlation'},
-    'phi_p'      : {'min_distance', 'mean_distance', 'cv_distances'},
-    'cd2'        : {'projection_cd2', 'cv_distances', 'minimax'},
-    'qqd'        : {'projection_cd2', 'cv_distances', 'minimax'},
-    'stratified' : {'projection_cd2', 'cv_distances'},
+    'umaxpro'    : set(),
+    'maxpro'     : set(),
+    'maxproqq'   : set(),
+    'phi_p'      : {'min_distance'},
+    'cd2'        : set(),
+    'qqd'        : set(),
+    'stratified' : set(),
+}
+_CRIT_TARGET_NOTE = {
+    'phi_p': 'as p grows it approaches maximin (Morris & Mitchell 1995)',
 }
 
 
@@ -329,20 +337,33 @@ def max_abs_correlation(X: np.ndarray, space=None) -> float:
     return float(np.abs(corr).max())
 
 
+def _ordered_active(X: np.ndarray, space) -> np.ndarray:
+    """X without its nominal columns and without the parameters that
+    have a single feasible level (they would rescale a product
+    kernel)."""
+    X = np.asarray(X, dtype=float)
+    if space is None:
+        return X
+    keep = space.active_mask.copy()
+    if space.has_nominal:
+        keep &= ~space.is_mask
+    return X[:, keep]
+
+
 def projection_cd2(X: np.ndarray, space=None) -> float:
     """
-    Mean centred L2 discrepancy across all 2D projections.
+    Uniform projection criterion: the mean squared centred L2
+    discrepancy over all 2D projections.
 
-    Evaluates uniformity in every pair of parameter dimensions.
-    Lower values indicate better 2D projection coverage. Sun, Wang &
-    Xu (2019) average the squared discrepancy, CD2²; this metric
-    averages CD2 itself, which ranks designs on the same projections
-    but is not the same number.
+    Evaluates uniformity in every pair of parameter dimensions, as the
+    average of CD2² over the pairs, the criterion φ of Sun, Wang & Xu
+    (2019). Lower values indicate better 2D projection coverage.
 
     Nominal columns are excluded from the projection sweep because
     the CD2 kernel of Hickernell (1998) is defined on ordered
     :math:`[0, 1]` axes; averaging it over pairs that involve a
-    nominal column would give a value with no interpretation.
+    nominal column would give a value with no interpretation. So are
+    parameters with a single feasible level.
 
     References
     ----------
@@ -351,16 +372,13 @@ def projection_cd2(X: np.ndarray, space=None) -> float:
     Hickernell, F. J. (1998). *Mathematics of Computation*, 67(221),
         299-322.
     """
-    X = np.asarray(X, dtype=float)
-    if space is not None and space.has_nominal:
-        keep = ~space.is_mask
-        X = X[:, keep]
+    X = _ordered_active(X, space)
     d = X.shape[1]
     if d < 2:
         return 0.0
     from .criteria import CD2 as _CD2
     _cd2 = _CD2()
-    vals = [_cd2.evaluate(X[:, [i, j]], space=None)
+    vals = [_cd2.evaluate(X[:, [i, j]], space=None) ** 2
             for i, j in combinations(range(d), 2)]
     return float(np.mean(vals))
 
@@ -380,9 +398,7 @@ def cd2(X: np.ndarray, space=None) -> float:
     Hickernell, F. J. (1998). *Mathematics of Computation*, 67(221),
         299-322.
     """
-    X = np.asarray(X, dtype=float)
-    if space is not None and space.has_nominal:
-        X = X[:, ~space.is_mask]
+    X = _ordered_active(X, space)
     if X.shape[1] == 0:
         return float('nan')
     from .criteria import CD2 as _CD2
@@ -611,7 +627,7 @@ def quality_report(
     gs      = space.grid_sampler()
 
     # Normalise design (all point types included)
-    pts    = result.samples[names].values.astype(float)
+    pts    = space.encode_frame(result.samples[names]).to_numpy(dtype=float)
     n, d   = pts.shape
     X_norm = (pts - gmins) / granges
 
@@ -677,10 +693,16 @@ def quality_report(
         fixed = fixed[[bool(np.any(np.all(np.abs(pts - f) <= tol, axis=1)))
                        for f in fixed]]
     n_fixed = len(fixed)
+    if (isinstance(mc_samples, (bool, np.bool_))
+            or not isinstance(mc_samples, (int, np.integer, float, np.floating))
+            or not float(mc_samples).is_integer() or mc_samples < 0):
+        raise ValueError(f"mc_samples must be an integer >= 0; "
+                         f"got {mc_samples!r}.")
+    mc_samples = int(mc_samples)
     mc_vals: Dict[str, np.ndarray] = {}
     if mc_samples > 0:
         if verbose:
-            print(f"  {_YELLOW}[METRICS]{_RESET}  "
+            print(f"  {_paint('[METRICS]', _YELLOW)}  "
                   f"Computing MC baseline ({mc_samples} designs)...")
         # Same baseline seed as compare() for the run's seed.
         seed = result._meta.get('seed')
@@ -694,7 +716,7 @@ def quality_report(
             fixed=fixed,
         )
         if verbose:
-            print(f"  {_GREEN}[METRICS]{_RESET}  "
+            print(f"  {_paint('[METRICS]', _GREEN)}  "
                   f"MC baseline complete ({mc_samples} designs).")
 
     # ── Print table ───────────────────────────────────────────────────
@@ -760,12 +782,13 @@ def _pct_ordinal(p) -> str:
     return _ordinal(min(max(int(round(float(p))), 1), 99))
 
 
-def _fmt_pct(p) -> str:
+def _fmt_pct(p, width: int = 0) -> str:
+    """A coloured percentile, right-aligned to *width* before the
+    colour codes are added, so they do not shift the column."""
     if p is None or (isinstance(p, float) and np.isnan(p)):
-        return '      n/a'
+        return f"{'n/a':>{width}}" if width else '      n/a'
     colour = _GREEN if p >= 75 else (_YELLOW if p >= 50 else _RED)
-    text = f'{_pct_ordinal(p)} pct'
-    return f'{colour}{text}{_RESET}'
+    return _paint(f"{_pct_ordinal(p) + ' pct':>{width}}", colour)
 
 
 def _print_table(
@@ -804,7 +827,7 @@ def _print_table(
             colour  = _GREEN if (pct or 0) >= 75 else (_YELLOW if (pct or 0) >= 50 else _RED)
             print(f"  {label:<22} {_fmt_val(val):>10}  "
                   f"{_fmt_val(med):>10}  {direc:<12}  "
-                  f"{colour}{pct_str:>9}{_RESET}  {mark}")
+                  f"{_paint(f'{pct_str:>9}', colour)}  {mark}")
         else:
             print(f"  {label:<22} {_fmt_val(val):>10}  {direc:<12}  {mark}")
 
@@ -814,23 +837,25 @@ def _print_table(
         print(f"  {'Criterion scores':<26}")
         print(sep)
         for c in crit_names:
-            label  = c.upper() if c == run_crit else f'{c.upper()} *'
+            label  = c.upper() if c == run_crit else f'{c.upper()} +'
             val    = design_criteria.get(c, np.nan)
             if has_mc and c in mc_vals:
                 med = float(np.nanmedian(mc_vals[c]))
                 pct = _percentile_rank(val, mc_vals[c], higher_better=False)
                 print(f"  {label:<26} {_fmt_val(val):>10}  "
-                      f"{_fmt_val(med):>10}  {_fmt_pct(pct):>10}  lower")
+                      f"{_fmt_val(med):>10}  {_fmt_pct(pct, 10)}  lower")
             else:
                 print(f"  {label:<26} {_fmt_val(val):>10}  lower")
 
         if any(c != run_crit for c in crit_names):
-            print("  * evaluated post-hoc (not used for optimisation)")
+            print("  + evaluated after the run (not used for optimisation)")
 
     # Criterion note
-    if run_crit and run_crit in _CRIT_OPTIMISES:
+    if run_crit:
         print(sep)
-        print(f"  * = primarily optimised by '{run_crit}'")
+        if opt_metrics:
+            print(f"  * = targeted by '{run_crit}': "
+                  f"{_CRIT_TARGET_NOTE[run_crit]}")
         print("  For other priorities, see: mergen.criteria.list_criteria()")
 
     if has_mc:
@@ -851,7 +876,8 @@ def _print_table(
 
 def comparison(result) -> pd.DataFrame:
     """
-    Compare design quality metrics across all criteria in result.designs.
+    The standard quality metrics of each design in result.designs (one
+    row, under the run's criterion; Sampler.compare compares criteria).
 
     Each row is a criterion, each column is a metric.
     Only the standard metrics are included (no MC).
@@ -871,7 +897,7 @@ def comparison(result) -> pd.DataFrame:
 
     rows = {}
     for crit_name, df in result.designs.items():
-        pts    = df[names].values.astype(float)
+        pts    = space.encode_frame(df[names]).to_numpy(dtype=float)
         X_norm = (pts - gmins) / granges
         row    = {}
         for m in _DEFAULT_METRICS:

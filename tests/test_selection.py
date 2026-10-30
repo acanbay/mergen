@@ -187,7 +187,9 @@ class TestCompareSelection:
         starred = cmp.table[cmp.table.best.str.strip() == '*']
         assert len(starred) == 1
         assert tuple(starred.iloc[0][['criterion', 'algorithm']]) == cmp.best
-        bc, ba = cmp.best
+        # A polished winner is delivered under the algorithm it started
+        # from.
+        ba = cmp.best[1].removesuffix('+polish')
         np.testing.assert_array_equal(
             cmp.best_result.algorithm_results[ba].design,
             cmp.results[cmp.best].design)
@@ -226,7 +228,7 @@ class TestCompareSelection:
     def test_argument_handling(self, sampler):
         cmp = sampler.compare(criteria=['cd2'], algorithms=['SA'],
                               priority='min_distance', n_repeats=1,
-                              mc_samples=0, verbose=False)
+                              mc_samples=0, verbose=False, polish=False)
         assert cmp.best == ('cd2', 'sa') and cmp.priority == ('min_distance',)
         bad = [dict(priority=()),
                dict(priority=('min_distance', 'min_distance')),
@@ -243,14 +245,15 @@ class TestCompareSelection:
 
     def test_aliases_run_once(self, sampler, capsys):
         cmp = sampler.compare(criteria=['phi_p', 'phip'], n_repeats=1,
-                              mc_samples=0, verbose=False)
+                              mc_samples=0, verbose=False, polish=False)
         assert list(cmp.metrics.criterion) == ['phi_p']
         assert 'more than once' in capsys.readouterr().out
 
     def test_tolerance_changes_the_winner(self, sampler):
         prio = ('min_distance', 'max_abs_correlation')
         crit = ['cd2', 'phi_p', 'maxpro']
-        exact = sampler.compare(criteria=crit, priority=prio, **_KW)
+        exact = sampler.compare(criteria=crit, priority=prio,
+                                polish=False, **_KW)
         # A tolerance wider than any spread ties the first metric, so
         # the second one alone decides.
         loose = exact.reselect(tol={'min_distance': 10.0}, verbose=False)
@@ -267,15 +270,16 @@ class TestCompareSelection:
 
 
 class TestRunRepeatSelection:
-    def test_lexicographic_repeat(self, sampler):
+    @pytest.mark.parametrize('rule', ['lexicographic', 'pareto'])
+    def test_repeat_follows_the_selection_rule(self, sampler, rule):
         prio = ('min_distance', 'max_abs_correlation')
         r = sampler.run(criteria='cd2', seed=3, n_repeats=4,
-                        priority=prio, verbose=False)
+                        priority=prio, selection=rule, verbose=False)
         from mergen.sampler import _priority_values
         reps = r._repeats_by_alg['sa']
         vals = np.array([_priority_values(x.design, prio, sampler.space)
                          for x in reps])
-        w = select(vals, [True, False],
+        w = select(vals, [True, False], rule=rule,
                    tiebreak=[x.score for x in reps]).winner
         np.testing.assert_array_equal(r.algorithm_results['sa'].design,
                                       reps[w].design)
@@ -434,3 +438,21 @@ def test_run_algorithm_tie_does_not_depend_on_list_order():
         best.add(s.run(criteria='cd2', algorithm=algs, seed=1, n_repeats=1,
                        verbose=False).best_algorithm)
     assert best == {'sa'}
+
+
+def test_reselect_best_result_is_the_table_design():
+    # 'auto' under the new priority could stop after fewer repeats than
+    # the table was built from; best_result must still be its design.
+    space = mergen.ParameterSpace({'x': list(range(7)), 'y': list(range(7))})
+    s = mergen.Sampler(space)
+    s.set_design(n_samples=6, n_validation=0)
+    c = s.compare(criteria=['phi_p', 'cd2'], algorithms=['sa', 'sce'],
+                  mc_samples=0, verbose=False)
+    for prio in [('cd2',), ('projection_cd2', 'minimax')]:
+        r = c.reselect(priority=prio, verbose=False)
+        alg = r.best[1]
+        assert np.array_equal(
+            np.asarray(r.best_result.algorithm_results[alg].design),
+            np.asarray(r.results[r.best].design))
+        assert (r.best_result._repeat_info[alg]['n_repeats']
+                == len(r._context['repeats'][r.best]))

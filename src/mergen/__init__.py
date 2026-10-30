@@ -32,12 +32,12 @@ Vorechovsky & Masek (2026), Computers & Structures.       [uMaxPro]
 Joseph, Gul & Ba (2015), Biometrika 102(2).               [MaxPro]
 Morris & Mitchell (1995), J. Statist. Plan. Infer. 43.    [phi_p]
 Hickernell (1998), Math. Comp. 67.                        [CD2]
-Tian & Xu (2025), JRSS-B 88(2).                           [Stratified L2]
+Tian & Xu (2026), JRSS-B 88(2).                           [Stratified L2]
 Kennard & Stone (1969), Technometrics 11(1).              [Validation set]
 """
 
 # ── Version (single source of truth — pyproject.toml reads from here) ────
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 # ── Package identity ──────────────────────────────────────────────────────
 __fullname__    = "Multi-dimensional Experimental Run GENerator"

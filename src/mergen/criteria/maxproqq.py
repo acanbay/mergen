@@ -14,7 +14,7 @@ factor types:
   contribution :math:`(|u_{ik}-u_{jk}| + 1/m_k)^{2}` where the
   :math:`1/m_k` term prevents the denominator from vanishing when two
   points fall on the same level.
-- **ordinal**: scored to a numeric grid (Joseph 2019 §3) and treated
+- **ordinal**: scored to a numeric grid (Joseph, Gul & Ba 2020, §3) and treated
   as discrete numeric with :math:`m_k = L_k` levels.
 - **nominal**: contribution
   :math:`(\\mathbb{1}(v_{ih}\\neq v_{jh}) + 1/L_h)^{2}` where
@@ -43,7 +43,7 @@ matches the dimensional homogeneity of MaxPro.
 
 References
 ----------
-Joseph, V. R., Gul, E. & Ba, S. (2019). Designing computer
+Joseph, V. R., Gul, E. & Ba, S. (2020). Designing computer
     experiments with multiple types of factors: The MaxPro approach.
     *Journal of Quality Technology*, 52(4), 343-354.
 Joseph, V. R., Gul, E. & Ba, S. (2015). Maximum projection designs
@@ -55,7 +55,7 @@ from typing import TYPE_CHECKING, List, Tuple
 
 import numpy as np
 
-from .base import BaseCriterion, _EPS
+from .base import BaseCriterion, _EPS, _PeakTracking
 
 if TYPE_CHECKING:
     from ..space import ParameterSpace
@@ -75,7 +75,7 @@ if TYPE_CHECKING:
 #
 # The Sampler hands us a ParameterSpace whose parameter types are one
 # of  {'continuous', 'discrete', 'integer', 'ordinal', 'nominal'}.
-# Following Joseph, Gul & Ba (2019) §3 we score ordinal factors as
+# Following Joseph, Gul & Ba (2020) §3 we score ordinal factors as
 # discrete numeric ones and merge all non-continuous non-nominal
 # columns into the single 'quantitative_discrete' bucket.
 
@@ -143,10 +143,10 @@ def _column_contribution(
 # ─────────────────────────────────────────────────────────────────────
 # MaxProQQ
 # ─────────────────────────────────────────────────────────────────────
-class MaxProQQ(BaseCriterion):
+class MaxProQQ(_PeakTracking, BaseCriterion):
     """
     Maximum Projection criterion for quantitative and qualitative
-    factors (Joseph, Gul & Ba 2019).
+    factors (Joseph, Gul & Ba 2020).
 
     Extends :class:`~mergen.criteria.MaxPro` to spaces that mix
     continuous, discrete-numeric / integer / ordinal, and nominal
@@ -160,7 +160,7 @@ class MaxProQQ(BaseCriterion):
         division by zero when two rows share the same value on a
         continuous column (which does not happen for a valid LHD but
         can arise in constrained or coarse-grid searches). Joseph et
-        al. (2019) do not use a floor; the default of ``0.0``
+        al. (2020) do not use a floor; the default of ``0.0``
         reproduces the paper exactly. Set to a small positive value
         (e.g. ``1e-12``) for extra numerical safety.
 
@@ -197,10 +197,22 @@ class MaxProQQ(BaseCriterion):
     def _column_info(
         self,
         space: "ParameterSpace",
+        n:     int,
     ) -> Tuple[List[str], List[int]]:
-        """Return per-column ``(kind, level_count)`` lists."""
-        kinds  = [_column_kind(space.param_types[n]) for n in space.names]
-        sizes  = list(space.n_levels)
+        """
+        Return per-column ``(kind, level_count)`` lists for a design of
+        *n* rows. A continuous column with fewer than *n* feasible
+        levels is scored as discrete numeric: Joseph, Gul & Ba (2020)
+        give it no 1/m term only because a continuous factor is assumed
+        to have n distinct levels, which a coarse grid cannot.
+        """
+        kinds  = [_column_kind(space.param_types[p]) for p in space.names]
+        # Level counts of the feasible pool: a constraint can leave a
+        # factor fewer levels than its grid has.
+        sizes  = [int(m) for m in space.feasible_levels]
+        for k, kind in enumerate(kinds):
+            if kind == 'continuous' and sizes[k] < n:
+                kinds[k] = 'quantitative_discrete'
         return kinds, sizes
 
     # ── evaluate ───────────────────────────────────────────────────
@@ -219,7 +231,7 @@ class MaxProQQ(BaseCriterion):
                 \\frac{1}{\\prod_{k} c_k(x_{ik}, x_{jk}) + \\delta},
 
         where the per-column term :math:`c_k` follows Joseph, Gul &
-        Ba (2019) Eq. 9. The Mergen optimisers rank designs by
+        Ba (2020) Eq. 9. The Mergen optimisers rank designs by
         ``log(score)``, so the monotone :math:`1/d` power is
         redundant and would only shrink dynamic range for the SA/SCE
         acceptance rules. Users who want the paper's :math:`\\psi(D)`
@@ -241,7 +253,7 @@ class MaxProQQ(BaseCriterion):
         if n < 2:
             return _EPS
 
-        kinds, sizes = self._column_info(space)
+        kinds, sizes = self._column_info(space, n)
 
         # Pairwise differences: (n, n, d)
         diff = X[:, None, :] - X[None, :, :]
@@ -263,7 +275,9 @@ class MaxProQQ(BaseCriterion):
         # even when two rows collide on every column. The optional
         # delta adds an extra safety cushion.
         denom = pair_prod + self.delta
-        return float(np.sum(1.0 / denom))
+        score = float(np.sum(1.0 / denom))
+        self._exact(score)
+        return score
 
     # ── incremental (single-point swap) ────────────────────────────
     def incremental(
@@ -301,7 +315,7 @@ class MaxProQQ(BaseCriterion):
         n, d = X.shape
         if n < 2:
             return 0.0, current_score
-        kinds, sizes = self._column_info(space)
+        kinds, sizes = self._column_info(space, n)
 
         # Pair contributions involving row i (old and prospective).
         others_mask       = np.arange(n) != i
@@ -329,9 +343,18 @@ class MaxProQQ(BaseCriterion):
         old_contrib = float(np.sum(1.0 / old_denom))
         new_contrib = float(np.sum(1.0 / new_denom))
 
+        # Moving a near-duplicate apart leaves a score far below the
+        # old one; it is then recomputed (see _RECOMPUTE_BELOW).
         new_score = current_score - old_contrib + new_contrib
+        exact = None
+        if self._too_far_below(current_score, new_score, current_score):
+            X_new = np.array(X, dtype=float)
+            X_new[i] = new_pt
+            new_score = exact = self._trial_total(
+                lambda: self.evaluate(X_new, space))
         if new_score <= 0.0:
             new_score = _EPS
+        self._settle(new_score, exact)
 
         log_delta = float(np.log(new_score) - np.log(max(current_score, _EPS)))
         return log_delta, new_score

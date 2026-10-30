@@ -89,8 +89,10 @@ SCENARIOS = {
 def _snapshot(result):
     def frame(df):
         cols = [c for c in df.columns if c not in ('point_type', 'color')]
+        # Nominal columns hold labels; the snapshot keeps level indices.
+        num = result.space.encode_frame(df[cols])
         return {
-            'values': np.asarray(df[cols], dtype=float).tolist(),
+            'values': np.asarray(num, dtype=float).tolist(),
             'labels': (df['point_type'].tolist()
                        if 'point_type' in df.columns else []),
         }
@@ -120,7 +122,7 @@ def test_run_matches_golden(name, capsys):
     if not path.exists():
         pytest.fail(f"missing snapshot {path.name}; "
                     f"run with MERGEN_UPDATE_GOLDEN=1")
-    ref = json.loads(path.read_text())
+    ref = json.loads(path.read_text(encoding='utf-8'))
 
     for part in ('samples', 'validation'):
         assert snap[part]['labels'] == ref[part]['labels'], part

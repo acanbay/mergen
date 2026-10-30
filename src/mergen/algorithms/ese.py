@@ -56,6 +56,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from .. import _term
+
 from .base import BaseOptimizer, OptimisationResult, banned_points, hits
 
 if TYPE_CHECKING:
@@ -151,6 +153,26 @@ class ESEOptimizer(BaseOptimizer):
         }
 
     # ────────────────────────────────────────────────────────────────
+    def validate(self) -> None:
+        """Raise ValueError for an out-of-range hyperparameter."""
+        self._check_counts('M', 'J', 'Q', 'n_restarts')
+        if self.T_start is not None and not self.T_start > 0:
+            raise ValueError(f"T_start must be > 0; got {self.T_start}")
+        if not 0.0 < self.accept_low < self.accept_high < 1.0:
+            raise ValueError(
+                f"accept_low and accept_high must satisfy 0 < accept_low "
+                f"< accept_high < 1; got {self.accept_low}, "
+                f"{self.accept_high}")
+        if not 0.0 < self.alpha_cool < 1.0:
+            raise ValueError(f"alpha_cool must be in (0, 1); "
+                             f"got {self.alpha_cool}")
+        if not 0.0 < self.alpha_warm < 1.0:
+            raise ValueError(f"alpha_warm must be in (0, 1); "
+                             f"got {self.alpha_warm}")
+        if not 0.0 < self.alpha_explore < 1.0:
+            raise ValueError(f"alpha_explore must be in (0, 1); "
+                             f"got {self.alpha_explore}")
+
     def optimize(
         self,
         initial_design: np.ndarray,
@@ -171,19 +193,7 @@ class ESEOptimizer(BaseOptimizer):
         eff_seed = int(seed) + int(self.seed_offset)
 
         # ── Validate ──
-        for p_name in ['M', 'J', 'Q', 'n_restarts']:
-            if getattr(self, p_name) is not None and getattr(self, p_name) < 1:
-                raise ValueError(f"{p_name} must be ≥ 1; "
-                                 f"got {getattr(self, p_name)}")
-        if not 0.0 < self.alpha_cool < 1.0:
-            raise ValueError(f"alpha_cool must be in (0, 1); "
-                             f"got {self.alpha_cool}")
-        if not 0.0 < self.alpha_warm < 1.0:
-            raise ValueError(f"alpha_warm must be in (0, 1); "
-                             f"got {self.alpha_warm}")
-        if not 0.0 < self.alpha_explore < 1.0:
-            raise ValueError(f"alpha_explore must be in (0, 1); "
-                             f"got {self.alpha_explore}")
+        self.validate()
 
         gs      = space.grid_sampler()
         gmins   = space.gmins
@@ -574,4 +584,4 @@ class ESEOptimizer(BaseOptimizer):
     @staticmethod
     def _info(msg: str) -> None:
         # ANSI green tag, matches the rest of Mergen's log style
-        print(f"  \033[1;32m[ESE]\033[0m      {msg}", flush=True)
+        print(f"  {_term.GREEN_B}[ESE]{_term.RESET}      {msg}", flush=True)
