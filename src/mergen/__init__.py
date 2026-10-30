@@ -37,7 +37,7 @@ Kennard & Stone (1969), Technometrics 11(1).              [Validation set]
 """
 
 # ── Version (single source of truth — pyproject.toml reads from here) ────
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 # ── Package identity ──────────────────────────────────────────────────────
 __fullname__    = "Multi-dimensional Experimental Run GENerator"

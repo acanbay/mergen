@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-30
+
 ### Added
 
 - Documentation URL and Zenodo software DOI in the package metadata,
@@ -671,5 +673,6 @@ Initial release.
   API reference.
 - Continuous integration via GitHub Actions (Python 3.9-3.12).
 
-[unreleased]: https://github.com/acanbay/mergen/compare/v0.1.0...HEAD
+[unreleased]: https://github.com/acanbay/mergen/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/acanbay/mergen/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/acanbay/mergen/releases/tag/v0.1.0
