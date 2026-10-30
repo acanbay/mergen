@@ -250,7 +250,7 @@ class TestLabels:
             in r.samples[space.names].itertuples(index=False)]
         r.output_dir = str(tmp_path)
         r.to_json('d.json')
-        rows = json.loads((tmp_path / 'd.json').read_text())
+        rows = json.loads((tmp_path / 'd.json').read_text(encoding='utf-8'))
         assert {row['opt'] for row in rows} <= {'adam', 'sgd', 'rmsprop'}
         r.quality_report(mc_samples=10, verbose=False)
 
@@ -399,9 +399,10 @@ class TestLabelEdges:
         r.to_markdown('r.md')
         r.to_latex('r.tex')
         r.to_html('r.html')
-        assert r'rms\_prop, a\|b' in (tmp_path / 'r.md').read_text()
-        assert r'rms\_prop, a\textbar{}b' in (tmp_path / 'r.tex').read_text()
-        assert 'rms_prop, a|b' in (tmp_path / 'r.html').read_text()
+        assert r'rms\_prop, a\|b' in (tmp_path / 'r.md').read_text(encoding='utf-8')
+        tex = (tmp_path / 'r.tex').read_text(encoding='utf-8')
+        assert r'rms\_prop, a\textbar{}b' in tex
+        assert 'rms_prop, a|b' in (tmp_path / 'r.html').read_text(encoding='utf-8')
 
     def test_reports_escape_every_name(self, tmp_path):
         space = mergen.ParameterSpace({'lr_x': list(range(6)),
@@ -418,7 +419,7 @@ class TestLabelEdges:
         r.to_latex('r.tex')
         r.to_html('r.html')
         r.to_markdown('r.md')
-        tex, html, md = [(tmp_path / f).read_text()
+        tex, html, md = [(tmp_path / f).read_text(encoding='utf-8')
                          for f in ('r.tex', 'r.html', 'r.md')]
         for raw in ('old<design>#', 'my_set&', 'lr_x &', 'x&y', 'a|b'):
             assert raw not in tex

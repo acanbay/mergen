@@ -31,7 +31,7 @@ class TestPrecision:
     def test_json_keeps_every_digit(self, tiny_result, tmp_path):
         # 0.1.0 wrote 1.5e-12 as 0.0 (double_precision counts decimals).
         output.export_json(tiny_result)
-        rows = json.loads((tmp_path / 'design.json').read_text())
+        rows = json.loads((tmp_path / 'design.json').read_text(encoding='utf-8'))
         got = sorted(r['gap'] for r in rows)
         want = sorted(output._full_df(tiny_result)['gap'].tolist())
         assert got == want
@@ -137,20 +137,21 @@ def test_reports_cover_loaded_designs_and_escape_names(tmp_path):
     r.to_markdown('r.md')
     r.to_latex('r.tex')
     r.to_html('r.html')
-    md, tex = (tmp_path / 'r.md').read_text(), (tmp_path / 'r.tex').read_text()
+    md, tex = [(tmp_path / f).read_text(encoding='utf-8')
+               for f in ('r.md', 'r.tex')]
     assert '### pilot (3 points)' in md
     assert 'Restarts' not in md and '?' not in md.split('## Run Settings')[1][:300]
     assert r'learning\_rate' in tex and 'learning_rate &' not in tex
     assert 'ext & 1' in tex
-    assert 'pilot' in (tmp_path / 'r.html').read_text()
+    assert 'pilot' in (tmp_path / 'r.html').read_text(encoding='utf-8')
 
 
 def test_report_names_the_repeats_and_csv_names_its_index(tiny_result,
                                                            tmp_path):
     output.export_markdown(tiny_result)
-    assert '- **Repeats**: 1' in (tmp_path / 'report.md').read_text()
+    assert '- **Repeats**: 1' in (tmp_path / 'report.md').read_text(encoding='utf-8')
     output.export_csv(tiny_result)
-    assert (tmp_path / 'design.csv').read_text().startswith('id,')
+    assert (tmp_path / 'design.csv').read_text(encoding='utf-8').startswith('id,')
 
 
 def test_plot_reports_a_bad_request_clearly():
@@ -272,7 +273,7 @@ def test_markdown_table_rows_keep_their_columns(tmp_path):
     r = s.run(n_repeats=1, seed=1, verbose=False)
     r.output_dir = str(tmp_path)
     r.to_markdown('r.md')
-    text = (tmp_path / 'r.md').read_text()
+    text = (tmp_path / 'r.md').read_text(encoding='utf-8')
     table = text.split('### Optimised')[1].split('\n\n')[1].splitlines()
 
     def cells(line):
@@ -310,8 +311,8 @@ def test_html_tables_and_markdown_headings_escape_like_the_page(tmp_path):
     r.output_dir = str(tmp_path)
     r.to_html('r.html')
     r.to_markdown('r.md')
-    html = (tmp_path / 'r.html').read_text()
-    md = (tmp_path / 'r.md').read_text()
+    html = (tmp_path / 'r.html').read_text(encoding='utf-8')
+    md = (tmp_path / 'r.md').read_text(encoding='utf-8')
     assert r'<th>p\$\q\$</th>' in html and r'<td>lone \$</td>' in html
     assert '<td>&lt;b&gt;</td>' in html
     # In a heading the math keeps its plain '|'; in a table it is \|.

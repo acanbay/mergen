@@ -122,7 +122,7 @@ def test_run_matches_golden(name, capsys):
     if not path.exists():
         pytest.fail(f"missing snapshot {path.name}; "
                     f"run with MERGEN_UPDATE_GOLDEN=1")
-    ref = json.loads(path.read_text())
+    ref = json.loads(path.read_text(encoding='utf-8'))
 
     for part in ('samples', 'validation'):
         assert snap[part]['labels'] == ref[part]['labels'], part
